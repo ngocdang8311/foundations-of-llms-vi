@@ -56,7 +56,7 @@ npm run build      # production build
 `origin` is the Space, so `git push` deploys (the build takes a few minutes). Git has no credential helper for huggingface.co on David's machine. Pass the token from the `HF_TOKEN` environment variable for a single command, without saving it in `.git/config`:
 
 ```bash
-git -c credential.helper= -c credential.helper='!f() { echo username=dlouapre; echo "password=$HF_TOKEN"; }; f' push
+GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c credential.helper='!f() { echo username=dlouapre; echo "password=$HF_TOKEN"; }; f' push
 ```
 
 Commit and push only when David asks.
