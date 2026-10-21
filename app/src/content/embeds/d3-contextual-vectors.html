@@ -1,0 +1,170 @@
+<div class="d3-contextual-vectors"></div>
+<style>
+  .d3-contextual-vectors { font-size: 12px; color: var(--text-color); }
+  .d3-contextual-vectors svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; overflow: visible; }
+  .d3-contextual-vectors .frame { fill: none; stroke: var(--border-color); }
+  .d3-contextual-vectors .word line { stroke: var(--muted-color); stroke-width: 1.1; opacity: 0.6; }
+  .d3-contextual-vectors .word text { fill: var(--muted-color); font-size: 12px; }
+  .d3-contextual-vectors .bank line { stroke-width: 2.4; }
+  .d3-contextual-vectors .bank text { font-size: 12px; font-weight: 700; }
+  .d3-contextual-vectors .sentence { font-size: 13px; fill: var(--text-color); }
+  .d3-contextual-vectors .sentence tspan.key { font-weight: 700; }
+  .d3-contextual-vectors .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 10px; }
+  .d3-contextual-vectors .controls .control-label { font-size: 12px; font-weight: 700; }
+  .d3-contextual-vectors .controls button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-contextual-vectors .controls button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-contextual-vectors .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+<script>
+  (() => {
+    // Static against contextual vectors, as arrows from the origin: the angle between two arrows
+    // shows how similar the two vectors are. A static embedding (word2vec, GloVe) gives "bank" the
+    // same vector in both sentences, closer to its frequent meaning (money). A contextual embedding
+    // (ELMo) gives it one vector per sentence, close to the words of its meaning. Schematic: the
+    // directions are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-contextual-vectors'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-contextual-vectors'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let RIVER = '#4e79a7';
+      let MONEY = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { RIVER = cat[0]; MONEY = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', RIVER);
+      };
+      readColors();
+
+      // Directions in degrees, from the right (0) to the left (180)
+      const WORDS = [
+        { word: 'money', angle: 15 }, { word: 'loan', angle: 25 }, { word: 'account', angle: 5 },
+        { word: 'river', angle: 165 }, { word: 'shore', angle: 155 }, { word: 'water', angle: 175 },
+      ];
+      // Each contextual vector is close to the words of its meaning, just outside their group, so
+      // that its arrow does not cross their labels
+      const SENTENCES = [
+        { before: 'We had a picnic on the ', after: ' of the river.', meaning: 'river', contextual: 143 },
+        { before: 'I opened an account at the ', after: '.', meaning: 'money', contextual: 37 },
+      ];
+      const STATIC = 62;   // closer to the frequent meaning, as in exercise 6
+      const MODES = [
+        { key: 'static', button: 'One vector per word (GloVe)' },
+        { key: 'contextual', button: 'One vector per occurrence (ELMo)' },
+      ];
+      let mode = MODES[0];
+
+      const W = 640, H = 284;
+      const ox = W / 2, oy = 190, R = 170;
+      const uid = Math.random().toString(36).slice(2, 8);
+      const color = (s) => (s.meaning === 'river' ? RIVER : MONEY);
+
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-labelledby', `ctx-label-${uid}`);
+      controls.innerHTML = `<span class="control-label" id="ctx-label-${uid}">The vector of “bank”</span>`;
+      MODES.forEach((m) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = m.button;
+        b.addEventListener('click', () => { mode = m; render(); });
+        controls.appendChild(b);
+      });
+      container.appendChild(controls);
+
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Word vectors drawn as arrows. With a static embedding, bank has one vector, close to money, whatever its sentence. With a contextual embedding, bank has one vector in each sentence: close to river in a sentence about a river, and close to money in a sentence about an account.');
+      const defs = svg.append('defs');
+      const marker = (id, fillColor) => defs.append('marker').attr('id', id).attr('viewBox', '0 0 10 10').attr('refX', 8).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', fillColor);
+      const greyMarker = `ctx-grey-${uid}`;
+      marker(greyMarker, 'var(--muted-color)');
+      const markers = SENTENCES.map((s, k) => {
+        const id = `ctx-${k}-${uid}`;
+        return { id, path: marker(id, color(s)) };
+      });
+      const textMarker = `ctx-text-${uid}`;
+      marker(textMarker, 'var(--text-color)');
+
+      svg.append('rect').attr('class', 'frame').attr('x', 0.5).attr('y', 0.5).attr('width', W - 1).attr('height', H - 1).attr('rx', 8);
+      const end = (angle, r) => [ox + r * Math.cos((angle * Math.PI) / 180), oy - r * Math.sin((angle * Math.PI) / 180)];
+
+      // The other words, as thin grey arrows
+      WORDS.forEach((w) => {
+        const [x, y] = end(w.angle, R * 0.72);
+        const [tx, ty] = end(w.angle, R * 0.72 + 12);
+        const el = svg.append('g').attr('class', 'word');
+        el.append('line').attr('x1', ox).attr('y1', oy).attr('x2', x).attr('y2', y).attr('marker-end', `url(#${greyMarker})`);
+        el.append('text').attr('x', tx).attr('y', ty).attr('dy', '0.35em')
+          .attr('text-anchor', w.angle < 90 ? 'start' : 'end').text(w.word);
+      });
+      svg.append('circle').attr('cx', ox).attr('cy', oy).attr('r', 2.5).attr('fill', 'var(--muted-color)');
+
+      // The vectors of "bank": one per sentence (they overlap in the static mode)
+      const banks = SENTENCES.map((s, k) => {
+        const el = svg.append('g').attr('class', 'bank');
+        const line = el.append('line').attr('x1', ox).attr('y1', oy);
+        const label = el.append('text').attr('dy', '0.35em');
+        return { s, k, line, label };
+      });
+
+      // The two sentences, under the arrows
+      const sentences = SENTENCES.map((s, k) => {
+        const t = svg.append('text').attr('class', 'sentence').attr('x', W / 2).attr('y', oy + 40 + k * 24).attr('text-anchor', 'middle');
+        t.append('tspan').text(s.before);
+        const key = t.append('tspan').attr('class', 'key').text('bank');
+        t.append('tspan').text(s.after);
+        return { key };
+      });
+
+      function render() {
+        controls.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(MODES[k] === mode)));
+        const contextual = mode.key === 'contextual';
+        markers.forEach((m, k) => m.path.attr('fill', color(SENTENCES[k])));
+        banks.forEach(({ s, k, line, label }) => {
+          const angle = contextual ? s.contextual : STATIC;
+          const [x, y] = end(angle, R);
+          const [tx, ty] = end(angle, R + 12);
+          const c = contextual ? color(s) : 'var(--text-color)';
+          line.transition().duration(500).attr('x2', x).attr('y2', y).attr('stroke', c)
+            .attr('marker-end', `url(#${contextual ? markers[k].id : textMarker})`);
+          label.attr('text-anchor', angle < 90 ? 'start' : 'end').attr('fill', c)
+            .text(contextual ? `bank (sentence ${k + 1})` : 'bank (both sentences)')
+            .style('opacity', contextual || k === 0 ? 1 : 0)
+            .transition().duration(500).attr('x', tx).attr('y', ty);
+        });
+        sentences.forEach(({ key }, k) => key.attr('fill', contextual ? color(SENTENCES[k]) : 'var(--text-color)'));
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

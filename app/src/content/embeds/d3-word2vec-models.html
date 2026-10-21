@@ -1,0 +1,274 @@
+<div class="d3-word2vec-models"></div>
+<style>
+  .d3-word2vec-models { font-size: 12px; color: var(--text-color); }
+  .d3-word2vec-models svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; overflow: visible; }
+  .d3-word2vec-models .token rect { stroke: var(--border-color); transition: opacity 0.25s ease, fill 0.25s ease, stroke 0.25s ease; }
+  .d3-word2vec-models .token text { fill: var(--text-color); font-size: 12px; transition: opacity 0.25s ease; }
+  .d3-word2vec-models .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; fill: var(--text-color); }
+  .d3-word2vec-models .box text.box-sub { font-weight: 400; letter-spacing: 0; }
+  .d3-word2vec-models .box.absent text { font-weight: 400; letter-spacing: 0; fill: var(--muted-color); }
+  .d3-word2vec-models .cell { stroke: var(--border-color); transition: opacity 0.25s ease; }
+  .d3-word2vec-models .arrow { stroke: var(--muted-color); fill: none; }
+  .d3-word2vec-models .link { stroke: var(--muted-color); fill: none; transition: opacity 0.25s ease; }
+  .d3-word2vec-models .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-word2vec-models .side-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-word2vec-models .out-label { fill: var(--text-color); font-size: 12px; }
+  .d3-word2vec-models .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 12px; }
+  .d3-word2vec-models .controls .control-label { font-size: 12px; font-weight: 700; }
+  .d3-word2vec-models .controls button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-word2vec-models .controls button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-word2vec-models .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+<script>
+  (() => {
+    // Three models that learn embeddings by predicting words, on the same sentence: Bengio's
+    // neural language model (section 4.2), and the two models of word2vec, CBOW and skip-gram.
+    // The embeddings and the probabilities are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-word2vec-models'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-word2vec-models'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      const WORDS = ['she', 'poured', 'hot', 'coffee', 'into', 'her', 'mug'];
+      const MIDDLE = 3;
+      const D = 4;
+      // One made-up embedding per word, between −1 and 1
+      const VECTORS = WORDS.map((w, i) => d3.range(D).map((d) => 0.85 * Math.sin(1.9 * (i + 1) * (d + 1) + 0.7 * d + w.length)));
+
+      const MODES = [
+        {
+          key: 'bengio', button: 'Bengio et al. (section 4.2)',
+          inputs: [0, 1, 2], targets: [3],
+          box: 'CONCATENATE', sub: 'the 3 previous words', size: 'a vector of size 3 × D', hidden: true,
+          task: 'the next word',
+          out: [['coffee', 0.34], ['tea', 0.22], ['water', 0.09]],
+        },
+        {
+          key: 'cbow', button: 'CBOW',
+          inputs: [1, 2, 4, 5], targets: [3],
+          box: 'AVERAGE', sub: 'the 2 words on each side', size: 'a vector of size D', hidden: false,
+          task: 'the middle word',
+          out: [['coffee', 0.41], ['tea', 0.25], ['water', 0.11]],
+        },
+        {
+          key: 'skipgram', button: 'Skip-gram',
+          inputs: [3], targets: [1, 2, 4, 5],
+          box: 'ONE WORD', sub: 'the middle word', size: 'a vector of size D', hidden: false,
+          task: 'each word around it, one at a time',
+          out: [['hot', 0.13], ['poured', 0.08], ['into', 0.07], ['her', 0.06]],
+        },
+      ];
+      let mode = MODES[0];
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let MODEL = '#4e79a7';
+      let OUT = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { MODEL = cat[0]; OUT = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', MODEL);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+
+      const W = 640, H = 430;
+      const cx = 320;
+      const tokenY = 384, tokenH = 26;
+      const vecY = 350, vecCellW = 7, vecCellH = 12;
+      const aggY = 262, aggH = 38, aggW = 300;
+      const repY = 208, repCellW = 18, repCellH = 18;
+      const hidY = 140, hidH = 34, hidW = 200;
+      const headY = 80, headH = 34, headW = 200;
+      const outBottom = 70;
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `word2vec-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Bengio’s model, CBOW and skip-gram on the sentence “she poured hot coffee into her mug”: which words go in, which words are predicted, and the layers in between.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+      const arrow = (x1, y1, x2, y2) => g.append('path').attr('class', 'arrow').attr('stroke-width', 1.2)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+
+      // The sentence, and the embedding of each word just above it
+      const tokenWidth = (w) => Math.max(36, w.length * 7.5 + 16);
+      const gap = 8;
+      const rowW = d3.sum(WORDS, tokenWidth) + gap * (WORDS.length - 1);
+      let x = cx - rowW / 2;
+      const centers = [];
+      const tokens = [];
+      WORDS.forEach((w) => {
+        const width = tokenWidth(w);
+        const t = g.append('g').attr('class', 'token');
+        t.append('rect').attr('x', x).attr('y', tokenY).attr('width', width).attr('height', tokenH).attr('rx', 4);
+        t.append('text').attr('x', x + width / 2).attr('y', tokenY + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+        tokens.push(t);
+        centers.push(x + width / 2);
+        x += width + gap;
+      });
+
+      const vectors = VECTORS.map((vec, i) => {
+        const v = g.append('g');
+        vec.forEach((value, d) => {
+          v.append('rect').attr('class', 'cell').attr('x', centers[i] - (D * vecCellW) / 2 + d * vecCellW).attr('y', vecY)
+            .attr('width', vecCellW).attr('height', vecCellH).attr('fill', fill(value));
+        });
+        v.append('path').attr('class', 'arrow').attr('stroke-width', 1)
+          .attr('d', `M${centers[i]},${tokenY - 2} L${centers[i]},${vecY + vecCellH + 3}`);
+        return v;
+      });
+
+      // Links from the embeddings of the input words to the aggregation box
+      const links = WORDS.map(() => g.append('path').attr('class', 'link').attr('stroke-width', 1));
+
+      // Aggregation box
+      const aggBox = g.append('g').attr('class', 'box');
+      aggBox.append('rect').attr('x', cx - aggW / 2).attr('y', aggY).attr('width', aggW).attr('height', aggH).attr('rx', 7).attr('stroke-width', 1.3);
+      const aggText = aggBox.append('text').attr('x', cx).attr('y', aggY + aggH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+
+      // The representation
+      arrow(cx, aggY - 3, cx, repY + repCellH + 4);
+      const rep = g.append('g');
+      const repLabel = g.append('text').attr('class', 'side-strong');
+      const repSub = g.append('text').attr('class', 'side');
+
+      // Hidden layer: only in Bengio's model
+      arrow(cx, repY - 3, cx, hidY + hidH + 3);
+      const hidBox = g.append('g').attr('class', 'box');
+      hidBox.append('rect').attr('x', cx - hidW / 2).attr('y', hidY).attr('width', hidW).attr('height', hidH).attr('rx', 7).attr('stroke-width', 1.3);
+      const hidText = hidBox.append('text').attr('x', cx).attr('y', hidY + hidH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+
+      // Output layer and softmax
+      arrow(cx, hidY - 3, cx, headY + headH + 3);
+      const headBox = g.append('g').attr('class', 'box');
+      headBox.append('rect').attr('x', cx - headW / 2).attr('y', headY).attr('width', headW).attr('height', headH).attr('rx', 7).attr('stroke-width', 1.3);
+      const headText = headBox.append('text').attr('x', cx).attr('y', headY + headH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+      headText.append('tspan').text('SOFTMAX');
+      headText.append('tspan').attr('class', 'box-sub').attr('dx', 8).text('over V words');
+      arrow(cx, headY - 3, cx, outBottom + 4);
+      const out = g.append('g');
+
+      // The toggle, above the figure
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.innerHTML = `<span class="control-label" id="w2v-label-${uid}">Choose a model:</span>`;
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-labelledby', `w2v-label-${uid}`);
+      MODES.forEach((m) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = m.button;
+        b.addEventListener('click', () => { mode = m; render(); });
+        controls.appendChild(b);
+      });
+      container.insertBefore(controls, container.firstChild);
+
+      function render() {
+        controls.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(MODES[k] === mode)));
+        const isInput = (i) => mode.inputs.includes(i);
+        const isTarget = (i) => mode.targets.includes(i);
+        tokens.forEach((t, i) => {
+          const color = isInput(i) ? MODEL : isTarget(i) ? OUT : null;
+          t.select('rect')
+            .attr('fill', color ? `color-mix(in oklab, ${color} 22%, transparent)` : 'color-mix(in oklab, var(--text-color) 5%, transparent)')
+            .attr('stroke', color || 'var(--border-color)')
+            .attr('stroke-width', color ? 1.4 : 1)
+            .style('opacity', color ? 1 : 0.45);
+          t.select('text').style('opacity', color ? 1 : 0.45).attr('font-weight', isTarget(i) ? 700 : 400);
+        });
+        vectors.forEach((v, i) => v.style('opacity', isInput(i) ? 1 : 0));
+
+        // Links: to evenly spaced points on the bottom of the aggregation box
+        mode.inputs.forEach((i, k) => {
+          const n = mode.inputs.length;
+          const xEnd = n === 1 ? cx : cx - aggW / 2 + 60 + (k * (aggW - 120)) / (n - 1);
+          links[i].attr('d', `M${centers[i]},${vecY - 3} L${xEnd},${aggY + aggH + 3}`);
+        });
+        links.forEach((l, i) => l.style('opacity', isInput(i) ? 1 : 0));
+
+        aggBox.select('rect').attr('fill', `color-mix(in oklab, ${MODEL} 16%, transparent)`).attr('stroke', MODEL);
+        aggText.selectAll('tspan').remove();
+        aggText.append('tspan').text(mode.box);
+        aggText.append('tspan').attr('class', 'box-sub').attr('dx', 8).text(mode.sub);
+
+        hidBox.classed('absent', !mode.hidden);
+        hidBox.select('rect')
+          .attr('fill', mode.hidden ? `color-mix(in oklab, ${MODEL} 16%, transparent)` : 'none')
+          .attr('stroke', mode.hidden ? MODEL : 'var(--border-color)')
+          .attr('stroke-dasharray', mode.hidden ? null : '4 3');
+        hidText.selectAll('tspan').remove();
+        if (mode.hidden) {
+          hidText.append('tspan').text('HIDDEN LAYER');
+          hidText.append('tspan').attr('class', 'box-sub').attr('dx', 8).text('tanh');
+        } else {
+          hidText.append('tspan').text('no hidden layer');
+        }
+        headBox.select('rect').attr('fill', `color-mix(in oklab, ${MODEL} 16%, transparent)`).attr('stroke', MODEL);
+
+        // The representation: D cells, or the 3 embeddings end to end
+        const used = mode.inputs.map((i) => VECTORS[i]);
+        const values = mode.key === 'bengio' ? used.flat() : d3.range(D).map((d) => d3.mean(used, (vec) => vec[d]));
+        const groups = mode.key === 'bengio' ? used.length : 1;
+        const groupGap = 4;
+        const repW = values.length * repCellW + (groups - 1) * groupGap;
+        const x0 = cx - repW / 2;
+        rep.selectAll('rect').data(values).join('rect').attr('class', 'cell')
+          .attr('x', (_, k) => x0 + k * repCellW + Math.floor(k / D) * groupGap).attr('y', repY)
+          .attr('width', repCellW).attr('height', repCellH).attr('fill', (v) => fill(v));
+        const sideX = cx + Math.max(repW / 2, 60) + 14;
+        repLabel.attr('x', sideX).attr('y', repY + repCellH / 2 - 3).text('representation');
+        repSub.attr('x', sideX).attr('y', repY + repCellH / 2 + 11).text(mode.size);
+
+        // The output: the probabilities of a few words of the vocabulary
+        const rows = mode.out;
+        const rowH = 15, maxW = 160;
+        const top = outBottom - rows.length * rowH;
+        out.selectAll('*').remove();
+        rows.forEach(([label, v], i) => {
+          const y = top + i * rowH;
+          out.append('text').attr('class', 'out-label').attr('x', cx - 8).attr('y', y + rowH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
+          out.append('rect').attr('x', cx).attr('y', y + 3).attr('width', maxW * v).attr('height', rowH - 6).attr('rx', 2).attr('fill', OUT).attr('opacity', 0.85);
+        });
+        out.append('text').attr('class', 'side').attr('x', cx + maxW * 0.45 + 24).attr('y', top + (rows.length * rowH) / 2).attr('dy', '0.35em')
+          .text(`predicts ${mode.task}`);
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readColors();
+        vectors.forEach((v, i) => v.selectAll('rect.cell').attr('fill', (_, d) => fill(VECTORS[i][d])));
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

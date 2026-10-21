@@ -1,0 +1,193 @@
+<div class="d3-analogy-directions"></div>
+<style>
+  .d3-analogy-directions { position: relative; font-size: 12px; color: var(--text-color); }
+  .d3-analogy-directions svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .d3-analogy-directions .frame { fill: none; stroke: var(--border-color); }
+  .d3-analogy-directions .pair line { stroke: var(--muted-color); stroke-width: 1.3; transition: opacity 0.2s ease, stroke-width 0.2s ease; }
+  .d3-analogy-directions .pair circle { stroke: var(--surface-bg); stroke-width: 1; transition: opacity 0.2s ease; }
+  .d3-analogy-directions .pair text { fill: var(--text-color); font-size: 12px; transition: opacity 0.2s ease; cursor: default; }
+  .d3-analogy-directions .pair.dim line, .d3-analogy-directions .pair.dim circle, .d3-analogy-directions .pair.dim text { opacity: 0.2; }
+  .d3-analogy-directions .pair.hot line { stroke-width: 2.4; stroke: var(--text-color); }
+  .d3-analogy-directions .pair.hot text { font-weight: 700; }
+  .d3-analogy-directions .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 10px; }
+  .d3-analogy-directions .controls .control-label { font-size: 12px; font-weight: 700; }
+  .d3-analogy-directions .controls button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-analogy-directions .controls button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-analogy-directions .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .d3-analogy-directions .error { color: var(--danger-color); font-size: 12px; white-space: pre-wrap; }
+</style>
+<script>
+  (() => {
+    // Directions in the space of embeddings: for each relation, the GloVe vectors (6B, 300
+    // dimensions) of 9 pairs of words, projected on 2 dimensions with a PCA of these 18 vectors,
+    // and rotated so that the average arrow points to the right. The data comes from the notebook
+    // of exercise 5.4 (its last cell).
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-analogy-directions'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-analogy-directions'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      const file = attr && attr.trim() ? attr.trim() : 'analogy-directions.json';
+      const PATHS = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`];
+      const fetchFirstAvailable = async (paths) => {
+        for (const p of paths) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`Data not found: ${paths.join(', ')}`);
+      };
+
+      let FROM = '#4e79a7';
+      let TO = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { FROM = cat[0]; TO = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', FROM);
+      };
+      readColors();
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-labelledby', `rel-label-${uid}`);
+      controls.innerHTML = `<span class="control-label" id="rel-label-${uid}">Relation</span>`;
+      container.appendChild(controls);
+
+      const svg = d3.select(container).append('svg')
+        .attr('role', 'img')
+        .attr('aria-label', 'Pairs of words related in the same way, as points in a 2D projection of the GloVe vectors, with an arrow from the first word of each pair to the second: the arrows are almost parallel.');
+      const markerId = `analogy-arrow-${uid}`;
+      const defs = svg.append('defs');
+      const marker = defs.append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 7).attr('markerHeight', 7).attr('orient', 'auto-start-reverse');
+      marker.append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const frame = svg.append('rect').attr('class', 'frame').attr('rx', 8);
+      const g = svg.append('g');
+
+      let relations = [];
+      let current = 0;
+
+      function render() {
+        if (!relations.length) return;
+        controls.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(k === current)));
+        const pairs = relations[current].pairs;
+        const width = Math.max(300, Math.min(680, container.clientWidth || 640));
+        const height = Math.round(Math.min(380, Math.max(280, width * 0.58)));
+        svg.attr('viewBox', `0 0 ${width} ${height}`);
+        frame.attr('x', 0.5).attr('y', 0.5).attr('width', width - 1).attr('height', height - 1);
+
+        // The same scale on both axes, so that the angles between the arrows are kept
+        const xs = pairs.flatMap((p) => [p.x0, p.x1]);
+        const ys = pairs.flatMap((p) => [p.y0, p.y1]);
+        const padX = 80, padY = 26;
+        const dx = d3.max(xs) - d3.min(xs), dy = d3.max(ys) - d3.min(ys);
+        const k = Math.min((width - 2 * padX) / dx, (height - 2 * padY) / dy);
+        const mx = (d3.max(xs) + d3.min(xs)) / 2, my = (d3.max(ys) + d3.min(ys)) / 2;
+        const X = (v) => width / 2 + (v - mx) * k;
+        const Y = (v) => height / 2 - (v - my) * k;
+
+        const sel = g.selectAll('g.pair').data(pairs, (p) => `${p.from}|${p.to}`);
+        sel.exit().remove();
+        const enter = sel.enter().append('g').attr('class', 'pair');
+        enter.append('line').attr('marker-end', `url(#${markerId})`);
+        enter.append('circle').attr('class', 'p0').attr('r', 4);
+        enter.append('circle').attr('class', 'p1').attr('r', 4);
+        enter.append('text').attr('class', 't0').attr('text-anchor', 'end').attr('dy', '0.35em');
+        enter.append('text').attr('class', 't1').attr('text-anchor', 'start').attr('dy', '0.35em');
+        const all = enter.merge(sel);
+        // Labels: the first word of a pair on the left of its point, the second on the right.
+        // Labels that would overlap are pushed apart vertically.
+        // Approximate horizontal extent of each label, from the length of its word
+        const extent = (x, side, word) => {
+          const w = 6.6 * word.length;
+          return side === 0 ? [x - 7 - w, x - 7] : [x + 7, x + 7 + w];
+        };
+        const labels = pairs.flatMap((p, i) => [
+          { i, side: 0, x: X(p.x0), y: Y(p.y0), span: extent(X(p.x0), 0, p.from) },
+          { i, side: 1, x: X(p.x1), y: Y(p.y1), span: extent(X(p.x1), 1, p.to) },
+        ]);
+        labels.forEach((l) => { l.ly = l.y; });
+        for (let iter = 0; iter < 60; iter++) {
+          for (let a = 0; a < labels.length; a++) {
+            for (let b = a + 1; b < labels.length; b++) {
+              const la = labels[a], lb = labels[b];
+              if (la.span[1] + 4 < lb.span[0] || lb.span[1] + 4 < la.span[0]) continue;
+              const gap = 13 - Math.abs(la.ly - lb.ly);
+              if (gap <= 0) continue;
+              const dir = la.ly <= lb.ly ? -1 : 1;
+              la.ly += (dir * gap) / 2;
+              lb.ly -= (dir * gap) / 2;
+            }
+          }
+        }
+        const labelY = (i, side) => labels.find((l) => l.i === i && l.side === side).ly;
+        all.each(function (p, i) {
+          const el = d3.select(this);
+          const x0 = X(p.x0), y0 = Y(p.y0), x1 = X(p.x1), y1 = Y(p.y1);
+          const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+          const shrink = Math.min(6, len / 3);
+          el.select('line').attr('x1', x0).attr('y1', y0)
+            .attr('x2', x1 - ((x1 - x0) / len) * shrink).attr('y2', y1 - ((y1 - y0) / len) * shrink);
+          el.select('circle.p0').attr('cx', x0).attr('cy', y0).attr('fill', FROM);
+          el.select('circle.p1').attr('cx', x1).attr('cy', y1).attr('fill', TO);
+          el.select('text.t0').attr('x', x0 - 7).attr('y', labelY(i, 0)).text(p.from);
+          el.select('text.t1').attr('x', x1 + 7).attr('y', labelY(i, 1)).text(p.to);
+        });
+        all.on('mouseenter', function () {
+          g.selectAll('g.pair').classed('dim', true).classed('hot', false);
+          d3.select(this).classed('dim', false).classed('hot', true);
+        }).on('mouseleave', () => {
+          g.selectAll('g.pair').classed('dim', false).classed('hot', false);
+        });
+      }
+
+      fetchFirstAvailable(PATHS).then((data) => {
+        relations = data.relations;
+        relations.forEach((r, k) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.textContent = r.relation;
+          b.addEventListener('click', () => { current = k; render(); });
+          controls.appendChild(b);
+        });
+        render();
+      }).catch((err) => {
+        const pre = document.createElement('pre');
+        pre.className = 'error';
+        pre.textContent = String(err && err.message ? err.message : err);
+        container.appendChild(pre);
+      });
+
+      if (window.ResizeObserver) new ResizeObserver(() => render()).observe(container);
+      else window.addEventListener('resize', render);
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

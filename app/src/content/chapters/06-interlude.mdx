@@ -1,0 +1,102 @@
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import WrapTable from '../../components/post/WrapTable.astro';
+
+## 6. Interlude: where we stand
+
+We have now trained models of four kinds on our two tasks: counts of n-grams, Bengio's neural language model, bags of words and deep averaging networks. Before we turn to networks that read the words in order, let's pause and see where we stand. The table below shows the best model of each kind, how it turns a text into a vector of fixed size, what it reuses from another task, and its score on the test set.
+
+<WrapTable>
+
+| Model | Section | How a text becomes a vector of fixed size | What is reused from another task | WikiText-2 perplexity | IMDB accuracy |
+|---|---|---|---|---|---|
+| 5-gram model, interpolated | 2 | keep the last 4 words | nothing | 277.7 | – |
+| Bag of words, TF-IDF | 3 | count the words | nothing | – | 88.4% |
+| Bengio's language model | 4.2 | concatenate the embeddings of the last 3 words | nothing | 208.5 | – |
+| Deep averaging network | 4.3 | average the embeddings of the words | nothing | – | 88.1% |
+| Deep averaging network with GloVe | 5.5 | average the embeddings of the words | the embedding matrix, learned on 6 billion words | – | 88.1% |
+
+</WrapTable>
+
+In language modeling, each new model did better. From the unigram model (941.7) to Bengio's model, the perplexity went down from about 1,000 to about 200, and Bengio's model beats the best published smoothing of the counts, Kneser-Ney, at 219.3 [@herel2023]. But all these models make the assumption of section 2.1: the next word depends only on the last few words. **Our language models see at most four words of the past.**
+
+In classification, nothing moved. Dense embeddings, averages, and embeddings pre-trained on 6 billion words: none of them beat the bag of words of section 3. All our classifiers are between 87.6% and 88.4%, except the deep averaging network with frozen GloVe vectors, at 83.3%. The largest gain we met came from elsewhere: when Wang and Manning add the pairs of consecutive words to a bag of words, they gain 2 to 3 points, up to 91.2% for their best classifier [@wang2012]. As we saw in section 3.3, a pair like "not good" brings back a little of the word order. **On IMDB, the pairs of words gained more than the embeddings.**
+
+The hard reviews of section 3.4 tell the same story. All our classifiers get the synonyms and the rare words right, but none of them gets more than 4 of the 10 reviews of negation, contrast, sarcasm and word order. And each of them gives the same probability to the two reviews with the same words, so one of the two is always wrong. Whether they count the words or average their embeddings, our classifiers do not see the order of the words.
+
+There is one more limit, which the hard reviews do not show. In "Superb film, wonderful score.", the score is the music of the film. But in all our models, a word has a single weight or a single vector, whatever the sentence it appears in: the score of a film and the score of a football match get the same embedding. When a word has several meanings, which one does its vector hold? Let's look at GloVe.
+
+<Exercise number="6" title="Find the meanings of ambiguous words in GloVe" data="GloVe" nb="06-polysemy">
+
+Print the 8 nearest neighbors of "bank", "mouse", "plot" and "score" among the 30,000 most frequent words of GloVe. Which meaning of each word do they show? Then find the rank of "river" among the neighbors of "bank", and the rank of "soundtrack" among the neighbors of "score".
+
+The starter code loads the GloVe vectors of the 30,000 most frequent words, as in the starter of exercise 5.4.
+
+<Starter nb="06-polysemy" />
+
+<Hints>
+
+<Hint>
+
+Start as in exercise 5.4: divide each vector by its length, so that the product of the matrix of the vectors by the vector of a word gives the cosine similarities of this word with the 30,000 words at once. `argsort(descending=True)` sorts the words from the closest to the farthest, and the first one is the word itself.
+
+</Hint>
+
+<Hint>
+
+The rank of a word among the neighbors of another one is one plus the number of words that are closer. `(similarities > similarities[j]).sum()` counts them, and the word itself is one of them.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="06-polysemy">
+
+The neighbors of "bank" are all about finance: "banks", "banking", "central", "credit"... Those of "mouse" mix the animal ("mice", "rat", "rabbit") and the computer ("keyboard"). Those of "plot" are about conspiracies ("foiled", "assassinate"), and those of "score" about games ("scoring", "winning", "goal"). "river" is only the 544th neighbor of "bank", and "soundtrack" the 146th neighbor of "score", out of 29,999 words.
+
+</Checkpoint>
+
+<Solution nb="06-polysemy" />
+
+<WhatToNotice>
+
+A single vector must hold all the meanings of a word, and the meaning that is the most frequent in the training text wins. GloVe was trained on Wikipedia and news articles, where a bank holds money, a plot is a conspiracy, and a score is the result of a match. The meanings that matter in movie reviews, the story of a film and its music, are not the frequent ones. They are not lost: "river" is closer to "bank" than 98% of the words, and "soundtrack" is closer to "score" than 99.5% of them. But they are mixed into the same vector as the other meanings. When two meanings are both frequent, as for "mouse", the neighbors come from both. **A static embedding mixes all the meanings of a word, and the most frequent one dominates.**
+
+</WhatToNotice>
+
+</Exercise>
+
+Many words have several meanings, and this is called *polysemy*. To tell the bank of a river from the bank that holds money, a model must look at the other words of the sentence. In section 8.2, we will meet the first embeddings that depend on the sentence of the word, and in section 10.2, we will compare the vectors of "bank" in sentences about rivers and about money.
+
+<PaperNote id="arora2018" look="Table 6: the meanings of “tie” and “spring” recovered from their single vectors, with the mistakes of the method.">
+
+This paper looks inside the vector of a word with several meanings. Its claim: the vector is close to a weighted sum of one vector per meaning, and the weight of each meaning is proportional to the number of times it occurs in the training text. For a word with two meanings, $v_w \approx \alpha\, v_{s_1} + \beta\, v_{s_2}$, with $\alpha = f_1 / (f_1 + f_2)$, where $f_1$ and $f_2$ count the occurrences of the two meanings. To test it, the authors merge two unrelated words into one artificial word, train the embeddings again, and compare the vector of the new word with the predicted sum: for GloVe, the cosine similarity reaches 0.91. They then recover the meanings from the vectors alone, by writing each vector as a combination of at most 5 of about 2,000 directions, which they call "atoms of discourse". For "tie", the atoms include clothing, the result of a match, and wires. As they put it, "multiple word senses reside in linear superposition within the word embedding".
+
+</PaperNote>
+
+Let's go back to the two questions of the introduction.
+
+**How can we build a model that takes as input a piece of text of any length?** So far we have two kinds of answers. Either we keep only the last few words, in order: this suits language modeling, but forgets everything before them. Or we keep all the words but forget their order: this suits classification, but fails on the hard reviews. None of our models reads the whole text in order, as we do. This is what the recurrent networks of the next section do.
+
+**How can we transfer what a model learned on one task to another?** So far, only the embedding matrix has been transferred. It helps when labels are scarce, with 6 points of accuracy for 100 labeled reviews (exercise 5.5b), but not with all the labels. What the classifier does with the embeddings, which is where the hard reviews fail, is still learned from the labeled reviews alone, and each word keeps a single vector whatever its sentence. Pre-training the rest of the encoder is the topic of section 8.
+
+If you want to dig deeper, below are two bonus exercises.
+
+<Bonus>
+
+**The meanings of the movie reviews.** Train the skip-gram model of exercise 5.2 on the 50,000 unlabeled reviews of IMDB (the `unsupervised` split), and compare the neighbors of "plot", "score" and "cast" with those of GloVe.
+
+</Bonus>
+
+<Bonus>
+
+**Fool the models.** Write a short review whose sentiment is obvious to a human reader, without negation, contrast or sarcasm, that the bag of words and the deep averaging networks get wrong. What did you use to fool them?
+
+</Bonus>

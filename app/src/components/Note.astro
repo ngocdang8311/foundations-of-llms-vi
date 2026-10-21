@@ -103,21 +103,36 @@ const wrapperClass = ["note", `note--${variant}`, className]
   .note .note__content > :global(*:last-child) {
     margin-bottom: 0 !important;
   }
+  /* Links take the color of the note, darkened for reading (lightened in the dark theme), with no background:
+     the gray background that the base styles give to links shows as a patch on the tinted note */
+  .note .note__content :global(a) {
+    color: color-mix(in oklab, var(--note-color) 65%, var(--text-color));
+    background: none;
+    border-bottom: 1px solid color-mix(in oklab, var(--note-color) 55%, transparent);
+  }
+  .note .note__content :global(a:hover) {
+    color: var(--text-color);
+    border-bottom-color: currentColor;
+  }
 
   /* Variants */
   .note.note--neutral {
+    --note-color: var(--primary-color);
     border-left-color: var(--border-color);
     background: var(--surface-bg);
   }
   .note.note--info {
+    --note-color: #f39c12;
     border-left-color: #f39c12;
     background: color-mix(in oklab, #f39c12 10%, var(--surface-bg));
   }
   .note.note--success {
+    --note-color: #2ecc71;
     border-left-color: #2ecc71;
     background: color-mix(in oklab, #2ecc71 8%, var(--surface-bg));
   }
   .note.note--danger {
+    --note-color: #e74c3c;
     border-left-color: #e74c3c;
     background: color-mix(in oklab, #e74c3c 8%, var(--surface-bg));
   }

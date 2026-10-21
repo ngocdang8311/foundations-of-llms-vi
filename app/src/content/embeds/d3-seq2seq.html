@@ -1,0 +1,256 @@
+<div class="d3-seq2seq"></div>
+<style>
+  .d3-seq2seq { font-size: 12px; color: var(--text-color); }
+  .d3-seq2seq svg { display: block; width: 100%; height: auto; max-width: 700px; margin: 0 auto; overflow: visible; }
+  .d3-seq2seq .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); transition: stroke 0.15s ease; }
+  .d3-seq2seq .token text { fill: var(--text-color); font-size: 12px; }
+  .d3-seq2seq .token.out { cursor: pointer; outline: none; }
+  .d3-seq2seq .token.out.lit rect { stroke: var(--accent-out); stroke-width: 1.8; }
+  .d3-seq2seq .token.out.lit text { font-weight: 700; }
+  .d3-seq2seq .token.out:focus-visible rect { stroke: var(--accent-out); stroke-width: 2.2; }
+  .d3-seq2seq .rnn-cell text { font-size: 9px; font-weight: 700; letter-spacing: 0.04em; fill: var(--text-color); }
+  .d3-seq2seq .cell { stroke: var(--border-color); }
+  .d3-seq2seq .cell.max { stroke: var(--text-color); stroke-width: 1.6; }
+  .d3-seq2seq .arrow { stroke: var(--muted-color); fill: none; }
+  .d3-seq2seq .weight-link { fill: none; stroke: var(--accent-out); stroke-linecap: round; }
+  .d3-seq2seq .weight { fill: var(--text-color); font-size: 11px; font-weight: 700; }
+  .d3-seq2seq .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-seq2seq .side-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+</style>
+<script>
+  (() => {
+    // The encoder–decoder of section 9, in the visual language of the order encoders of section 7:
+    // an RNN (the encoder) reads an English sentence, and a second RNN (the decoder) writes its
+    // French translation, one word at a time, reading at each step the word it wrote just before.
+    // data-config {"mode": "encoder-decoder"} (section 9.1): the last state of the encoder is the
+    // only link between the two RNNs. {"mode": "attention"} (section 9.2): to write each word, the
+    // decoder also reads a weighted average of all the states of the encoder; hover over a word of
+    // the translation to see its weights, drawn as the thickness of the links.
+    // The values of the vectors and the weights are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-seq2seq'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-seq2seq'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-config')) mountEl = mountEl.parentElement;
+      let config = {};
+      try {
+        const cfg = mountEl ? mountEl.getAttribute('data-config') : null;
+        if (cfg && cfg.trim().startsWith('{')) config = JSON.parse(cfg);
+      } catch (_) {}
+      const ATTENTION = config.mode === 'attention';
+
+      const SOURCE = ['I', 'loved', 'this', 'great', 'movie'];
+      const TARGET = ["j'", 'ai', 'adoré', 'ce', 'film', 'génial'];
+      const DEC_INPUT = ['<start>', ...TARGET.slice(0, -1)];
+      const L = SOURCE.length, N = TARGET.length;
+      const D = 4; // size of the embeddings and of the states
+
+      // Made-up weights of the attention: one row per word of the translation, one column per word
+      // of the source. They follow the alignment of the two sentences: "film génial" reverses the
+      // order of "great movie".
+      const WEIGHTS = [
+        [0.86, 0.08, 0.02, 0.02, 0.02],
+        [0.30, 0.60, 0.05, 0.03, 0.02],
+        [0.04, 0.88, 0.04, 0.02, 0.02],
+        [0.02, 0.05, 0.85, 0.04, 0.04],
+        [0.01, 0.02, 0.07, 0.15, 0.75],
+        [0.01, 0.03, 0.04, 0.80, 0.12],
+      ];
+      let step = N - 1; // the word of the translation whose weights are shown
+
+      // Made-up embeddings and states, between −1 and 1
+      const embed = (w, i, k) => d3.range(D).map((d) => 0.5 * Math.sin(1.3 * (i + 1) * (d + 1) + 0.7 * d + w.length + k) + 0.2 * Math.cos(d + k));
+      const SRC_EMB = SOURCE.map((w, i) => embed(w, i, 0));
+      const DEC_EMB = DEC_INPUT.map((w, i) => embed(w, i, 2.1));
+      const run = (embs, h0, k) => {
+        const states = [];
+        let h = h0;
+        embs.forEach((x, t) => {
+          h = d3.range(D).map((d) => Math.tanh(0.8 * h[(d + 1) % D] - 0.3 * h[d] + 0.9 * x[d] + 0.15 * Math.cos(t + d + k)));
+          states.push(h);
+        });
+        return states;
+      };
+      const ENC_STATES = run(SRC_EMB, d3.range(D).map(() => 0), 0);
+      const DEC_STATES = run(DEC_EMB, ENC_STATES[L - 1], 1.7);
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let ENC = '#4e79a7';
+      let OUT = '#f28e2b';
+      let DEC = '#59a14f';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 3);
+            if (cat && cat.length >= 3) { ENC = cat[0]; OUT = cat[1]; DEC = cat[2]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent-out', OUT);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+
+      // Layout: the encoder on the left, the decoder on the right, the last state of the encoder in
+      // the gap between them. In the attention mode, the links of the weights go above the figure.
+      const W = 700;
+      const top = ATTENTION ? 118 : 24;
+      const outY = top, tokenH = 22;
+      const stateY = top + 56, cellW = 8, cellH = 12;
+      const boxY = top + 92, boxW = 32, boxH = 20;
+      const embY = top + 136;
+      const inY = top + 166;
+      const labelY = inY + tokenH + 22;
+      const H = labelY + (ATTENTION ? 50 : 34);
+      const margin = 8, gapW = 76;
+      const colW = (W - 2 * margin - gapW) / (L + N);
+      const srcX = (i) => margin + colW * (i + 0.5);
+      const decX = (t) => margin + colW * L + gapW + colW * (t + 0.5);
+      const gapX = margin + colW * L + gapW / 2;
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `seq2seq-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', ATTENTION
+          ? 'An encoder RNN reads the English sentence and keeps its state after each word. A decoder RNN writes the French translation one word at a time; to write each word, it reads a weighted average of all the states of the encoder.'
+          : 'An encoder RNN reads the English sentence; its last state starts a decoder RNN, which writes the French translation one word at a time, reading at each step the word it wrote just before.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+      const links = g.append('g'); // under everything else
+      const arrow = (x1, y1, x2, y2, width = 1) => g.append('path').attr('class', 'arrow').attr('stroke-width', width)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+      const line = (x1, y1, x2, y2) => g.append('path').attr('class', 'arrow').attr('stroke-width', 1)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`);
+      const vectors = [];
+      const vector = (values, cx, y, cls = 'cell') => {
+        const sel = g.append('g');
+        values.forEach((v, d) => sel.append('rect').attr('class', cls).attr('x', cx - (D * cellW) / 2 + d * cellW).attr('y', y)
+          .attr('width', cellW).attr('height', cellH).attr('fill', fill(v)));
+        vectors.push({ sel, values });
+        return sel;
+      };
+      const token = (word, cx, y, cls) => {
+        const width = Math.min(colW - 6, Math.max(34, word.length * 7 + 12));
+        const t = g.append('g').attr('class', `token ${cls}`);
+        t.append('rect').attr('x', cx - width / 2).attr('y', y).attr('width', width).attr('height', tokenH).attr('rx', 4);
+        t.append('text').attr('x', cx).attr('y', y + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(word);
+        return t;
+      };
+      const rnnCells = [];
+      const rnnCell = (cx, kind) => {
+        const c = g.append('g').attr('class', 'rnn-cell');
+        c.append('rect').attr('x', cx - boxW / 2).attr('y', boxY).attr('width', boxW).attr('height', boxH).attr('rx', 5).attr('stroke-width', 1.2);
+        c.append('text').attr('x', cx).attr('y', boxY + boxH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('RNN');
+        rnnCells.push({ c, kind });
+      };
+
+      // One column per word: the word, its embedding, the RNN cell, and the state after the word
+      const column = (word, emb, state, cx, kind, isLast) => {
+        token(word, cx, inY, 'in');
+        line(cx, inY - 2, cx, embY + cellH + 3);
+        vector(emb, cx, embY);
+        arrow(cx, embY - 2, cx, boxY + boxH + 3);
+        rnnCell(cx, kind);
+        line(cx, boxY - 2, cx, stateY + cellH + 2);
+        vector(state, cx, stateY, `cell${isLast ? ' max' : ''}`);
+      };
+      SOURCE.forEach((w, i) => {
+        column(w, SRC_EMB[i], ENC_STATES[i], srcX(i), 'enc', !ATTENTION && i === L - 1);
+        if (i < L - 1) arrow(srcX(i) + boxW / 2 + 1, boxY + boxH / 2, srcX(i + 1) - boxW / 2 - 2, boxY + boxH / 2);
+      });
+      const outTokens = [];
+      DEC_INPUT.forEach((w, t) => {
+        column(w, DEC_EMB[t], DEC_STATES[t], decX(t), 'dec', false);
+        if (t < N - 1) arrow(decX(t) + boxW / 2 + 1, boxY + boxH / 2, decX(t + 1) - boxW / 2 - 2, boxY + boxH / 2);
+        // The head turns the state into the probabilities of the next word: here, the chosen word
+        arrow(decX(t), stateY - 3, decX(t), outY + tokenH + 4);
+        outTokens.push(token(TARGET[t], decX(t), outY, 'out'));
+      });
+
+      // The last state of the encoder starts the decoder
+      const lastX = srcX(L - 1) + boxW / 2 + 1;
+      const firstX = decX(0) - boxW / 2 - 2;
+      if (ATTENTION) {
+        arrow(lastX, boxY + boxH / 2, firstX, boxY + boxH / 2);
+      } else {
+        const hx = gapX;
+        arrow(lastX, boxY + boxH / 2, hx - (D * cellW) / 2 - 4, boxY + boxH / 2);
+        vector(ENC_STATES[L - 1], hx, boxY + boxH / 2 - cellH / 2, 'cell max');
+        arrow(hx + (D * cellW) / 2 + 3, boxY + boxH / 2, firstX, boxY + boxH / 2);
+        g.append('text').attr('class', 'side-strong').attr('x', hx).attr('y', stateY - 18).attr('text-anchor', 'middle').text('one vector');
+        g.append('text').attr('class', 'side').attr('x', hx).attr('y', stateY - 4).attr('text-anchor', 'middle').text('of fixed size');
+      }
+
+      // The names of the two RNNs, under their columns
+      const label = (x, title, sub) => {
+        g.append('text').attr('class', 'side-strong').attr('x', x).attr('y', labelY).attr('text-anchor', 'middle').text(title);
+        g.append('text').attr('class', 'side').attr('x', x).attr('y', labelY + 15).attr('text-anchor', 'middle').text(sub);
+      };
+      label((srcX(0) + srcX(L - 1)) / 2, 'encoder', 'reads the English sentence');
+      label((decX(0) + decX(N - 1)) / 2, 'decoder', 'writes the French one, reading the word it wrote before');
+
+      // Attention: the links from every state of the encoder to the word being written
+      const weightLabels = [];
+      if (ATTENTION) {
+        SOURCE.forEach((_, j) => weightLabels.push(g.append('text').attr('class', 'weight').attr('x', srcX(j))
+          .attr('y', stateY - 8).attr('text-anchor', 'middle')));
+        g.append('text').attr('class', 'side').attr('x', (decX(0) + decX(N - 1)) / 2).attr('y', labelY + 33).attr('text-anchor', 'middle')
+          .attr('font-style', 'italic').text('hover over a word of the translation to see its weights');
+        outTokens.forEach((t, k) => {
+          t.attr('tabindex', 0).attr('role', 'button').attr('aria-label', `weights to write ${TARGET[k]}`)
+            .on('mouseenter focus click', () => { if (step !== k) { step = k; render(); } });
+        });
+      }
+
+      function render() {
+        rnnCells.forEach(({ c, kind }) => c.select('rect')
+          .attr('fill', `color-mix(in oklab, ${kind === 'enc' ? ENC : DEC} 16%, transparent)`)
+          .attr('stroke', kind === 'enc' ? ENC : DEC));
+        vectors.forEach(({ sel, values }) => sel.selectAll('rect').attr('fill', (_, d) => fill(values[d])));
+        if (!ATTENTION) return;
+        outTokens.forEach((t, k) => t.classed('lit', k === step));
+        const x2 = decX(step), y2 = outY - 2;
+        const paths = SOURCE.map((_, j) => {
+          const x1 = srcX(j), y1 = stateY - 22;
+          const lift = 30 + 0.16 * (x2 - x1);
+          return `M${x1},${y1} C${x1},${y2 - lift} ${x2},${y2 - lift} ${x2},${y2}`;
+        });
+        links.selectAll('path').data(WEIGHTS[step]).join('path').attr('class', 'weight-link')
+          .attr('d', (_, j) => paths[j])
+          .attr('stroke-width', (w) => 0.8 + 9 * w)
+          .attr('opacity', (w) => 0.25 + 0.75 * w);
+        weightLabels.forEach((t, j) => t.text(WEIGHTS[step][j].toFixed(2)));
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

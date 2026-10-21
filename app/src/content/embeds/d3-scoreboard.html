@@ -1,0 +1,173 @@
+<div class="d3-scoreboard"></div>
+<style>
+  .d3-scoreboard { font-size: 13px; color: var(--text-color); }
+  .d3-scoreboard .board-head { display: flex; justify-content: space-between; gap: 12px; color: var(--muted-color); font-size: 12px; margin-bottom: 6px; }
+  .d3-scoreboard .rows { display: grid; grid-template-columns: minmax(0, 1fr) auto auto minmax(80px, 34%); column-gap: 0; align-items: stretch; }
+  .d3-scoreboard .cell { padding: 7px 12px 7px 0; border-top: 1px solid var(--border-color); min-height: 22px; display: flex; align-items: center; }
+  .d3-scoreboard .cell.head { border-top: 0; font-size: 11px; font-weight: 700; color: var(--muted-color); text-transform: uppercase; letter-spacing: 0.04em; padding: 0 12px 4px 0; }
+  .d3-scoreboard .label { flex-direction: column; align-items: flex-start; justify-content: center; }
+  .d3-scoreboard .label .name { font-weight: 600; }
+  .d3-scoreboard .label .source { font-size: 11.5px; color: var(--muted-color); }
+  .d3-scoreboard .is-reference .name { font-weight: 400; color: var(--muted-color); }
+  .d3-scoreboard .is-new { background: color-mix(in oklab, var(--primary-color) 9%, transparent); }
+  .d3-scoreboard .is-new.label { box-shadow: inset 3px 0 0 var(--primary-color); padding-left: 8px; }
+  .d3-scoreboard .tag { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; background: var(--primary-color); color: var(--on-primary); vertical-align: 1px; }
+  .d3-scoreboard .section a { color: var(--muted-color); text-decoration: none; background: none; border-bottom: 0; font-variant-numeric: tabular-nums; }
+  .d3-scoreboard .section a[href]:hover { text-decoration: underline; }
+  .d3-scoreboard .value { justify-content: flex-end; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .d3-scoreboard .is-reference.value { font-weight: 400; color: var(--muted-color); }
+  .d3-scoreboard .bar-track { width: 100%; height: 10px; border-radius: 3px; background: color-mix(in oklab, var(--text-color) 6%, transparent); position: relative; overflow: hidden; }
+  .d3-scoreboard .bar { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; }
+  .d3-scoreboard .legend { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 12px; }
+  .d3-scoreboard .legend-title { font-size: 12px; font-weight: 700; color: var(--text-color); }
+  .d3-scoreboard .legend .items { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+  .d3-scoreboard .legend .item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 12px; }
+  .d3-scoreboard .legend .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border-color); }
+  .d3-scoreboard .error { color: var(--danger-color); white-space: pre-wrap; }
+  .d3-scoreboard .cell.bar-cell { padding-right: 0; }
+  @media (max-width: 520px) {
+    .d3-scoreboard .board-head .scale { display: none; }
+    .d3-scoreboard .rows { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .d3-scoreboard .bar-cell { display: none; }
+  }
+</style>
+<script>
+  (() => {
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-scoreboard'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-scoreboard'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // HtmlEmbed props: data = "scoreboard-<board>.json"; config = { upTo: "2.3", highlight: ["2.3"] }.
+      // The board shows the rows that enter the post up to the section `upTo`, and highlights
+      // the rows of the sections in `highlight`.
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles') && !mountEl.getAttribute?.('data-config')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      let config = {};
+      try { const c = mountEl ? mountEl.getAttribute('data-config') : null; if (c && c.trim()) config = JSON.parse(c); } catch (_) {}
+      const file = attr && attr.trim() ? attr.trim() : 'scoreboard-wikitext2.json';
+      const PATHS = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`];
+      const fetchFirstAvailable = async (paths) => {
+        for (const p of paths) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`Data not found: ${paths.join(', ')}`);
+      };
+
+      const parts = (s) => String(s).split('.').map(Number);
+      const compare = (a, b) => {
+        const pa = parts(a), pb = parts(b);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+          const d = (pa[i] ?? -1) - (pb[i] ?? -1);
+          if (d) return d;
+        }
+        return 0;
+      };
+      const highlight = new Set([].concat(config.highlight || []).map(String));
+      const upTo = config.upTo ? String(config.upTo) : null;
+
+      const ours = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getPrimary(); } catch (_) {}
+        return 'var(--primary-color)';
+      })();
+
+      // The heading of a section ("2.2" -> "2.2 Comparing probability distributions").
+      const sectionHref = (s) => {
+        const top = !s.includes('.');
+        const pattern = new RegExp('^' + s.replace(/\./g, '\\.') + (top ? '\\.\\s' : '\\s'));
+        const h = Array.from(document.querySelectorAll('main h2[id], main h3[id], main h4[id]'))
+          .find((el) => (top ? el.tagName === 'H2' : el.tagName !== 'H2') && pattern.test((el.textContent || '').trim()));
+        return h ? `#${h.id}` : null;
+      };
+
+      function render(board) {
+        const lowerIsBetter = board.better !== 'higher';
+        const rows = board.rows
+          .filter((r) => !upTo || compare(r.section, upTo) <= 0)
+          .sort((a, b) => (lowerIsBetter ? a.value - b.value : b.value - a.value));
+        const fmt = (v) => (v >= 1000 ? d3format(v, 0) : d3format(v, 1));
+        // Perplexities span several orders of magnitude: bars on a log scale, from 10 to 50,000, the
+        // same for every perplexity board. Accuracies are a few points apart: bars on a linear scale,
+        // from a multiple of 5 below the worst row to 100%.
+        let frac, scaleNote;
+        if (lowerIsBetter) {
+          const lo = Math.log10(10), hi = Math.log10(50000);
+          frac = (v) => Math.max(0.02, Math.min(1, (Math.log10(v) - lo) / (hi - lo)));
+          scaleNote = 'bars on a log scale';
+        } else {
+          const lo = Math.floor((Math.min(...rows.map((r) => r.value)) - 2) / 5) * 5, hi = 100;
+          frac = (v) => Math.max(0.02, Math.min(1, (v - lo) / (hi - lo)));
+          scaleNote = `bars from ${lo} to ${hi}`;
+        }
+
+        container.innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'board-head';
+        head.innerHTML = `<span>${board.metric}${lowerIsBetter ? ', lower is better' : ', higher is better'}</span><span class="scale">${scaleNote}</span>`;
+        container.appendChild(head);
+
+        const grid = document.createElement('div');
+        grid.className = 'rows';
+        grid.setAttribute('role', 'table');
+        grid.innerHTML = `<div class="cell head" role="columnheader">Model</div><div class="cell head" role="columnheader">Section</div><div class="cell head value" role="columnheader">${board.column || board.metric}</div><div class="cell head bar-cell" role="columnheader"></div>`;
+        rows.forEach((r) => {
+          const isRef = !r.notebook;
+          const isNew = !isRef && highlight.has(String(r.section));
+          const cls = `${isRef ? ' is-reference' : ''}${isNew ? ' is-new' : ''}`;
+          const label = document.createElement('div');
+          label.className = `cell label${cls}`;
+          const name = document.createElement('span');
+          name.className = 'name';
+          name.textContent = r.label;
+          if (isNew) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'new'; name.appendChild(t); }
+          label.appendChild(name);
+          const src = document.createElement('span');
+          src.className = 'source';
+          src.textContent = isRef ? `published: ${r.source}` : 'our model, in an exercise';
+          label.appendChild(src);
+          const section = document.createElement('div');
+          section.className = `cell section${cls}`;
+          const a = document.createElement('a');
+          a.textContent = r.section;
+          const href = sectionHref(String(r.section));
+          if (href) a.href = href;
+          section.appendChild(a);
+          const value = document.createElement('div');
+          value.className = `cell value${cls}`;
+          value.textContent = fmt(r.value);
+          const barCell = document.createElement('div');
+          barCell.className = `cell bar-cell${cls}`;
+          barCell.innerHTML = `<div class="bar-track"><div class="bar" style="width:${(frac(r.value) * 100).toFixed(1)}%;background:${isRef ? 'var(--muted-color)' : ours};opacity:${isRef ? 0.45 : 0.9}"></div></div>`;
+          [label, section, value, barCell].forEach((c) => { c.setAttribute('role', 'cell'); grid.appendChild(c); });
+        });
+        container.appendChild(grid);
+
+        const legend = document.createElement('div');
+        legend.className = 'legend';
+        legend.innerHTML = `<div class="legend-title">Legend</div><div class="items">
+          <span class="item"><span class="swatch" style="background:${ours}"></span><span>our models, from the exercises</span></span>
+          <span class="item"><span class="swatch" style="background:var(--muted-color);opacity:.45"></span><span>published results</span></span>
+        </div>`;
+        container.appendChild(legend);
+      }
+
+      const d3format = (v, digits) => v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+      fetchFirstAvailable(PATHS).then(render).catch((err) => {
+        const pre = document.createElement('pre'); pre.className = 'error'; pre.textContent = String(err.message || err);
+        container.appendChild(pre);
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    else bootstrap();
+  })();
+</script>

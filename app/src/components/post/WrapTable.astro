@@ -1,0 +1,15 @@
+---
+// A markdown table whose cells wrap their text, for tables with phrases in their cells. The
+// template keeps each cell of a table on one line, and scrolls the table sideways instead.
+---
+<div class="wrap-table"><slot /></div>
+
+<style is:global>
+  .wrap-table .table-scroll > table {
+    width: 100%;
+  }
+  .wrap-table .table-scroll > table th,
+  .wrap-table .table-scroll > table td {
+    white-space: normal;
+  }
+</style>

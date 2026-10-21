@@ -1,0 +1,12 @@
+---
+// A markdown table whose columns go in pairs (Word, Count, Word, Count...):
+// a double rule after every second column separates the pairs.
+---
+<div class="pair-table"><slot /></div>
+
+<style is:global>
+  .pair-table .table-scroll > table th:nth-child(2n):not(:last-child),
+  .pair-table .table-scroll > table td:nth-child(2n):not(:last-child) {
+    border-right: 3px double var(--border-color);
+  }
+</style>

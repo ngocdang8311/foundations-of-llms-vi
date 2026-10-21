@@ -3,6 +3,7 @@ import * as ArticleMod from "../content/article.mdx";
 
 import HeroArticle from "../components/HeroArticle.astro";
 import HeroPaper from "../components/HeroPaper.astro";
+import SeriesHeader from "../components/post/SeriesHeader.astro";
 import Footer from "../components/Footer.astro";
 import ThemeToggle from "../components/ThemeToggle.astro";
 import Seo from "../components/Seo.astro";
@@ -44,6 +45,8 @@ const docTitleHtml = (articleFM?.title ?? "Untitled article")
   .replace(/\n/g, "<br/>");
 const subtitle = articleFM?.subtitle ?? "";
 const description = articleFM?.description ?? "";
+// Number of the chapter in the series: the page then uses the series header instead of the template's hero.
+const chapter = (articleFM as any)?.chapter;
 // Accept authors as string[] or array of objects { name, url, affiliations? }
 const rawAuthors = (articleFM as any)?.authors ?? [];
 type Affiliation = { id: number; name: string; url?: string };
@@ -355,7 +358,14 @@ const links: Array<{ label: string; url: string; icon?: string }> =
   </head>
   <body>
     <ThemeToggle />
-    {template === "paper" ? (
+    {chapter !== undefined ? (
+      <SeriesHeader
+        chapter={Number(chapter)}
+        title={docTitleHtml}
+        description={subtitle || description}
+        authors={normalizedAuthors}
+      />
+    ) : template === "paper" ? (
       <HeroPaper
         title={docTitleHtml}
         titleRaw={docTitle}

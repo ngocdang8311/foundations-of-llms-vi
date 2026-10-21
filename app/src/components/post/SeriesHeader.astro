@@ -1,0 +1,433 @@
+---
+// Header of the posts of the series "Foundations of Large Language Models": a band with the name of the
+// series and the map of its chapters, then the chapter number, title and description, then the chapter
+// illustration (`embeds/banner.html`). It replaces the template's hero when the frontmatter of article.mdx has
+// `chapter: <number>` (see pages/index.astro).
+// The list of chapters is series.json in the public dataset dlouapre/foundations-of-llms, shared by all the posts.
+// It is read at build time, and again when the page opens, so that a published post shows the chapters added
+// or published after it. A chapter is a link only when it has a `url`; links open in a new tab, since the
+// Hub's frame does not let a Space navigate the whole tab.
+// Its styles also give the headings of the post the colors of the series: sections in orange, subsections in
+// the blue of the exercises.
+import HtmlEmbed from "../HtmlEmbed.astro";
+
+interface Chapter {
+  number: number;
+  title: string;
+  short_title?: string;
+  url?: string;
+}
+interface Series {
+  title: string;
+  tagline?: string;
+  chapters: Chapter[];
+}
+interface Props {
+  chapter: number;
+  title: string;
+  description?: string;
+  authors?: Array<{ name: string; url?: string }>;
+}
+const { chapter, title, description, authors = [] } = Astro.props as Props;
+
+const SERIES_URL = "https://huggingface.co/datasets/dlouapre/foundations-of-llms/resolve/main/series.json";
+
+// Used only if the Hub cannot be reached at build time; the page reads the list again when it opens.
+let series: Series = {
+  title: "Foundations of Large Language Models",
+  tagline: "Learning by Doing",
+  chapters: [{ number: chapter, title }],
+};
+try {
+  const res = await fetch(SERIES_URL, { signal: AbortSignal.timeout(10_000) });
+  if (res.ok) series = await res.json();
+} catch {}
+const chapters = [...series.chapters].sort((a, b) => a.number - b.number);
+---
+
+<header class="series-band">
+  <div class="series-band__inner">
+    <div class="series-band__top">
+      <p class="series-name">
+        <span class="series-logo" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="series-name__title">{series.title}</span>
+        {series.tagline && <span class="series-name__sep" aria-hidden="true"></span>}
+        {series.tagline && <span class="series-name__tagline">{series.tagline}</span>}
+      </p>
+      {authors.length > 0 && (
+        <p class="series-authors">
+          by {authors.map((a, i) => (
+            <>
+              {a.url ? <a href={a.url}>{a.name}</a> : <strong>{a.name}</strong>}
+              {i < authors.length - 1 && ", "}
+            </>
+          ))}
+        </p>
+      )}
+    </div>
+    <nav class="series-map" aria-label="Chapters of the series" data-series-url={SERIES_URL} data-chapter={chapter}>
+      <ol class="series-map__list">
+        {chapters.map((c) => {
+          const name = c.short_title || c.title;
+          const label = `Chapter ${c.number}: ${c.title}`;
+          return (
+            <li>
+              {c.number === chapter ? (
+                <span class="series-chapter is-current" aria-current="page" title={label}>
+                  <span class="series-chapter__num">{c.number}</span>
+                  <span class="series-chapter__name">{name}</span>
+                </span>
+              ) : c.url ? (
+                <a class="series-chapter is-published" href={c.url} target="_blank" rel="noopener noreferrer" title={label}>
+                  <span class="series-chapter__num">{c.number}</span>
+                  <span class="series-chapter__name">{name}</span>
+                </a>
+              ) : (
+                <span class="series-chapter is-upcoming" title={`${label} (coming soon)`}>
+                  <span class="series-chapter__num">{c.number}</span>
+                  <span class="series-chapter__name">{name}</span>
+                  <span class="series-sr">(coming soon)</span>
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  </div>
+</header>
+
+<section class="series-hero">
+  <p class="series-hero__kicker">Chapter {chapter}</p>
+  <h1 class="series-hero__title" set:html={title} />
+  {description && <p class="series-hero__desc">{description}</p>}
+</section>
+<div class="series-hero__banner">
+  <HtmlEmbed src="banner.html" frameless />
+</div>
+
+<script>
+  type Chapter = { number: number; title: string; short_title?: string; url?: string };
+
+  // Same markup as the server-side rendering above.
+  const item = (c: Chapter, current: number) => {
+    const name = c.short_title || c.title;
+    const label = `Chapter ${c.number}: ${c.title}`;
+    const isCurrent = c.number === current;
+    const el = document.createElement(!isCurrent && c.url ? "a" : "span");
+    el.className = `series-chapter ${isCurrent ? "is-current" : c.url ? "is-published" : "is-upcoming"}`;
+    el.title = isCurrent || c.url ? label : `${label} (coming soon)`;
+    if (isCurrent) el.setAttribute("aria-current", "page");
+    else if (c.url && el instanceof HTMLAnchorElement) {
+      el.href = c.url;
+      el.target = "_blank";
+      el.rel = "noopener noreferrer";
+    }
+    const num = document.createElement("span");
+    num.className = "series-chapter__num";
+    num.textContent = String(c.number);
+    const text = document.createElement("span");
+    text.className = "series-chapter__name";
+    text.textContent = name;
+    el.append(num, text);
+    if (!isCurrent && !c.url) {
+      const sr = document.createElement("span");
+      sr.className = "series-sr";
+      sr.textContent = "(coming soon)";
+      el.append(sr);
+    }
+    const li = document.createElement("li");
+    li.append(el);
+    return li;
+  };
+
+  // On narrow screens the map scrolls sideways: bring the current chapter into view.
+  const showCurrent = (nav: HTMLElement) => {
+    const cur = nav.querySelector<HTMLElement>("[aria-current]");
+    if (cur && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = Math.max(0, cur.offsetLeft - 24);
+  };
+
+  // The theme toggle of the template sits at the top left of the page: keep it below the band (see the styles).
+  const placeToggle = (band: HTMLElement) => {
+    const update = () => document.documentElement.style.setProperty("--series-band-height", `${band.offsetHeight}px`);
+    update();
+    if (window.ResizeObserver) new ResizeObserver(update).observe(band);
+  };
+
+  const setup = async () => {
+    const band = document.querySelector<HTMLElement>(".series-band");
+    const nav = document.querySelector<HTMLElement>(".series-map");
+    if (!band || !nav) return;
+    placeToggle(band);
+    showCurrent(nav);
+    try {
+      const res = await fetch(nav.dataset.seriesUrl!, { cache: "no-cache" });
+      if (!res.ok) return;
+      const series = await res.json();
+      const current = Number(nav.dataset.chapter);
+      const chapters: Chapter[] = [...series.chapters].sort((a, b) => a.number - b.number);
+      nav.querySelector("ol")!.replaceChildren(...chapters.map((c) => item(c, current)));
+      showCurrent(nav);
+    } catch {}
+  };
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup, { once: true });
+  else setup();
+</script>
+
+<style is:global>
+  :root {
+    --series-accent-text: oklch(from var(--primary-color) calc(l - 0.22) c h);
+    --series-line: color-mix(in oklab, var(--muted-color) 45%, transparent);
+  }
+  [data-theme="dark"] {
+    --series-accent-text: var(--primary-color);
+  }
+
+  /* Sections in orange, subsections in the blue of the exercises (--exercise-text-color, see Exercise.astro) */
+  .content-grid main h2 {
+    color: var(--series-accent-text);
+  }
+  .content-grid main h3 {
+    color: var(--exercise-text-color);
+  }
+
+  /* The template's buttons sit at the top left of the page: the theme toggle (wide screens) goes below the band;
+     the table of contents button (narrow screens, position: fixed) keeps its place, in a margin of the band
+     (see the end of this block). */
+  html #theme-toggle {
+    top: calc(var(--series-band-height, 84px) + var(--spacing-4));
+  }
+
+  .series-band {
+    background: var(--surface-bg);
+    border-bottom: 1px solid var(--border-color);
+  }
+  .series-band__inner {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px;
+    box-sizing: border-box;
+  }
+  .series-band__top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px 24px;
+    padding: 9px 0;
+  }
+  .series-name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 10px;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.3;
+  }
+  .series-logo {
+    display: flex;
+    gap: 3px;
+    align-items: center;
+  }
+  .series-logo span {
+    display: block;
+    height: 12px;
+    border-radius: 3px;
+    background: var(--primary-color);
+  }
+  .series-logo span:nth-child(1) {
+    width: 14px;
+    background: color-mix(in oklab, var(--primary-color) 55%, var(--surface-bg));
+  }
+  .series-logo span:nth-child(2) {
+    width: 22px;
+  }
+  .series-logo span:nth-child(3) {
+    width: 10px;
+    background: color-mix(in oklab, var(--primary-color) 30%, var(--surface-bg));
+  }
+  .series-name__title {
+    font-weight: 700;
+    color: var(--text-color);
+  }
+  .series-name__sep {
+    display: block;
+    width: 1.5px;
+    height: 16px;
+    background: var(--series-line);
+  }
+  .series-name__tagline {
+    font-weight: 700;
+    color: var(--series-accent-text);
+  }
+  .series-authors {
+    margin: 0;
+    font-size: 14px;
+    color: var(--muted-color);
+  }
+  .series-authors a,
+  .series-authors strong {
+    font-weight: 600;
+    color: var(--text-color);
+    text-decoration: none;
+    border: none;
+  }
+  .series-authors a:hover {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .series-map {
+    position: relative;
+    padding: 8px 0;
+    border-top: 1px solid var(--border-color);
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .series-map__list {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  /* When the map is too wide, the lines between chapters shrink first, then the map scrolls sideways. */
+  .series-map__list > li {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    margin: 0;
+    padding: 0;
+  }
+  .series-map__list > li + li::before {
+    content: "";
+    display: block;
+    flex: 0 1 36px;
+    min-width: 10px;
+    height: 1.5px;
+    margin: 0 10px;
+    background: var(--series-line);
+  }
+  .series-chapter {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    line-height: 22px;
+    white-space: nowrap;
+    color: var(--muted-color);
+    text-decoration: none;
+    border: none;
+  }
+  .series-chapter__num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 1.5px dashed color-mix(in oklab, var(--muted-color) 70%, transparent);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .series-chapter.is-current {
+    font-weight: 700;
+    color: var(--series-accent-text);
+  }
+  .series-chapter.is-current .series-chapter__num {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: var(--primary-color);
+    color: oklch(from var(--primary-color) 0.25 calc(c * 0.6) h);
+    font-weight: 800;
+  }
+  .series-chapter.is-published {
+    color: var(--text-color);
+  }
+  .series-chapter.is-published .series-chapter__num {
+    border-style: solid;
+    border-color: var(--series-accent-text);
+    color: var(--series-accent-text);
+    font-weight: 700;
+  }
+  .series-chapter.is-published .series-chapter__name {
+    text-decoration: underline;
+    text-decoration-color: var(--series-line);
+    text-underline-offset: 3px;
+  }
+  .series-chapter.is-published:hover .series-chapter__name {
+    text-decoration-color: currentColor;
+  }
+  .series-chapter.is-published:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .series-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .series-hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    padding: 56px 16px 0;
+    text-align: center;
+  }
+  .series-hero__kicker {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--series-accent-text);
+  }
+  .series-hero__title {
+    max-width: 780px;
+    margin: 0;
+    font-size: clamp(34px, 5vw, 54px);
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  .series-hero__desc {
+    max-width: 900px;
+    margin: 0;
+    font-size: 19px;
+    font-style: italic;
+    color: var(--muted-color);
+  }
+  .series-hero__banner {
+    max-width: 760px;
+    margin: 40px auto 48px;
+    padding: 0 16px;
+  }
+
+  @media (max-width: 1100px) {
+    .series-band__inner {
+      padding-left: calc(var(--spacing-4) + 52px);
+    }
+  }
+  @media (max-width: 640px) {
+    .series-name__sep {
+      display: none;
+    }
+  }
+  @media print {
+    .series-map {
+      display: none;
+    }
+  }
+</style>

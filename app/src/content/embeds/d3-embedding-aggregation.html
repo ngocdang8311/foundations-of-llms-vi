@@ -1,0 +1,240 @@
+<div class="d3-embedding-aggregation"></div>
+<style>
+  .d3-embedding-aggregation { font-size: 12px; color: var(--text-color); }
+  .d3-embedding-aggregation svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; overflow: visible; }
+  .d3-embedding-aggregation .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); transition: opacity 0.25s ease; }
+  .d3-embedding-aggregation .token text { fill: var(--text-color); font-size: 12px; transition: opacity 0.25s ease; }
+  .d3-embedding-aggregation .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; fill: var(--text-color); }
+  .d3-embedding-aggregation .box text.box-sub { font-weight: 400; letter-spacing: 0; }
+  .d3-embedding-aggregation .cell { stroke: var(--border-color); transition: opacity 0.25s ease, fill 0.25s ease; }
+  .d3-embedding-aggregation .arrow { stroke: var(--muted-color); fill: none; }
+  .d3-embedding-aggregation .link { stroke: var(--muted-color); fill: none; transition: opacity 0.25s ease, stroke-width 0.25s ease; }
+  .d3-embedding-aggregation .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-embedding-aggregation .side-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-embedding-aggregation .out-label { fill: var(--text-color); font-size: 12px; }
+  .d3-embedding-aggregation .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 12px; }
+  .d3-embedding-aggregation .controls .control-label { font-size: 12px; font-weight: 700; }
+  .d3-embedding-aggregation .controls button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-embedding-aggregation .controls button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-embedding-aggregation .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+<script>
+  (() => {
+    // Three ways to turn the L embeddings of a text into one vector of fixed size: their average
+    // (size D), a weighted average (size D), or the concatenation of the last n − 1 = 3 of them
+    // (size 3 × D), which only suits language modeling. The values are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-embedding-aggregation'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-embedding-aggregation'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // The opening of the review of the figure of section 3.1
+      const WORDS = ['This', 'film', 'seemed', 'way', 'too', 'long', 'even', 'at', 'only', '75', 'minutes'];
+      // Weights of the weighted average: rare words count more, as with IDF
+      const WEIGHTS = [0.15, 0.6, 0.7, 0.45, 0.4, 0.65, 0.4, 0.1, 0.35, 0.9, 0.7];
+      const D = 4;
+      const CONTEXT = 3;
+      // One made-up embedding per word, between −1 and 1, with a common part so that the average
+      // does not fade to zero
+      const COMMON = [0.45, -0.35, 0.2, -0.5];
+      const VECTORS = WORDS.map((w, i) => d3.range(D).map((d) => COMMON[d] + 0.5 * Math.sin(1.7 * (i + 1) * (d + 1) + 0.9 * d + w.length)));
+
+      const MODES = [
+        { key: 'average', button: 'Average', box: 'AVERAGE', sub: '', size: 'a vector of size D', task: 'class' },
+        { key: 'weighted', button: 'Weighted average', box: 'WEIGHTED AVERAGE', sub: '', size: 'a vector of size D', task: 'class' },
+        { key: 'concat', button: `Concatenate the last ${CONTEXT}`, box: 'CONCATENATE', sub: `the last ${CONTEXT}`, size: `a vector of size ${CONTEXT} × D`, task: 'next' },
+      ];
+      const OUTPUTS = {
+        class: [['positive', 0.15], ['negative', 0.85]],
+        next: [['.', 0.42], ['and', 0.25], ['of', 0.12]],
+      };
+      let mode = MODES[0];
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let MODEL = '#4e79a7';
+      let OUT = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { MODEL = cat[0]; OUT = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', MODEL);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+
+      const W = 640, H = 410;
+      const cx = 320;
+      const tokenY = 352, tokenH = 24;
+      const vecY = 318, vecCellW = 7, vecCellH = 12;
+      const aggY = 222, aggH = 38, aggW = 300;
+      const repY = 164, repCellW = 18, repCellH = 18;
+      const headY = 96, headH = 34, headW = 160;
+      const outBottom = 66;
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `aggregation-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Each word of the text becomes its embedding; the embeddings are aggregated into one vector of fixed size, which the head turns into probabilities.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+      const arrow = (x1, y1, x2, y2) => g.append('path').attr('class', 'arrow').attr('stroke-width', 1.2)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+
+      // The words, and their embeddings just above them
+      const tokenWidth = (w) => Math.max(30, w.length * 7 + 12);
+      const gap = 6;
+      const rowW = d3.sum(WORDS, tokenWidth) + gap * (WORDS.length - 1);
+      let x = cx - rowW / 2;
+      const centers = [];
+      const tokens = [];
+      WORDS.forEach((w) => {
+        const width = tokenWidth(w);
+        const t = g.append('g').attr('class', 'token');
+        t.append('rect').attr('x', x).attr('y', tokenY).attr('width', width).attr('height', tokenH).attr('rx', 4);
+        t.append('text').attr('x', x + width / 2).attr('y', tokenY + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+        tokens.push(t);
+        centers.push(x + width / 2);
+        x += width + gap;
+      });
+      g.append('text').attr('class', 'side').attr('x', cx).attr('y', tokenY + tokenH + 16).attr('text-anchor', 'middle')
+        .text('L words, then their L embeddings, one vector of size D per word');
+
+      const vectors = VECTORS.map((vec, i) => {
+        const v = g.append('g');
+        vec.forEach((value, d) => {
+          v.append('rect').attr('class', 'cell').attr('x', centers[i] - (D * vecCellW) / 2 + d * vecCellW).attr('y', vecY)
+            .attr('width', vecCellW).attr('height', vecCellH).attr('fill', fill(value));
+        });
+        g.append('path').attr('class', 'arrow').attr('stroke-width', 1)
+          .attr('d', `M${centers[i]},${tokenY - 2} L${centers[i]},${vecY + vecCellH + 3}`);
+        return v;
+      });
+
+      // Links from the embeddings to the aggregation box
+      const links = WORDS.map((_, i) => {
+        const xEnd = cx - aggW / 2 + 30 + (i * (aggW - 60)) / (WORDS.length - 1);
+        return g.append('path').attr('class', 'link')
+          .attr('d', `M${centers[i]},${vecY - 3} L${xEnd},${aggY + aggH + 3}`);
+      });
+
+      // Aggregation box
+      const aggBox = g.append('g').attr('class', 'box');
+      aggBox.append('rect').attr('x', cx - aggW / 2).attr('y', aggY).attr('width', aggW).attr('height', aggH).attr('rx', 7).attr('stroke-width', 1.3);
+      const aggText = aggBox.append('text').attr('x', cx).attr('y', aggY + aggH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+
+      // The representation
+      arrow(cx, aggY - 3, cx, repY + repCellH + 4);
+      const rep = g.append('g');
+      const repLabel = g.append('text').attr('class', 'side-strong');
+      const repSub = g.append('text').attr('class', 'side');
+
+      // Head and output
+      arrow(cx, repY - 3, cx, headY + headH + 3);
+      const headBox = g.append('g').attr('class', 'box');
+      headBox.append('rect').attr('x', cx - headW / 2).attr('y', headY).attr('width', headW).attr('height', headH).attr('rx', 7).attr('stroke-width', 1.3);
+      headBox.append('text').attr('x', cx).attr('y', headY + headH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('HEAD');
+      arrow(cx, headY - 3, cx, outBottom + 4);
+      const out = g.append('g');
+
+      // The toggle, above the figure
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.innerHTML = `<span class="control-label" id="agg-label-${uid}">Aggregation</span>`;
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-labelledby', `agg-label-${uid}`);
+      MODES.forEach((m) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = m.button;
+        b.addEventListener('click', () => { mode = m; render(); });
+        controls.appendChild(b);
+      });
+      container.insertBefore(controls, container.firstChild);
+
+      function representation() {
+        if (mode.key === 'concat') return VECTORS.slice(-CONTEXT).flat();
+        const weights = mode.key === 'weighted' ? WEIGHTS : WEIGHTS.map(() => 1);
+        const total = d3.sum(weights);
+        return d3.range(D).map((d) => d3.sum(VECTORS, (vec, i) => weights[i] * vec[d]) / total);
+      }
+
+      function render() {
+        controls.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(MODES[k] === mode)));
+        const used = (i) => mode.key !== 'concat' || i >= WORDS.length - CONTEXT;
+        vectors.forEach((v, i) => v.selectAll('rect').style('opacity', used(i) ? 1 : 0.25));
+        tokens.forEach((t, i) => t.selectAll('rect, text').style('opacity', used(i) ? 1 : 0.4));
+        links.forEach((l, i) => l
+          .style('opacity', used(i) ? 1 : 0)
+          .attr('stroke-width', mode.key === 'weighted' ? 0.4 + 3.2 * WEIGHTS[i] : 1));
+
+        aggBox.select('rect').attr('fill', `color-mix(in oklab, ${MODEL} 16%, transparent)`).attr('stroke', MODEL);
+        aggText.selectAll('tspan').remove();
+        aggText.append('tspan').text(mode.box);
+        if (mode.sub) aggText.append('tspan').attr('class', 'box-sub').attr('dx', 8).text(mode.sub);
+        headBox.select('rect').attr('fill', `color-mix(in oklab, ${MODEL} 16%, transparent)`).attr('stroke', MODEL);
+
+        // The representation: D cells, or the last 3 embeddings end to end
+        const values = representation();
+        const groupGap = 4;
+        const groups = mode.key === 'concat' ? CONTEXT : 1;
+        const repW = values.length * repCellW + (groups - 1) * groupGap;
+        const x0 = cx - repW / 2;
+        rep.selectAll('rect').data(values).join('rect').attr('class', 'cell')
+          .attr('x', (_, k) => x0 + k * repCellW + Math.floor(k / D) * groupGap).attr('y', repY)
+          .attr('width', repCellW).attr('height', repCellH).attr('fill', (v) => fill(v));
+        const sideX = cx + Math.max(repW / 2, 60) + 14;
+        repLabel.attr('x', sideX).attr('y', repY + repCellH / 2 - 3).text('representation');
+        repSub.attr('x', sideX).attr('y', repY + repCellH / 2 + 11).text(mode.size);
+
+        // The output: the classes of the review, or the next word
+        const rows = OUTPUTS[mode.task];
+        const rowH = 16, maxW = 90;
+        const top = outBottom - rows.length * rowH;
+        out.selectAll('*').remove();
+        rows.forEach(([label, v], i) => {
+          const y = top + i * rowH;
+          out.append('text').attr('class', 'out-label').attr('x', cx - 8).attr('y', y + rowH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
+          out.append('rect').attr('x', cx).attr('y', y + 3).attr('width', maxW * v).attr('height', rowH - 6).attr('rx', 2).attr('fill', OUT).attr('opacity', 0.85);
+        });
+        out.append('text').attr('class', 'side').attr('x', cx + maxW + 14).attr('y', top + (rows.length * rowH) / 2).attr('dy', '0.35em')
+          .text(mode.task === 'class' ? 'the label of the review' : 'the next word');
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readColors();
+        vectors.forEach((v, i) => v.selectAll('rect').attr('fill', (_, d) => fill(VECTORS[i][d])));
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

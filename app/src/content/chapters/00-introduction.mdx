@@ -1,0 +1,43 @@
+import Note from '../../components/Note.astro';
+
+<Note variant="success">
+This post is a written version of the first lecture I gave for the "Foundations of Large Language Models" course that I teach at [the MVA master in Paris](https://www.master-mva.com/cours/foundations-of-large-language-models/).
+
+The philosophy I want to convey in this series is that **you learn by doing**, and this is even more true in the age of AI agents that are able to code for you.
+This post contains many practical exercises, most of them doable in less than 30 minutes, and involving at most a few dozen lines of code.
+If you really want to master the fundamentals of LLMs, I strongly advise you to do these exercises...without the help of a coding agent!
+
+Every exercise contains the problem statement and a starter piece of code to load the data.
+Hints and solutions are folded so you don't see them right away, and a checkpoint shows you the expected results.
+
+**Have fun learning by doing!**
+*(and feel free to reach out to me if you notice any error)*
+</Note>
+
+This first post is about classical *Natural Language Processing* (NLP), before the LLM era.
+
+***I know what you're thinking***. Studying old-school NLP might feel like a waste of time, as these techniques have largely been superseded by LLMs.
+
+Still, I believe dedicating a few hours to it is worth your time.
+First of all, you'll learn important concepts that are still relevant today.
+You'll better understand the genealogy of ideas, which is important for developing your *research taste*.
+In particular, you'll see more clearly how and why transformers were introduced and rapidly adopted. Finally, this post references a few dozen seminal papers that you must have seen once in your life if you want to be serious about the topic.
+
+In this first chapter, we will follow two important questions that have shaped the development of the field of NLP:
+
+- **How can we build a machine learning model that takes as input a piece of text, given that it has no fixed length?**
+- **How can we transfer what a model learned on one task to another, building on the fact that on every NLP task, language is essentially the same?**
+
+To explore these questions, we'll play mostly with two tasks and two datasets:
+
+- the *IMDB movie reviews* for **sentiment classification**
+- *WikiText-2* for **language modeling**.
+
+<Note title="Datasets" emoji="📖" variant="info">
+- **IMDB** [@maas2011]: a set of 50k movie reviews labeled either positive or negative, 25k for training and 25k for testing. Get it on the Hugging Face Hub at [stanfordnlp/imdb](https://huggingface.co/datasets/stanfordnlp/imdb). Note that it also contains a split made of 50k [unlabeled reviews](https://huggingface.co/datasets/stanfordnlp/imdb/viewer/plain_text/unsupervised).
+- **WikiText-2** [@merity2016]: about 2 million training words from Wikipedia articles, with a vocabulary of about 33,000 words. Use the tokenized version (`wikitext-2-v1`): punctuation is already separated by spaces, and rare words are already replaced by an `<unk>` token. Get it on the Hugging Face Hub at [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext).
+
+Other useful datasets are:
+- **TinyShakespeare**: about 1 million characters of Shakespeare's plays, from [Andrej Karpathy's char-rnn project](https://karpathy.github.io/2015/05/21/rnn-effectiveness/). Used only as a side demo for character-level generation. Get it on the Hugging Face Hub at [jchwenger/tiny_shakespeare](https://huggingface.co/datasets/jchwenger/tiny_shakespeare).
+- **text8**: the first 100 MB of a cleaned English Wikipedia dump (originally from [Matt Mahoney](https://mattmahoney.net/dc/textdata.html)), a standard corpus for training word2vec. Get it on the Hugging Face Hub at [afmck/text8](https://huggingface.co/datasets/afmck/text8).
+</Note>

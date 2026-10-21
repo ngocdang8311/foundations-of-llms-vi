@@ -77,7 +77,8 @@ export default defineConfig({
         linkCitations: true,
         csl: "apa",
         noCite: false,
-        suppressBibliography: false,
+        // The reference list is generated from papers.json (components/post/ReferenceList.astro).
+        suppressBibliography: true,
       }],
       rehypeReferencesAndFootnotes,
       rehypeRestoreAtInCode,

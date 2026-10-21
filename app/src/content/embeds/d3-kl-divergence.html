@@ -1,0 +1,194 @@
+<div class="d3-kl-divergence"></div>
+<style>
+  .d3-kl-divergence { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-kl-divergence .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 28px; }
+  .d3-kl-divergence.is-narrow .charts { grid-template-columns: 1fr; }
+  .d3-kl-divergence .chart-title { font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .d3-kl-divergence .chart-sub { font-size: 12px; font-weight: 400; color: var(--muted-color); margin-left: 8px; }
+  .d3-kl-divergence svg { display: block; overflow: visible; touch-action: none; }
+  .d3-kl-divergence .axis path, .d3-kl-divergence .axis line { stroke: var(--axis-color); }
+  .d3-kl-divergence .axis text { fill: var(--tick-color); font-size: 11px; }
+  .d3-kl-divergence .grid line { stroke: var(--grid-color); }
+  .d3-kl-divergence .grid path { stroke: none; }
+  .d3-kl-divergence .bar-value { fill: var(--muted-color); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .d3-kl-divergence .q-bar { cursor: ns-resize; }
+  .d3-kl-divergence .q-bar:focus-visible { outline: none; stroke: var(--text-color); stroke-width: 2; }
+  .d3-kl-divergence .handle { pointer-events: none; }
+  .d3-kl-divergence .readout { margin-top: 14px; display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: baseline; font-variant-numeric: tabular-nums; }
+  .d3-kl-divergence .readout .name { font-weight: 600; }
+  .d3-kl-divergence .readout .formula { color: var(--muted-color); }
+  .d3-kl-divergence .readout .num { text-align: right; font-weight: 700; }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-kl-divergence'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-kl-divergence'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // An illustration, not data: the next word after "I loved this".
+      const WORDS = ['movie', 'film', 'book', 'song', 'game', 'place'];
+      const P = [0.40, 0.25, 0.15, 0.10, 0.06, 0.04];
+      const Q0 = [0.20, 0.20, 0.20, 0.20, 0.10, 0.10];
+      const Q_MIN = 0.001;
+      const Y_MAX = 0.7;
+      let q = Q0.slice();
+
+      const cat = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getColors('categorical', 3); } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#59a14f'];
+      })();
+      const colorP = 'var(--muted-color)';
+      const colorQ = cat[0];
+      const colorKL = cat[1];
+
+      container.innerHTML = `
+        <div class="charts">
+          <div><div class="chart-title">p, the true distribution<span class="chart-sub">fixed</span></div><div class="left"></div></div>
+          <div><div class="chart-title">q, the model<span class="chart-sub">drag the bars up or down</span></div><div class="right"></div></div>
+        </div>
+        <div class="readout"></div>`;
+      const readout = container.querySelector('.readout');
+
+      const leftSvg = d3.select(container.querySelector('.left')).append('svg').attr('width', '100%')
+        .attr('role', 'img').attr('aria-label', 'The distribution p over six words');
+      const rightSvg = d3.select(container.querySelector('.right')).append('svg').attr('width', '100%')
+        .attr('aria-label', 'The distribution q over six words, adjustable');
+
+      // Natural logarithms, as in the formulas of the post: the unit is the nat.
+      const entropy = (p) => -d3.sum(p, (pi) => (pi > 0 ? pi * Math.log(pi) : 0));
+      const crossEntropy = (p, qq) => -d3.sum(p, (pi, i) => (pi > 0 ? pi * Math.log(qq[i]) : 0));
+      const fmt = d3.format('.3f');
+
+      // Set q[i] to v, and scale the other bars so that q still sums to 1.
+      function setQ(i, v) {
+        v = Math.max(Q_MIN, Math.min(1 - Q_MIN * (q.length - 1), v));
+        const rest = d3.sum(q, (x, j) => (j === i ? 0 : x));
+        const scale = (1 - v) / rest;
+        q = q.map((x, j) => (j === i ? v : Math.max(Q_MIN, x * scale)));
+        const s = d3.sum(q);
+        q = q.map((x) => x / s);
+      }
+
+      let layout = null;
+
+      function drawChart(svg, values, editable) {
+        const { width, height, margin, x, y } = layout;
+        svg.attr('width', width).attr('height', height);
+        let g = svg.select('g.plot');
+        if (g.empty()) g = svg.append('g').attr('class', 'plot');
+        g.attr('transform', `translate(${margin.left},${margin.top})`);
+        const iw = width - margin.left - margin.right;
+        const ih = height - margin.top - margin.bottom;
+        g.selectAll('g.grid').data([0]).join('g').attr('class', 'grid')
+          .call(d3.axisLeft(y).ticks(4).tickSize(-iw).tickFormat(''));
+        g.selectAll('g.axis.x').data([0]).join('g').attr('class', 'axis x').attr('transform', `translate(0,${ih})`)
+          .call(d3.axisBottom(x).tickSizeOuter(0));
+        g.selectAll('g.axis.y').data([0]).join('g').attr('class', 'axis y')
+          .call(d3.axisLeft(y).ticks(4).tickFormat(d3.format('.0%')));
+        const data = values.map((v, i) => ({ i, v }));
+        const bars = g.selectAll('rect.bar').data(data).join('rect')
+          .attr('class', editable ? 'bar q-bar' : 'bar')
+          .attr('x', (d) => x(WORDS[d.i])).attr('width', x.bandwidth())
+          .attr('y', (d) => y(d.v)).attr('height', (d) => Math.max(0, ih - y(d.v))).attr('rx', 2)
+          .attr('fill', editable ? colorQ : colorP).attr('opacity', editable ? 0.85 : 0.5);
+        g.selectAll('text.bar-value').data(data).join('text').attr('class', 'bar-value')
+          .attr('x', (d) => x(WORDS[d.i]) + x.bandwidth() / 2).attr('y', (d) => y(d.v) - 4).attr('text-anchor', 'middle')
+          .text((d) => d3.format('.0%')(d.v));
+        if (editable) {
+          bars.attr('tabindex', 0).attr('role', 'slider').attr('aria-valuemin', 0).attr('aria-valuemax', 100)
+            .attr('aria-valuenow', (d) => Math.round(d.v * 100)).attr('aria-label', (d) => `q(${WORDS[d.i]})`);
+          // A wide invisible target per word, so that the bar can be dragged from anywhere in its column
+          g.selectAll('rect.target').data(data).join('rect').attr('class', 'target q-bar')
+            .attr('x', (d) => x(WORDS[d.i]) - x.step() * x.paddingInner() / 2).attr('width', x.step())
+            .attr('y', 0).attr('height', ih).attr('fill', 'transparent');
+        }
+      }
+
+      function renderNumbers() {
+        const h = entropy(P);
+        const ce = crossEntropy(P, q);
+        const kl = ce - h;
+        readout.innerHTML = `
+          <span class="name">Entropy of p</span><span class="formula">H(p) = −Σ p log p</span><span class="num">${fmt(h)}</span>
+          <span class="name">Cross-entropy</span><span class="formula">H(p, q) = −Σ p log q</span><span class="num">${fmt(ce)}</span>
+          <span class="name">KL divergence</span><span class="formula">D<sub>KL</sub>(p ‖ q) = H(p, q) − H(p)</span><span class="num" style="color:${colorKL}">${fmt(kl)}</span>`;
+      }
+
+      function render() {
+        const total = container.clientWidth || 680;
+        const narrow = total < 480;
+        container.classList.toggle('is-narrow', narrow);
+        const width = narrow ? total : Math.floor((total - 28) / 2);
+        const height = Math.round(Math.min(230, Math.max(180, width * 0.62)));
+        const margin = { top: 16, right: 8, bottom: 26, left: 40 };
+        const x = d3.scaleBand().domain(WORDS).range([0, width - margin.left - margin.right]).paddingInner(0.25).paddingOuter(0.1);
+        const y = d3.scaleLinear().domain([0, Y_MAX]).range([height - margin.top - margin.bottom, 0]);
+        layout = { width, height, margin, x, y };
+        drawChart(leftSvg, P, false);
+        drawChart(rightSvg, q, true);
+        renderNumbers();
+      }
+
+      // Drag on the q chart: the pointer height sets the bar of its column.
+      const gRight = () => rightSvg.select('g.plot').node();
+      const columnAt = (px) => {
+        const { x } = layout;
+        let best = 0, dist = Infinity;
+        WORDS.forEach((w, i) => { const c = x(w) + x.bandwidth() / 2; if (Math.abs(c - px) < dist) { dist = Math.abs(c - px); best = i; } });
+        return best;
+      };
+      let dragging = null;
+      rightSvg.on('pointerdown', (event) => {
+        const [px, py] = d3.pointer(event, gRight());
+        dragging = columnAt(px);
+        event.target.setPointerCapture?.(event.pointerId);
+        setQ(dragging, layout.y.invert(py));
+        render();
+      });
+      rightSvg.on('pointermove', (event) => {
+        if (dragging == null) return;
+        const [, py] = d3.pointer(event, gRight());
+        setQ(dragging, layout.y.invert(py));
+        render();
+      });
+      const stop = () => { dragging = null; };
+      rightSvg.on('pointerup', stop).on('pointercancel', stop);
+      rightSvg.on('keydown', (event) => {
+        const d = d3.select(event.target).datum();
+        if (!d || typeof d.i !== 'number') return;
+        const step = event.shiftKey ? 0.05 : 0.01;
+        if (event.key === 'ArrowUp' || event.key === 'ArrowRight') { setQ(d.i, q[d.i] + step); }
+        else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') { setQ(d.i, q[d.i] - step); }
+        else return;
+        event.preventDefault();
+        render();
+        const again = rightSvg.selectAll('rect.bar').filter((b) => b.i === d.i).node();
+        if (again) again.focus();
+      });
+
+      render();
+      if (window.ResizeObserver) new ResizeObserver(() => render()).observe(container);
+      else window.addEventListener('resize', render);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

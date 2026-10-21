@@ -1,0 +1,372 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import Optional from '../../components/post/Optional.astro';
+
+## 2. Counting words: n-grams as the simplest language models
+
+Since language models will be our main interest later in the series, it is worth starting with a historical example representing the simplest way of generating language in an autoregressive way: **the Markov model**.
+
+<PaperNote id="markov1913">
+Markov had defined his (now famous) "chains" in 1906, but this paper from 1913 is their first application to a text: the first 20,000 letters of Pushkin's book "Eugene Onegin". In this paper, Markov computed the transition probabilities between vowels and consonants in the text.
+</PaperNote>
+
+### 2.1 Markov model
+
+If you really want the simplest (and most inefficient) language model, you can simply draw words at random in the vocabulary, following their natural frequency in the language. This is called the *unigram* model, for which
+$$
+p(x_{i} \mid x_1 \dots x_{i-1}) = p(x_i) = \frac{C(x_i)}{N}
+$$
+where $C(x_i)$ is the count of word $x_i$ in the training corpus, and $N = \sum C(x_i)$ is the corpus size. This is a very crude model! And we can at least improve it by considering *bigrams*, i.e. the Markov chain model.
+
+#### Simple Markov chain
+
+In the simplest *bigram* Markov chain model, **the probability of a word in a sequence only depends on the word that comes just before it**.
+$$
+p(x_{i} \mid x_1 \dots x_{i-1}) = p(x_i \mid x_{i-1})
+$$
+This assumption is of course incorrect for actual human languages, but it allows for very simple modeling using only a transition matrix.
+
+Using a training set, we simply count the occurrences of every word $C(v)$ and of every pair of consecutive words $C(v,w)$. We then use it to compute the probability $p(w \mid v) = C(v,w)/C(v)$ that the word $w$ follows the word $v$. These probabilities define a transition matrix that can then be used for autoregressive text generation using a Markov Chain model.
+
+Let's try that on the following exercise.
+
+<Exercise number="2.1" title="Build a Markov chain model" data="WikiText-2" nb="02-1-markov-chain">
+Using the WikiText-2 data, count the occurrences of consecutive words and use them to generate a sequence of 50 words with a Markov chain model.
+
+<Starter nb="02-1-markov-chain" />
+
+<Hints>
+
+<Hint>
+Look at a sample of WikiText-2. The text is already pre-processed, you just need to split it on spaces to get words. Keep every word as it is, including the `=` signs of the section titles (lines like ` = = History = = `), `@-@`, which stands for a hyphen (`role @-@ playing`), and `@,@` and `@.@`, which stand for the comma and the decimal point inside numbers (`14 @,@ 000`, `5 @.@ 5`).
+
+Note that the dataset replaces the rare words, those with a count below 3, with the `<unk>` word. So every word of the validation and test sets is also in the training text, and none of them gets a probability of 0 for being unknown.
+</Hint>
+
+<Hint>
+The vocabulary is too large to actually efficiently store the $V\times V$ count matrix, which would be very sparse anyway. Use a nested dictionary `{'the' : {'dog' : 3, ...}, ...}` to count the occurrence of each pair of words.
+</Hint>
+
+<Hint>
+`random.choices(words, weights=counts)` draws a word with a probability proportional to its count, normalization is automatic.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="02-1-markov-chain">
+
+The training split has 2,051,910 words. The vocabulary has 33,277 words, including `<unk>` and `=`. There are 618,405 distinct pairs, out of $33{,}277^2 \approx 1.1$ billion possible pairs.
+
+With another seed, your sample will differ but should look similar: each pair of consecutive words is plausible, but the sentence as a whole is not.
+</Checkpoint>
+
+<Solution nb="02-1-markov-chain" />
+
+<WhatToNotice>
+As you can see, the produced text is nonsense, but the word order is roughly grammatical.
+</WhatToNotice>
+
+</Exercise>
+
+#### n-gram models
+
+We can also extend the model by using *n-grams*, that is, chunks of $n$ consecutive words. To predict the next word, we thus consider the sequence of the $n-1$ previous words as an input. The Markov chain model of 2.1 is $n = 2$, the unigram model is $n=1$ where no context at all is used.
+
+Using n-grams, the transition matrix will be $V^{n-1} \times V$, which can quickly become overwhelming (for $n=3$ and $V=30{,}000$, we have about $3 \times 10^{13}$ entries). In practice, once again **we store only the n-grams that occur, in a dictionary of counts**, but not the full table.
+
+Below you can see examples for WikiText-2 at various $n$.
+
+<PaperNote id="shannon1948" look="Section 3, “The Series of Approximations to English”.">
+
+To measure the information produced by English text, the famous mathematician **Claude Shannon** models it as a random process that writes one symbol after the other: letters drawn independently, then depending on the previous letter, then on the two previous ones, and the same with words. He calls these "Markov processes". And he made his samples by hand! Open a book at random, pick a letter, then open another page, read until you meet this letter, and write down the one that follows it. No wonder he found that *"the labor involved becomes enormous at the next stage"*!
+</PaperNote>
+
+<HtmlEmbed
+  src="d3-ngram-explorer.html"
+  data="ngram-explorer.json"
+  title="The next word after a context"
+  desc="The probability of the next word given its n − 1 previous words, from the counts of the training text of WikiText-2."
+/>
+
+### 2.2 Comparing probability distributions
+
+In language modeling, our goal is to approximate the "true" probability distribution of next word occurrence. Let's call it $p(x_{L+1} \mid x_1 \dots x_L)$. Any candidate language model will produce a candidate distribution $q(x_{L+1} \mid x_1 \dots x_L)$ (in the n-gram Markov model, it depends only on $x_{L-n+2} \dots x_L$).
+
+How do we measure success? That is, how do we quantify how similar $q$ is to $p$?
+
+#### KL Divergence and cross-entropy loss
+
+To assess whether a certain probability distribution is a good approximation to another one, the tool of choice is the **Kullback–Leibler divergence**
+$$
+D_{KL}(p \,\|\, q) = \sum_x p(x) \log \frac{p(x)}{q(x)}.
+$$
+I write it with generic distribution $p$ and $q$, but note that this definition also works using conditional probabilities for instance in our case $p(x_{L+1} \mid x_1 \dots x_L)$ and $q(x_{L+1} \mid x_1 \dots x_L)$.
+
+Finding the distribution $q$ that best approximates a given $p$ means **minimizing the KL divergence**. Now, in our case, as $p$ a priori is unknown, exactly computing this quantity might seem impossible. But to minimize the KL divergence, we can first notice that its log part can be separated into
+
+$$
+D_{KL}(p \,\|\, q) = \sum_x p(x) \log p(x) - \sum_x p(x) \log q(x)
+$$
+
+The first part is (minus) **the entropy of $p$** (which doesn't depend on $q$), while the second part is the so-called **cross-entropy**.
+
+Since the cross-entropy
+$$
+H(p, q) = -\sum_x p(x) \log q(x).
+$$
+is the only part that actually depends on $q$, we are actually seeking $q$ that minimizes it.
+
+**Finding $q$ that minimizes the KL-divergence $D_{KL}(p \,\|\, q)$ is equivalent to minimizing the cross-entropy $H(p,q)$.**
+
+You can try it informally on a very simple example below, by dragging the bars of the orange distribution.
+<HtmlEmbed
+  src="d3-kl-divergence.html"
+  title="Entropy, cross-entropy and KL divergence"
+  desc="Drag the bars of q, the model, and compare it with p: the cross-entropy is always at least the entropy of p; the difference is the KL divergence, zero only when q = p. These are fake distributions on only 6 words."
+/>
+
+#### Likelihood
+
+Now let's return to our notations, and remember that we are working with conditional probabilities $p(x \mid c)$ and $q(x \mid c)$ of having $x$ as the next word, knowing the context $c=(x_1,\dots,x_L)$.
+
+If $q$ depends on some parameters $\theta$, we seek to minimize the cross-entropy
+$$
+-\sum_x p(x \mid c) \log q_{\theta}(x \mid c),
+$$
+which can be seen as an expectation over distribution probability $x \sim p( . | c)$
+$$
+-\mathbb{E}_{x \sim p( \cdot \mid c)}[\log q_{\theta}(x \mid c)].
+$$
+
+Once again, *we cannot compute this quantity directly* because we do not know $p$, but **our text corpus is a sample from $p$**.
+
+At each position $i$ of a text, the context $x_{<i} = x_1 \dots x_{i-1}$ is followed by the word $x_i$ that was actually written. Most contexts appear only once, so we never see the distribution $p(\cdot \mid x_{<i})$, only one word drawn from it. But the average over the $N$ positions of the text estimates the cross-entropy, averaged over the contexts as they occur in the language:
+
+$$
+\hat{H} = -\frac{1}{N} \sum_{i=1}^{N} \log q_\theta(x_i \mid x_{<i})
+$$
+
+This average has a simple meaning. A sum of logs is the log of a product, and by the chain rule of section 1.2, $\prod_i q_\theta(x_i \mid x_{<i})$ is the probability that the model gives to the whole text, its *likelihood*. So $\hat{H}$ is the negative log-likelihood of the text divided by its number of words, and **minimizing the cross-entropy amounts to maximizing the likelihood of the corpus**.
+
+To train a model, we choose the parameters $\theta$ (for instance the weights of a neural network) that minimize $\hat{H}$ on a *training* text. Each term of the sum is itself a cross-entropy: the one between $q_\theta$ and the distribution that puts all its probability on the observed word (a *one-hot* distribution), which stands in for the unknown $p$:
+
+$$
+L_{CE} = -\sum_x \mathbf{1}[x = x_i] \log q_\theta(x \mid x_{<i}) = -\log q_\theta(x_i \mid x_{<i})
+$$
+
+This is the *cross-entropy loss* used to train language models, LLMs included. Such a single term is a noisy estimate, but on average over the words of the text, its gradient is $\nabla_\theta H(p, q_\theta)$. Since the entropy of $p$ does not depend on $\theta$, this is also $\nabla_\theta D_{KL}(p \,\|\, q_\theta)$.
+
+**Maximizing the likelihood = Minimizing the cross-entropy loss = Minimizing the KL divergence**.
+
+For the n-gram models, we don't even need gradients: the ratio of counts $C(v,w)/C(v)$ of section 2.1 is exactly the $q$ that maximizes the likelihood of the training text.
+
+#### Perplexity
+
+Now a cross-entropy is not easy to read and interpret, so we usually report its exponential, the *perplexity* of the model on a text:
+
+$$
+{\cal P} = \exp\left(-\frac{1}{N} \sum_{i=1}^{N} \log q(x_i \mid x_{<i})\right) = \left(\prod_{i=1}^{N} \frac{1}{q(x_i \mid x_{<i})}\right)^{1/N}
+$$
+
+It is the inverse of the geometric average of the probabilities that the model gives to the words of the text. A model that is uniform over $V$ words has perplexity $V$, so **perplexity can be interpreted the number of words the model hesitates between.**
+
+<PaperNote id="shannon1951" look="Section 6: the entropy of English estimated from the guesses, with up to 100 letters of context.">
+
+Three years later, Shannon decided to use people as a language model! He shows them a text, asks them to guess the next letter again and again, and estimates the entropy of English from the number of guesses they need: between 0.6 and 1.3 bits per letter with 100 letters of context. Compare with 4.14 bits from the letter frequencies alone, and 3.3 bits from triples of letters. One bit per letter means a perplexity of 2: with enough context, people hesitate between about two letters!
+
+</PaperNote>
+
+<Optional title="Validation and test sets" subtitle="why we need two held-out texts">
+
+Now, *on which text should we measure it?* Not on the training text: the model was fitted to these very words, so its perplexity there is too optimistic. A model that memorized the training text would give it a very high probability, and still predict new text badly. To estimate how well $q$ approximates $p$, we need another sample from $p$ that the model has never seen: a *held-out* set.
+
+WikiText-2 comes with two held-out sets. The *validation set* is used for every choice we make about the model, such as the value of n (or the weights of the interpolation we'll introduce in section 2.3): we try several values and keep the one with the lowest validation perplexity. But a choice made this way is fitted to the validation set a little, so the validation perplexity of the chosen model is slightly optimistic too. The *test set* is used only once, at the end, to measure the perplexity we report.
+
+</Optional>
+
+In the exercises, we measure the perplexity on the validation set, and the test perplexity only to compare the models in section 6.
+
+<Exercise number="2.2" title="Measure the perplexity of the unigram and bigram models" data="WikiText-2" nb="02-2-perplexity">
+
+Using the counts of exercise 2.1, compute the perplexity of the unigram model and of the bigram model on the validation set of WikiText-2. Do you notice a problem? Then compute the perplexity of the unigram model on the test set.
+
+The starter code repeats steps (1) and (2) of the solution of exercise 2.1, which build the training sequence and the bigram counts. It also splits the validation and test sets into words in the same way.
+
+<Starter nb="02-2-perplexity" />
+
+<Hints>
+
+<Hint>
+
+Add up the log-probabilities instead of multiplying the probabilities: the product of 200,000 probabilities is too small to be stored as a floating-point number.
+
+</Hint>
+
+<Hint>
+
+For the bigram model, look for the pairs of the validation set that have a count of zero in training.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="02-2-perplexity">
+
+Every word of the validation set appears in the training text, so the unigram model gives each of them a non-zero probability, and its perplexity is 996.5. But 46,338 pairs of the validation set, 21.7% of them, never appear in training: each of them gets the probability 0, so the bigram perplexity is infinite.
+
+On the test set, the unigram perplexity is 941.7. It is lower than on the validation set. This is not a bug: the test articles of WikiText-2 happen to be easier to predict. Published models show the same gap: a Kneser-Ney 5-gram gets 219.3 on the test set and 233.9 on the validation set [@herel2023].
+
+</Checkpoint>
+
+<Solution nb="02-2-perplexity" />
+
+<WhatToNotice>
+
+Just by knowing how frequent each word is, the unigram model hesitates between about 1,000 words, instead of 33,277 for a uniform guess. The bigram model should do much better, since it also knows the previous word, but one validation pair out of five never appears in training. A single zero probability is enough to make the perplexity infinite!
+
+</WhatToNotice>
+
+</Exercise>
+
+### 2.3 Curse of dimensionality
+
+Zero counts arrive fast with words taken from a training corpus. With a vocabulary of 33,000 words, there are about 1.1 billion possible word pairs, but 2 million training words show at most 2 million of them (in exercise 2.1 we had about 618,000 distinct pairs, so 0.06%). Unseen pairs already appear in held-out text at n = 2 or 3. This is a manifestation of **the curse of dimensionality**: the number of possible contexts grows exponentially as $V^{n-1}$ while the training text stays the same size.
+
+<Exercise number="2.3a" title="Count the n-grams for n = 1 to 5" data="WikiText-2" nb="02-3a-ngram-counts">
+
+Extend the counts of exercise 2.1 to n = 1 to 5, with nested dictionaries keyed by the tuple of the n − 1 previous words. Generate a text with each n. Then measure, for each n, the fraction of the n-grams of the validation set never seen in training.
+
+The starter code builds the training sequence, with step (1) of the solution of exercise 2.1, and the validation and test sequences, as in the starter of exercise 2.2.
+
+<Starter nb="02-3a-ngram-counts" />
+
+<Hints>
+
+<Hint>
+
+For n = 1, the context is the empty tuple `()`. The counts for n = 1 to 5 take about 1.5 GB of memory.
+
+</Hint>
+
+<Hint>
+
+When you generate a text, the first words have fewer than n − 1 words before them: use the counts of a smaller n for them.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="02-3a-ngram-counts">
+
+The fraction of the n-grams of the validation set never seen in training grows from 0% for n = 1 (every word is in the vocabulary, thanks to `<unk>`) to 21.7% for n = 2 and 95.2% for n = 5. Your samples will differ, unless you use the same seed and the same first word.
+
+</Checkpoint>
+
+<Solution nb="02-3a-ngram-counts" />
+
+<WhatToNotice>
+
+As n grows, the samples become more and more readable, and at n = 5 they almost look like real sentences. But don't be fooled: 95% of the 5-grams of the validation set never appear in training, so the 5-gram model rarely has a choice. It copies long pieces of the training text word for word (12 to 30 words in our samples), and jumps from one to another when they share 4 words. **The 5-gram model writes well because it memorizes the training text.**
+
+</WhatToNotice>
+
+</Exercise>
+
+There are several options to avoid the infinite perplexity due to zero probabilities associated with the curse of dimensionality:
+    - **Smoothing:** giving unseen sequences a small non-zero probability. The simplest is *add-one smoothing* (add 1 to every count), but it works badly with words: it gives too much probability to the billions of unseen pairs.
+    - **Interpolation** works better: it mixes the n-gram estimate with the (n−1)-gram estimate, using a weight tuned on validation data. The estimate is applied step-by-step (recursively) down to the unigram, and since the unigram is non-zero for every word in the vocabulary, the mix is never zero.
+    - More sophisticated techniques have been devised since, see for instance the Kneser-Ney below, that has long been state-of-the-art.
+
+<Optional title="Backoff and Kneser-Ney" subtitle="the best smoothing of the counting era">
+
+Many variants of smoothing followed, such as *backoff* [@katz1987], which falls back on the (n−1)-gram estimate only when the n-gram was never seen. The best of them, according to the large comparison of Chen and Goodman [@chen1999], is *Kneser-Ney smoothing*. Its trick is in the shorter contexts: a word gets a probability according to the number of different words it follows, rather than according to its count (think of "Francisco", frequent but almost always after "San"). It remained for years the baseline that neural language models had to beat.
+
+</Optional>
+
+Smoothing deals with unseen sequences of known words. Unseen *words* are another problem, which WikiText-2 hides by replacing rare words with `<unk>`. This is our first encounter with the vocabulary problem: it comes back in section 3.2, but *tokenizers* (the topic of the next post) solve it.
+
+<Exercise number="2.3b" star title="Smooth the n-gram models" data="WikiText-2" nb="02-3b-smoothing">
+
+With the counts of exercise 2.3a, compute the perplexity of the n-gram models on the validation set, for n = 1 to 5, with add-one smoothing and with interpolation. Tune the weights of the interpolation on the validation set, and plot the perplexity against n. Then compute the test perplexity of the interpolated 5-gram model.
+
+The starter code builds the three sequences, as in exercises 2.1 and 2.2, then the counts for n = 1 to 5 with step (1) of the solution of exercise 2.3a: `counts[n][context][word]`.
+
+<Starter nb="02-3b-smoothing" />
+
+<Hints>
+
+<Hint>
+
+Work with log-probabilities, as in exercise 2.2. Many n-grams of the validation set are not in the counts: look them up with `.get`, which returns a default value for a missing key. With add-one smoothing, the count of every possible n-gram grows by 1, so the count of each context grows by V, the size of the vocabulary.
+
+</Hint>
+
+<Hint>
+
+For interpolation, start with two orders and a single weight $\lambda$: $q(w \mid a) = \lambda \, p_2(w \mid a) + (1 - \lambda) \, p_1(w)$, where $p_2$ and $p_1$ are the probabilities from the bigram and unigram counts. Tune $\lambda$ by a grid search on the validation set. Then add the orders one at a time, each with its own weight. When a context was never seen in training, skip its order.
+
+</Hint>
+
+<Hint>
+
+To try many weights quickly, compute once, for each word of the validation set and each n, the count of the n-gram that ends with this word and the count of its context. The perplexity for given weights is then a few operations on arrays.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="02-3b-smoothing">
+
+With add-one smoothing, the validation perplexity grows with n, from 999.1 for n = 1 to 31,024.1 for n = 5. With interpolation, it goes down from 996.5 for n = 1 to 296.2 for n = 5, and the interpolated 5-gram model has a test perplexity of 277.7. The charts below show all the values.
+
+</Checkpoint>
+
+<Solution nb="02-3b-smoothing" />
+
+<WhatToNotice>
+
+Add-one smoothing is a disaster: with n = 5, its perplexity is 31,024, barely better than a uniform guess over the 33,277 words! Interpolation does much better, but look at the chart: almost all the gain comes from n = 2, and going from n = 2 to n = 5 only takes the perplexity from 346 to 296. The tuned weights say the same thing: 0.68 for the bigrams, but only 0.09 for the 5-grams. **Longer contexts should help a lot, yet with counts we can hardly use them.**
+
+</WhatToNotice>
+
+</Exercise>
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**Kneser-Ney smoothing.** Implement it, and compare it with interpolation. How close does it get to the neural models of the next sections? For reference, a Kneser-Ney 5-gram reaches a test perplexity of 219 on WikiText-2 [@herel2023].
+
+</Bonus>
+
+<Bonus>
+
+**Characters instead of words.** Train character n-gram models on TinyShakespeare (`jchwenger/tiny_shakespeare`, loaded with `sample_by="document"`), for n = 1 to 10. At which n do unseen n-grams appear? At which n do the samples become readable? Their perplexity cannot be compared with that of the word models, because the unit is not the same (see the box in section 7.3).
+
+</Bonus>
+
+<Bonus>
+
+**Albert or Alfred?** Score "General relativity was formulated by Albert Einstein" and "General relativity was formulated by Alfred Einstein" with your models (the example of section 1.2). Which n is needed to prefer Albert?
+
+</Bonus>
+
+<Bonus>
+
+**Word order.** Compare the perplexity of a few sentences with that of the same sentences, with their words shuffled.
+
+</Bonus>
+
+<Bonus>
+
+**Memory.** How many distinct n-grams does the model store, for each n?
+
+</Bonus>

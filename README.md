@@ -1,5 +1,5 @@
 ---
-title: 'NLP before Transformers'
+title: 'Natural Language Processing before LLMs'
 short_description: 'From n-gram counts to attention, learning by doing'
 emoji: 📝
 colorFrom: blue
@@ -12,12 +12,12 @@ tags:
   - research-article-template
   - nlp
   - education
-thumbnail: https://dlouapre-nlp-before-transformers.hf.space/thumb.auto.jpg?v=7793b543e8
+thumbnail: https://dlouapre-nlp-before-llms.hf.space/thumb.auto.jpg?v=6ad588db10
 ---
 
-# NLP before Transformers
+# Natural Language Processing before LLMs
 
-Chapter 0 of "Fundamentals of Large Language Models: learning by doing", a series of posts based on the course David Louapre teaches at the MVA master in Paris.
+Chapter 0 of "Foundations of Large Language Models: Learning by Doing", a series of posts based on the course David Louapre teaches at the MVA master in Paris.
 
 Built with the [Research Article Template](https://huggingface.co/spaces/tfrere/research-article-template).
 

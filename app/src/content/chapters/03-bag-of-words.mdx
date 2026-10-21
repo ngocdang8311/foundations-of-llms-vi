@@ -1,0 +1,309 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import PairTable from '../../components/post/PairTable.astro';
+import Optional from '../../components/post/Optional.astro';
+
+## 3. Classification with bag of words
+
+Let's now leave language modeling for a while, and turn to the other task of this post: classifying movie reviews as positive or negative.
+
+### 3.1 The pattern: encoder → fixed-size representation → head
+
+In a classification task, such as the *sentiment analysis of movie reviews*, the input text has a variable length. And we can't rely on the trick we used for the Markov language model, which is to keep only the last $n$ words. Indeed there is no reason to assume that the important information will be in the last $n$ words, especially if $n$ is less than 3 or 4!
+
+Since all classical machine learning methods (logistic regression, feedforward networks, tree-based methods...) require an input of fixed size, **we need a way to go from a variable-length piece of text to a fixed-size representation** of the content of this text.
+
+In general, a classification model in NLP can be split into two steps: the *encoder*, which produces a fixed-size representation of the text (sometimes called a *latent representation*), and the *classification head*, which takes this representation and produces the probabilities of the classes.
+
+This is illustrated below.
+<HtmlEmbed
+  src="d3-encoder-head.html"
+  title="Encoder, representation, head"
+  desc="The pattern of every classifier in this post: an encoder turns a text of any length into a vector of fixed size, and a head turns this vector into the probabilities of the classes. Most of what follows is about the box marked “?”."
+/>
+
+Note that the n-gram models of section 2 already follow this pattern, for language modeling: the encoder keeps the last n − 1 words of the text, a representation of fixed size, and the head is the table of counts, which gives the probabilities of the next word.
+
+So **what are our options to build a fixed-size representation of a review?** Let's start with the simplest one.
+
+### 3.2 Bag of words
+
+Consider this review:
+
+*Great acting, great lighting, and a flabbergasting soundtrack, but not even Zendaya could save this boring, boring plot.*
+
+We can simply count the occurrences of each word.
+
+<PairTable>
+
+| Word | Count | Word | Count | Word | Count | Word | Count |
+|---|---|---|---|---|---|---|---|
+| a | 1 | but | 1 | great | 2 | save | 1 |
+| acting | 1 | could | 1 | lighting | 1 | soundtrack | 1 |
+| and | 1 | even | 1 | not | 1 | this | 1 |
+| boring | 2 | flabbergasting | 1 | plot | 1 | Zendaya | 1 |
+
+</PairTable>
+
+We can't use this table directly as a representation, because its size (and the words in it) changes from one review to the next. The solution is to **choose a vocabulary of V words beforehand**, for instance the V most frequent words of the training reviews. Each review then becomes a vector of size V, whose entry number $v$ is the count $C_v$ of the $v$-th word of the vocabulary in the review.
+
+Almost all the entries of this vector are zeros: the median IMDB review has 178 words, while the vocabulary has thousands of them. It is a *sparse* vector. You can also see it as the sum of the one-hot vectors of the words of the review, which has the same size V whatever the length of the review. **We have our fixed-size representation**, and we can feed it to any classical classifier.
+
+This representation is called a *bag of words*: it is as if we had cut the review into words and thrown them into a bag. We know how many times each word appears, but we have lost the order in which they appear (keep that in mind, it will come back).
+
+<PaperNote id="salton1975" look="Table III: the words that best and worst tell apart 425 articles of Time magazine from 1963. The best are “Buddhist”, “Diem”, “Lao”, “Arab”, “Viet”, “Kurd”; the worst include “Work”, “Lead”, “Red” and “Minister”.">
+
+Gerard Salton built SMART, a system that searches collections of documents automatically, in the 1960s. In this paper, he and his colleagues represent each document as a vector with one weight per word, and measure the similarity of two documents by the angle between their vectors. Their idea is that good weights spread the documents apart in this "document space", so that a query finds the right ones more easily. The weights they recommend are those of section 3.3: the count of the word times its inverse document frequency!
+
+</PaperNote>
+
+Of course, some words will not be in the vocabulary, like "Zendaya" in our example. They are simply ignored. With V = 10,000, "flabbergasting" is most likely ignored too: it appears in only 2 of the 25,000 training reviews of IMDB.
+
+For the head, the simplest choice is a *logistic regression*. It gives a weight $w_v$ to each word of the vocabulary, and computes the probability that the review is positive as
+
+$$
+p(\text{positive} \mid x_1 \dots x_L) = \sigma\Big(b + \sum_{v=1}^{V} w_v \, C_v\Big), \qquad \text{with } \sigma(z) = \frac{1}{1 + e^{-z}},
+$$
+
+where $b$ is a bias, and the sigmoid function $\sigma$ turns the score into a probability between 0 and 1. In other words, each occurrence of a word pushes the score up or down by the weight of this word, and the model says "positive" when the total is above zero. The weights are learned on labeled reviews, by minimizing the cross-entropy loss of section 2.2 (with two classes, instead of a whole vocabulary of next words).
+
+You can play with such a model below: it is the one you will train in exercise 3.2. Edit the review and watch its count vector change. To show the limits of this approach, **try to write a very negative review that gets classified as positive**, for instance using sarcasm.
+<HtmlEmbed
+  src="d3-bag-of-words.html"
+  data="bow-weights.json"
+  title="A review as a bag of words"
+  desc="The bag-of-word vector has one entry per word of the vocabulary, in alphabetical order, and only the words of the review have a non-zero entry (the dashed boxes count the zeros between them.) Each entry is colored by the weight of its word in the logistic regression of exercise 3.2 (hover over an entry to see it). Try to shuffle the words of your review: nothing changes."
+/>
+
+Let's train such a model on IMDB.
+<PaperNote id="pang2002" look="Figure 3 (in fact a table): the accuracy of the three classifiers for each set of features. And section 4 for the word lists chosen by hand.">
+
+One of the first papers to classify sentiment with ML, on movie reviews from the IMDb archive. To set a baseline, the authors asked two graduate students in computer science to list the words that signal a positive or a negative review, and classified 700 positive and 700 negative reviews by counting these words: 58% and 64% of correct answers! Naive Bayes, maximum entropy and SVM classifiers trained on the words did much better, up to 82.9% for an SVM. They found that the presence of a word works better than its count.
+</PaperNote>
+
+<Optional title="Don't forget overfitting">
+Remember that with 10,000 weights for 20,000 reviews, the model can *overfit*: it can find weights that fit the training reviews perfectly, noise included, and generalize badly. This is why logistic regression is usually *regularized*: a penalty proportional to the sum of the squared weights is added to the loss, to keep the weights small. In scikit-learn, the parameter `C` is the inverse of the strength of this penalty: the smaller `C`, the smaller the weights. As we did for the weights of the interpolation in section 2.3, we choose `C` on a validation set, here 5,000 reviews taken out of the training set.
+</Optional>
+
+<Exercise number="3.2" title="Classify the IMDB reviews with a bag of words" data="IMDB" nb="03-2-bag-of-words">
+
+Represent each review by its counts over the 10,000 most frequent words of the training reviews, and train a logistic regression on these vectors. Keep 5,000 training reviews aside as a validation set, and use it to choose the parameter `C` of the regularization. Then measure the test accuracy, and print the 10 words with the largest positive weights and the 10 words with the largest negative weights.
+
+<Starter nb="03-2-bag-of-words" />
+
+<Hints>
+
+<Hint>
+
+The reviews contain HTML line breaks, `<br />`: replace them with spaces. To make the validation set, use the method `train_test_split(test_size=5000, seed=0)` of the training split. Don't just take the last 5,000 reviews: the training reviews are sorted by label!
+
+</Hint>
+
+<Hint>
+
+`CountVectorizer(max_features=10000)` from scikit-learn builds the vocabulary of the most frequent words of the texts you give to its method `fit_transform`, and returns their count vectors. Its method `transform` then counts the words of any other text. By default, it skips the words of a single letter, like "a": pass `token_pattern=r"\b\w+\b"` to keep them. The vectors are stored as *sparse matrices*, which keep only the non-zero entries.
+
+</Hint>
+
+<Hint>
+
+Use `LogisticRegression(C=C, max_iter=1000)` from scikit-learn, and try `C` = 0.01, 0.03, 0.1, 0.3, 1, 3 and 10. Once a model is trained, `model.coef_[0]` holds its weights, in the order of the words of `vectorizer.get_feature_names_out()`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="03-2-bag-of-words">
+
+The best value is `C` = 0.1, with a validation accuracy of 88.9%, and the test accuracy is 87.6%. The most negative words include "worst", "waste" and "awful", the most positive ones "perfect", "excellent" and "superb". If you cut the reviews into words differently, your numbers and your lists can differ a little.
+
+</Checkpoint>
+
+<Solution nb="03-2-bag-of-words" />
+
+<WhatToNotice>
+
+Without knowing anything about the order of the words, a bag of words gets 87.6% of the test reviews right! And its weights are easy to read: the model has built its own lists of positive and negative words from the data. But look at the two most positive words: "7" and "8". They are not sentiments, they are grades: many reviewers end with "7/10" or "8/10", and the model has found this shortcut on its own. **The model does not understand the reviews: it counts the words that tend to come with each label.**
+
+</WhatToNotice>
+
+</Exercise>
+
+Learning the words from the data works much better than choosing them by hand, and this was one of the first lessons of sentiment classification by machine learning.
+
+### 3.3 TF-IDF weighting
+
+In the previous example, words like "a" and "and" are certainly not very informative, because they are very common: "the" appears in 99% of the training reviews of IMDB, "a" and "and" in 97% of them. On the contrary, "boring" appears in only 6% of the reviews, and certainly carries useful information.
+
+A solution to improve the bag-of-words representation is to down-weight the words that appear in most documents, and up-weight the rare ones. This is what the **inverse document frequency** does: multiply the count of each word by $-\log$ of the fraction of documents that contain it,
+
+$$
+\text{idf}(v) = -\log \frac{N_v}{N} = \log \frac{N}{N_v},
+$$
+
+where $N$ is the number of documents and $N_v$ the number of documents that contain the word $v$. The entry $v$ of the vector of a document becomes $C_v \times \text{idf}(v)$, hence the name *TF-IDF*, for "term frequency times inverse document frequency". With a base-2 logarithm, "the" gets a weight of 0.01, almost nothing, "boring" a weight of 4, and "flabbergasting", in 2 reviews out of 25,000, would get 13.6.
+
+<PaperNote id="sparckjones1972" look="The section “Experimental results”, where she comments on the gain: “insofar as anything can be called a solid result in information retrieval research, this is one.”">
+
+Karen Sparck Jones worked on a very practical problem: a search system that scores each document by the words it shares with the query. Her remark is that a word shared by many documents does a poor job of telling them apart, so a match on a rare word should count more. She gave each word a weight that grows like the logarithm of the inverse of the number of documents that contain it, and tested it on three collections of a few hundred documents: a clear gain on all three. She never wrote "inverse document frequency" (she spoke of the *specificity* of a word): the name came later, and the idea is still used by search engines today.
+
+</PaperNote>
+
+Another simple variant keeps only the *presence* of each word: 1 if the word is in the review, 0 if not. This is what worked best for Pang et al. (see the margin note of section 3.2). Let's compare these weightings on IMDB.
+
+<Exercise number="3.3" title="Weight the words of the bag of words" data="IMDB" nb="03-3-tf-idf">
+
+Redo exercise 3.2 with two other weightings of the words: their presence, and TF-IDF. For each weighting, choose `C` on the validation set, then compare the test accuracies of the three weightings.
+
+The starter code repeats step (1) of the solution of exercise 3.2, so the training, validation and test reviews are the same as in exercise 3.2.
+
+<Starter nb="03-3-tf-idf" />
+
+<Hints>
+
+<Hint>
+
+`CountVectorizer(binary=True)` gives the presence of the words, and `TfidfVectorizer` gives TF-IDF. Both take the same arguments as in exercise 3.2.
+
+</Hint>
+
+<Hint>
+
+`TfidfVectorizer` differs from the formula above in two ways. It uses the natural logarithm and adds 1 to the idf, so that a word present in every review is not removed completely. And it divides each vector by its length, so that all the reviews get vectors of length 1, whatever their number of words.
+
+</Hint>
+
+<Hint>
+
+The best `C` is not the same for the three weightings: their vectors have values of very different sizes.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="03-3-tf-idf">
+
+The test accuracy is 87.6% with the counts (`C` = 0.1), 88.2% with the presence (`C` = 0.03), and 88.4% with TF-IDF (`C` = 3).
+
+</Checkpoint>
+
+<Solution nb="03-3-tf-idf" />
+
+<WhatToNotice>
+
+TF-IDF wins, but by less than one point. Why so little? Because the logistic regression learns its own weight for each word. Multiplying the count of a word by a fixed number, like its idf, can be compensated by dividing the weight of the word by the same number: the model can learn the same thing with or without idf, and only the regularization (and the normalization of the vectors) makes a small difference. TF-IDF matters much more when no weight is learned, for instance to measure the similarity between two documents, which was the problem of Sparck Jones and Salton. **Whatever the weighting, our bag of words stays below 89%.**
+
+</WhatToNotice>
+
+</Exercise>
+
+These numbers are typical of the bag of words on IMDB: the paper that introduced the dataset reports 87.8% with the presence of the words [@maas2011]. A strong bag-of-words baseline by Wang and Manning reaches 91.2% [@wang2012]. It adds the pairs of consecutive words to the vocabulary, so that "not good" becomes a word of its own, and mixes a Naive Bayes classifier with an SVM. Pairs of words bring back a little of the word order, and this order is precisely what the bag of words is missing.
+
+### 3.4 The limit
+
+Consider these two reviews:
+
+*A: Excellent movie, awesome soundtrack.*
+
+*B: Superb film, wonderful score.*
+
+They say essentially the same thing, but with completely different words. So they get completely orthogonal representations in the bag of words: no entry is non-zero in both vectors.
+
+| | excellent | movie | awesome | soundtrack | superb | film | wonderful | score |
+|---|---|---|---|---|---|---|---|---|
+| **A** | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 |
+| **B** | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
+
+For the bag of words, "superb" is as different from "excellent" as it is from "boring". The representation does not help the head: the head must learn the weight of each word separately, from the labeled reviews that contain this word. For a frequent word like "excellent", found in 1,780 training reviews, this works fine. But a rare word like "mesmerizing" (62 reviews) gets a weight learned from a handful of examples, and a word outside the vocabulary, like "flabbergasting", gets no weight at all.
+
+The second limit is in the name: **a bag of words forgets the order of the words**. These two reviews have exactly the same words, hence exactly the same vector, so the model must give them the same probability:
+
+*A: I expected it to be terrible, but it was great.*
+
+*B: I expected it to be great, but it was terrible.*
+
+The same goes for negation. In "not bad at all", the model sees "not", "bad", "at" and "all" separately, and "bad" has a strong negative weight. And sarcasm is even worse, since it uses positive words to say something negative.
+
+To follow these limits through the post, I wrote a small set of *hard reviews*. They are short, and their sentiment is obvious to any human reader. They are grouped by kind of difficulty: negation, contrast, sarcasm, word order, synonyms and rare words. We will run every IMDB model of the post on them, starting with our bag of words.
+
+<Exercise number="3.4" title="Test the bag of words on the hard reviews" data="IMDB" nb="03-4-hard-reviews">
+
+Run the model of exercise 3.2 on the 13 hard reviews of the starter code. For each review, print its label and the probability of being positive that the model gives it. Which reviews does the model get wrong, and why?
+
+The starter code trains this model again, with steps (1) and (2) of the solution of exercise 3.2 and the value of `C` chosen there, 0.1. Then it lists the hard reviews.
+
+<Starter nb="03-4-hard-reviews" />
+
+<Hints>
+
+<Hint>
+
+`model.predict_proba` returns one row per review, with the probabilities of the two classes: negative in column 0, positive in column 1.
+
+</Hint>
+
+<Hint>
+
+To understand a prediction, look at the weights of the words of the review: paste it into the figure "A review as a bag of words" of section 3.2, which shows the same model.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="03-4-hard-reviews">
+
+The model gets 7 of the 13 reviews right. The two reviews with the same words get exactly the same probability, 0.495.
+
+</Checkpoint>
+
+<Solution nb="03-4-hard-reviews" />
+
+<WhatToNotice>
+
+The bag of words fails where we expected it to. Sarcasm fools it: "perfect" and "masterpiece" make the review about naps 76% positive, and "Brilliant" makes the sequel review 60% positive. Negation too: "Not bad at all, actually" is only 34% positive, because of "bad". The two reviews with the same words get the same probability, so one of them is necessarily wrong. On the other hand, the two synonymous reviews are both right: each of their words appears in hundreds of labeled reviews, so the model has learned its weight. **A bag of words knows which words are positive, but not what the review says.**
+
+</WhatToNotice>
+
+</Exercise>
+
+How can we do better? For the first limit, we need a representation where similar words get similar vectors, so that what the model learns about "excellent" also helps with "superb", and even with words it has rarely seen. This is the topic of the next section. For the word order, we will have to wait until section 7.
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**A small neural network.** Replace the logistic regression with a perceptron with one hidden layer (`MLPClassifier` in scikit-learn). Does it beat the logistic regression? Does it get more hard reviews right?
+
+</Bonus>
+
+<Bonus>
+
+**Naive Bayes.** Train a Naive Bayes classifier on the counts (`MultinomialNB` in scikit-learn), one of the three classifiers of Pang et al. [@pang2002]. How does it compare with the logistic regression?
+
+</Bonus>
+
+<Bonus>
+
+**Pairs of words.** Add the pairs of consecutive words to the vocabulary (`ngram_range=(1, 2)`), as in Wang and Manning [@wang2012]. How much does the accuracy improve? Which hard reviews does it fix?
+
+</Bonus>
+
+<Bonus>
+
+**The size of the vocabulary.** How does the test accuracy change with V, from 1,000 words to the whole vocabulary of the training reviews (about 75,000 words)?
+
+</Bonus>
+
+<Bonus>
+
+**Shortcuts.** Remove the digits from the reviews before counting the words. How much accuracy does the model lose without the grades "7/10" or "8/10"?
+
+</Bonus>

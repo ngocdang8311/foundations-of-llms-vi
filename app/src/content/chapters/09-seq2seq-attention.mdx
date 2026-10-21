@@ -1,0 +1,289 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import Optional from '../../components/post/Optional.astro';
+import WrapTable from '../../components/post/WrapTable.astro';
+
+## 9. From sequence to sequence: translation and the birth of attention
+
+Let's go back to the third task of section 1, translation. All the models of the post so far give a single probability distribution for a text: over the classes of a review, or over the next word. A translation is a whole sentence, which generally does not have the length of the source sentence, and whose words can come in another order, as the figure of section 1.3 shows. Until 2014, the best translation systems were *statistical machine translation* systems, built from many parts: tables that translate short pieces of sentences, learned from millions of pairs of sentences, and an n-gram language model that checks that the result reads like French or English (we come back to them in section 9.3). Then, in a few months, a handful of papers showed that two recurrent networks could do the whole job, and one of them introduced attention, the mechanism at the heart of transformers.
+
+### 9.1 Encoder–decoder (seq2seq)
+
+The idea is to use two RNNs. The first one, the *encoder*, reads the source sentence $x_1 \dots x_L$ word by word, as the classifier of section 7.2 reads a review. Its last state $h_L$ is the fixed-size representation of the sentence. The second one, the *decoder*, is a language model, like the one of section 7.3, that writes the translation $y_1 \dots y_K$ word by word, except that its state starts from $h_L$ instead of zero. So each word that it predicts depends on the words that it has already written, and on the source sentence through $h_L$. The decoder learns the probability of section 1.3, with the source sentence replaced by its representation:
+
+$$
+p(y_{N+1} \mid y_1 \dots y_N; h_L).
+$$
+
+To start, the decoder reads a special start token, and it writes words until it produces a special end token. During the training, it reads the true previous words of the translation, as a language model reads its training text, and the loss is the cross-entropy of the next true word. This is called *teacher forcing*. At test time, there is no true translation to read: the decoder reads the words that it has written itself. The simplest way to choose them is to take, at each step, the word with the highest probability, which is called *greedy decoding*.
+
+<HtmlEmbed
+  src="d3-seq2seq.html"
+  config={{ mode: "encoder-decoder" }}
+  title="An encoder–decoder translates a sentence"
+  desc="The encoder, an RNN, reads the English sentence word by word, as in section 7. Its last state (outlined) is the first state of the decoder, a second RNN with its own weights, which writes the French translation one word at a time. At each step, the decoder reads the word that it wrote just before, starting with a start token, and a head turns its state into the probabilities of the next word. The last state of the encoder is the only link between the two sentences. The values are made up."
+/>
+
+<Optional title="Beam search" subtitle="choosing the whole translation, not one word at a time">
+
+Greedy decoding chooses each word without looking ahead. But the most probable translation as a whole can start with a word that is not the most probable first word: a less probable word now can lead to much more probable words later. Finding the most probable translation exactly is impossible, since the number of possible sentences grows exponentially with their length. *Beam search* is a compromise: it keeps the B most probable beginnings of translations. At each step, it extends each of them with every word of the vocabulary, and keeps the B extensions with the highest probability, until they end with the end token. With B = 1, it is greedy decoding. Sutskever et al. used B = 12 [@sutskever2014]: with their ensemble of 5 models, the BLEU score (section 9.3) goes from 33.0 with greedy decoding to 34.5 with B = 2, and 34.8 with B = 12.
+
+</Optional>
+
+Kyunghyun Cho and his colleagues in Montreal introduced this encoder–decoder in June 2014, in the paper where they also introduced the GRU of section 7.2 [@cho2014a]. But they only used it to score pairs of short phrases inside a statistical system. In September, Ilya Sutskever, Oriol Vinyals and Quoc Le, at Google, translated whole sentences from English to French with a very similar model, developed in parallel. Their encoder and their decoder were LSTMs with four layers of 1,000 units, trained for about ten days on 12 million pairs of sentences. An ensemble of five of them beat the statistical system of reference, with a BLEU score of 34.8 against 33.3 (BLEU, a score of translation between 0 and 100, is explained in section 9.3). In their words, *"it is the first time that a pure neural translation system outperforms a phrase-based SMT baseline on a large scale MT task by a sizeable margin"*. The title of their paper gave the architecture its usual name: *sequence to sequence*, or *seq2seq*.
+
+<PaperNote id="sutskever2014" look="Figure 2: the last state of the encoder after reading a few short sentences, projected in 2D. “John admires Mary” and “Mary admires John” are far apart, while active and passive versions of the same sentence are close.">
+
+The model has 384 million parameters, with a vocabulary of 160,000 English words and 80,000 French words. It was trained on a machine with 8 GPUs: each of the 4 layers ran on its own GPU, and the 4 others computed the softmax over the 80,000 French words. The authors expected the bottleneck: "We were initially convinced that the LSTM would fail on long sentences due to its limited memory". But with their deep LSTMs and the source sentence reversed, "There is no degradation on sentences with less than 35 words, there is only a minor degradation on the longest sentences". The state and the cell of its 4 layers make a large vector: "the deep LSTM uses 8000 real numbers to represent a sentence". Its representations are, in their words, "sensitive to the order of words, while being fairly insensitive to the replacement of an active voice with a passive voice".
+
+</PaperNote>
+
+Look at the figure again: **the whole source sentence must go through $h_L$, a vector of fixed size, whether the sentence has 5 words or 50**. Cho et al. measured the consequence in a second paper: the translations of their encoder–decoder were good for short sentences, but their quality "degrades rapidly as the length of the sentence and the number of unknown words increase". Their hypothesis: "the fixed-length vector representation does not have enough capacity to encode a long sentence with complicated structure and meaning". **The last state of the encoder is a bottleneck: everything the decoder knows about the source sentence must fit into it.**
+
+<PaperNote id="cho2014b" look="Figure 4 (a): the BLEU score of the RNN encoder–decoder against the length of the sentence.">
+
+Cho et al. compare two encoders: the RNN encoder–decoder of their first paper, with 1,000 units, and a convolutional network that builds the representation of a sentence by merging neighboring words, layer after layer. Both models are trained on pairs of sentences of at most 30 words, with the 30,000 most frequent words of each language. The BLEU score of the RNN encoder–decoder is about 20 for sentences of 10 to 20 words, 10 around 35 words, and 5 at 50 words. The statistical system does the opposite: its BLEU score is higher on longer sentences. Training on sentences of up to 50 words did not change the trend. In their conclusion, the authors call this "the curse of sentence length".
+
+</PaperNote>
+
+<Optional title="A strange trick" subtitle="reversing the source sentence improves translation">
+Sutskever et al. also found a strange trick: reverse the order of the words of the source sentence. To translate "I loved this great movie", the encoder reads "movie great this loved I". With this trick, the test perplexity of their model went from 5.8 to 4.7, and its BLEU score from 25.9 to 30.6. Their explanation: in the normal order, each word of the source is separated from its translation by about the length of the sentence. Reversing the source does not change the average distance between the words and their translations, but "the first few words in the source language are now very close to the first few words in the target language, so the problem's minimal time lag is greatly reduced". The network can start by learning these short dependencies, through a gradient that goes back a few steps only, which is easy, as section 7.2 showed. The trick is a symptom of the bottleneck: how well a piece of the source sentence reaches the decoder depends on the number of steps that separate it from the word that needs it. With this trick and their much larger networks, Sutskever et al. saw almost no drop of quality on long sentences, unlike Cho et al. A larger vector holds more, but its size is still fixed.
+</Optional>
+
+To see the bottleneck in action without a translation dataset, let's use a toy task: reverse strings of digits. The "translation" of 3 9 1 4 is 4 1 9 3. We can generate as many pairs as we want, of any length, and we know the right answer, so we can measure exactly how the accuracy depends on the length. The order is reversed, as Turkish nearly reverses the order of English in the figure of section 1.3. And the reversal is the easy order of Sutskever et al.: the first digit to write is the last one read.
+
+<Exercise number="9.1" star title="Reverse strings of digits with an encoder–decoder" data="random digits" nb="09-1-encoder-decoder">
+
+Train a GRU encoder–decoder to reverse strings of digits. The encoder reads the digits, its last state is the first state of the decoder, and the decoder writes the digits in reverse order, one at a time (D = 32, H = 128). Train it on strings of 5 to 30 digits. Then, for each length, measure the fraction of strings that it reverses without a single mistake, and the fraction of digits that it gets right, and plot both against the length.
+
+<Starter nb="09-1-encoder-decoder" />
+
+<Hints>
+
+<Hint>
+
+Write the model as a subclass of `nn.Module` with two embeddings, `nn.Embedding(10, D)` for the source and `nn.Embedding(11, D)` for the decoder, which also reads the start token; two GRUs, `nn.GRU(D, H, batch_first=True)`; and `nn.Linear(H, 10)` for the scores of the next digit. A GRU returns the states after every step, and its last state, of shape (1, batch, H). Give the last state of the encoder as the second argument of the decoder, so that the decoder starts from it.
+
+</Hint>
+
+<Hint>
+
+With teacher forcing, the decoder reads the start token followed by the target digits, except the last one: `torch.cat([starts, targets[:, :-1]], dim=1)`, where `starts` is a column of start tokens. At each position, its scores are compared with the target digit, with `F.cross_entropy` on all the positions at once, as in exercise 7.3. Draw a new length for each batch with `random.randint(5, 30)`, so that all the strings of a batch have the same length, and there is no padding.
+
+</Hint>
+
+<Hint>
+
+Train with Adam (learning rate 0.001) on 20,000 batches of 64 strings, and clip the gradient at 1. It takes about two and a half minutes on a laptop CPU.
+
+</Hint>
+
+<Hint>
+
+To decode greedily, start from a column of start tokens. At each step, give the model the source and the digits written so far, take the digit with the highest score at the last position (`argmax`), and append it. After L steps, `correct = outputs == targets` is a matrix of booleans, and `correct.all(dim=1)` tells which strings have no mistake.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="09-1-encoder-decoder">
+
+After 20,000 batches, the model reverses all the strings of 10 digits without a mistake, 91.7% of the strings of 15 digits, 51.8% of those of 20 digits, and none of those of 30 digits. The fraction of digits right falls more slowly, from 100% for 10 digits to 53.8% for 30 digits. The chart below shows both curves. The solution takes about three minutes on a laptop CPU. Your numbers can differ by a few points.
+
+</Checkpoint>
+
+<Solution nb="09-1-encoder-decoder" />
+
+<WhatToNotice>
+
+The model has learned the task perfectly for short strings: it reverses all the strings of 10 digits without a mistake. Then the accuracy collapses: half of the strings of 20 digits have a mistake, and almost all those of 25 digits. Yet a string of 25 digits is no harder to reverse than a string of 10: the model only has to repeat what it read. The difference is that the last state of the encoder, 128 numbers, must hold all the digits, and the more digits there are, the less precisely each of them is kept. Look at the example of 25 digits. The first digits written, which are the last ones read, are right, as in the reversed sentences of Sutskever et al. The mistakes come later, and they are not random: twice, the model swaps two neighboring digits, writing "58" instead of "85". The state remembers which digits are there, but not exactly where. With more training, the curves move to the right: after 10,000 batches instead of 20,000, only 28% of the strings of 20 digits were right. But they still fall with the length. **The last state of the encoder holds a fixed amount of information, so the longer the source, the more of it is lost.**
+
+</WhatToNotice>
+
+</Exercise>
+
+### 9.2 Attention
+
+In September 2014, a few days before the paper of Sutskever et al., Dzmitry Bahdanau, Kyunghyun Cho and Yoshua Bengio proposed to remove the bottleneck [@bahdanau2014]. Their idea is to keep all the states of the encoder. As we saw in section 7.1, the encoder gives one state per word of the source,
+
+$$
+x_1 \dots x_L \longrightarrow h_1 \dots h_L,
+$$
+
+and the decoder can read all of them, instead of the last one only:
+
+$$
+p(y_{N+1} \mid y_1 \dots y_N; h_1 \dots h_L).
+$$
+
+But the decoder needs an input of fixed size, while the number of states grows with the source sentence. The solution is a weighted average of the states, the *context*, recomputed for each word that the decoder writes:
+
+$$
+c_N = \sum_{j=1}^{L} \alpha_{N,j}\, h_j.
+$$
+
+The weights $\alpha_{N,j}$ say which words of the source matter to write the next word. To compute them, the decoder compares its own state $s_N$ with each state $h_j$ of the encoder, which gives a score $e_{N,j}$, and a softmax turns the scores into weights between 0 and 1 that add up to 1:
+
+$$
+\alpha_{N,j} = \frac{\exp(e_{N,j})}{\sum_{k=1}^{L} \exp(e_{N,k})}.
+$$
+
+The simplest score is the dot product, $e_{N,j} = s_N \cdot h_j$, which is large for the states of the encoder that point in the same direction as the state of the decoder. The head then reads both the state of the decoder and the context, to give the probabilities of the next word. Bahdanau et al. computed the score with a small neural network, from the previous state of the decoder, and also gave the context to the RNN of the decoder. A year later, Luong, Pham and Manning compared several variants, and found that the simpler dot product works well [@luong2015]: this is the version of the exercise below.
+
+Nobody tells the network which words of the source go with which words of the translation. The weights are computed by the network, and trained by the loss of the translation, through backpropagation, like everything else. This mechanism was called *attention*: to write each word, the decoder decides which words of the source to look at. **With attention, there is no more single box between the encoder and the decoder: each word of the translation can read the states of all the words of the source, wherever they are.** Hover over the words of the translation in the figure below to see the weights of each step.
+
+<HtmlEmbed
+  src="d3-seq2seq.html"
+  config={{ mode: "attention" }}
+  title="The decoder attends to the states of the encoder"
+  desc="The encoder–decoder of section 9.1, with attention. To write each word, the decoder reads a weighted average of all the states of the encoder: the thicker the link, the larger the weight. The weights change at each step: to write “film”, the decoder looks at “movie”, and to write “génial”, it goes back to “great”, since French puts the adjective after the noun. Hover over a word of the translation to see its weights. The values and the weights are made up."
+/>
+
+In their paper, Bahdanau et al. compared two models with 1,000 units, trained on the same pairs of sentences: an encoder–decoder (RNNencdec) and a model with attention (RNNsearch). Trained on sentences of up to 50 words, the encoder–decoder reached a BLEU score of 17.8, and the model with attention 26.8, and 28.5 when trained longer. The difference comes from the long sentences: "the performance of RNNencdec dramatically drops as the length of the sentences increases", while the model with attention "shows no performance deterioration even with sentences of length 50 or more". Their encoder was a bidirectional RNN (section 7.1), so that the state of each word also holds the words that follow it: in their words, "the annotation $h_j$ contains the summaries of both the preceding words and the following words".
+
+The weights of the attention can also be read. For a pair of sentences, they form a matrix, with one row per word of the translation and one column per word of the source: it is the alignment of the figure of section 1.3, learned without a single example of alignment. Translating "The agreement on the European Economic Area was signed in August 1992." into "L'accord sur la zone économique européenne a été signé en août 1992.", the attention follows the words in order, except for the adjectives, which French puts after the noun: the model "was able to correctly align [zone] with [Area], jumping over the two words ([European] and [Economic]), and then looked one word back at a time to complete the whole phrase [zone économique européenne]".
+
+<PaperNote id="bahdanau2014" look="Figure 3: the attention weights of four translations from English to French, as matrices. Most weights are on the diagonal, and the reversed order of “zone économique européenne” stands out.">
+
+Dzmitry Bahdanau was an intern in Yoshua Bengio's lab when he came up with the idea. In an email that Andrej Karpathy [shared in 2024](https://x.com/karpathy/status/1864023344435380613), he explains that it "was sort of inspired by translation exercises that learning English in my middle school involved. Your gaze shifts back and forth between source and target sequence as you translate." He "expressed the soft search as softmax and then weighted averaging of BiRNN states. It worked great from the very first try". He called the model RNNsearch, and "the better name (attention) was only added by Yoshua [...] in one of the final passes". The word appears in only three consecutive sentences of the paper, the first of which is: "Intuitively, this implements a mechanism of attention in the decoder." The team rushed to publish, as they knew that the team of Sutskever was "somewhat ahead of us with their giant 8 GPU LSTM model (RNN Search still ran on 1 GPU)".
+
+</PaperNote>
+
+Let's add attention to the model of exercise 9.1. For the reversal, the right alignment is known: to write the k-th digit, the decoder copies the k-th digit from the end of the source, so this is where it should look.
+
+<Exercise number="9.2" star title="Add attention to the encoder–decoder" data="random digits" nb="09-2-attention">
+
+Add attention to the encoder–decoder of exercise 9.1. At each position, compute the dot products of the decoder state with all the states of the encoder, turn them into weights with a softmax, and give the output layer the weighted average of the encoder states (the context) next to the decoder state. Train it as in exercise 9.1, and plot its accuracies against the length, on the same chart as the model without attention. Then draw the weights of the attention for a string of 20 digits, as a matrix with one row per digit written and one column per digit read. Which digit of the source does the decoder look at to write each digit?
+
+The starter code repeats the starter and steps (1) to (4) of the solution of exercise 9.1, so it trains the model without attention again, in about three minutes on a laptop CPU. It gives the class `EncoderDecoder`, and the functions `train`, `translate` and `accuracy_by_length`, which you can reuse for the model with attention.
+
+<Starter nb="09-2-attention" />
+
+<Hints>
+
+<Hint>
+
+The encoder GRU returns its states after every digit, of shape (batch, L, H), and the decoder GRU its states, of shape (batch, N, H). `states @ encoder_states.transpose(1, 2)` computes all the dot products at once, a tensor of shape (batch, N, L): one row of L scores for each position of the decoder. `torch.softmax(scores, dim=2)` turns each row into weights that add up to 1, and `weights @ encoder_states` gives the contexts, of shape (batch, N, H).
+
+</Hint>
+
+<Hint>
+
+Write the new model as a subclass of `EncoderDecoder`: in `__init__`, replace the output layer by `nn.Linear(2 * H, 10)`, and in `forward`, give it `torch.cat([states, contexts], dim=2)`. The functions `train`, `translate` and `accuracy_by_length` of exercise 9.1 then work unchanged.
+
+</Hint>
+
+<Hint>
+
+To draw the weights, keep them in an attribute of the model in `forward` (`self.weights = weights`). After `translate`, the last call to the model has read the start token and all the digits written but the last one, so its weights have one row for each digit written. `plt.imshow(weights)` draws the matrix, and a cross on the digit to copy in each row, with `plt.scatter`, shows whether the largest weight is on it.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="09-2-attention">
+
+With attention, the model reverses 99.9% of the strings of 10 digits, 93.8% of those of 20 digits, and 82.1% of those of 30 digits, with 95.3% of their digits right. On the chart, the dashed curves of the model without attention fall far below. In the matrix of the weights, each row has one dark cell, and these cells form an anti-diagonal. But the crosses show that, except in the first row, the dark cell is one column to the right of the digit to copy: 19 of the 20 rows peak on the digit just after it. The solution takes about six minutes on a laptop CPU, since its starter trains the model of exercise 9.1 again. Your numbers can differ by a few points.
+
+</Checkpoint>
+
+<Solution nb="09-2-attention" />
+
+<WhatToNotice>
+
+With the same number of units and the same training, attention changes everything: for strings of 30 digits, the model gets 82% of the strings right instead of none, and 95% of the digits instead of 54%. It no longer has to squeeze the source into one vector: to write each digit, it reads the states of the encoder directly. The matrix of the weights shows how. Each row has a single dark cell, so to write each digit, the decoder looks at a single place of the source, and these places form the anti-diagonal of a reversal, an alignment that nobody gave to the model. Look closely, though: the decoder does not look at the state of the encoder after the digit that it copies, but at the next one, after the following digit of the source. A GRU remembers the digits before the last one, so this state holds the right digit too. And it is probably easier to find, since it has just read the same digit as the decoder, the digit written at the previous step. The weights of the attention point at states, not at words, and the state of an RNN holds more than its own word. **With attention, each digit of the output reads the source directly, and the accuracy depends much less on the length.**
+
+</WhatToNotice>
+
+</Exercise>
+
+In these models, attention helps the RNNs: the encoder still reads the source one word after the other, and the decoder still writes the translation one word after the other. Three years later, transformers kept attention and dropped the RNNs: this is the topic of section 10.
+
+### 9.3 Measuring translation
+
+How good is a translation? For our digits, there is a single right answer, so we could count the mistakes. A sentence has many good translations, and the best judges are humans who read them. But, as Kishore Papineni and his colleagues at IBM wrote in 2002, "Human evaluations can take months to finish and involve human labor that can not be reused". They proposed an automatic score, BLEU (for *bilingual evaluation understudy*), based on one idea: "The closer a machine translation is to a professional human translation, the better it is" [@papineni2002]. BLEU compares the candidate translation with one or several translations written by humans, the *references*, and counts the n-grams of the candidate that also appear in a reference, for n from 1 to 4.
+
+Let's translate the French sentence of the figure back to English. With the reference "I loved this great movie", the candidate "I loved this great film" gets these *precisions*: the fraction of its n-grams that appear in the reference.
+
+<WrapTable>
+
+| n | n-grams of the candidate | in the reference | precision |
+|---|---|---|---|
+| 1 | I, loved, this, great, film | 4 of 5 | 0.80 |
+| 2 | I loved, loved this, this great, great film | 3 of 4 | 0.75 |
+| 3 | I loved this, loved this great, this great film | 2 of 3 | 0.67 |
+| 4 | I loved this great, loved this great film | 1 of 2 | 0.50 |
+
+</WrapTable>
+
+BLEU is the geometric mean of the four precisions, $(0.80 \times 0.75 \times 0.67 \times 0.50)^{1/4} = 0.67$, usually written as a percentage: 66.9. Two corrections make the score harder to cheat. First, an n-gram of the candidate is counted at most as many times as it appears in a reference: otherwise, "the the the the the the the" would have a precision of 7/7 against "The cat is on the mat.", instead of 2/7. Second, a short candidate like "I loved" has perfect precisions, so BLEU multiplies the mean by a *brevity penalty*, smaller than 1 when the candidate is shorter than the reference:
+
+$$
+\text{BLEU} = \text{BP} \cdot \left(p_1\, p_2\, p_3\, p_4\right)^{1/4}, \qquad \text{BP} = \min\left(1,\ e^{1 - r/c}\right),
+$$
+
+where $p_n$ is the precision of the n-grams, $c$ the number of words of the candidate, and $r$ the number of words of the reference.
+
+Our example also shows the limit of BLEU: it counts words, not meanings. "film" is a perfect translation of "film", yet it costs the candidate a third of its score, because the reference says "movie". This is why test sets often have several references for each sentence, and why BLEU is computed on a whole test set: the n-grams of all the sentences are counted together before the precisions are computed. On a single sentence, the authors warn, "scores on individual sentences will often vary from human judgments". On a whole test set, the BLEU scores of five translators, two humans and three machine translation systems, followed the ratings of human judges closely, with a correlation of 0.99. BLEU became the standard score of translation for the next twenty years.
+
+The *phrase-based statistical systems* were the reference of the first neural translation papers. They come from a line of work started at IBM at the end of the 1980s. To translate a French sentence $f$ into English, Brown et al. look for the English sentence $e$ that maximizes $\Pr(e) \Pr(f \mid e)$: a language model $\Pr(e)$, such as the n-gram models of section 2, and a translation model $\Pr(f \mid e)$, learned from pairs of sentences through the *alignment* of their words. Koehn, Och and Marcu later replaced the words by *phrases*, which are simply sequences of consecutive words, with no grammatical meaning, extracted from the alignments of the words with their probabilities [@koehn2003]. Surprisingly, "limiting the length to a maximum of only three words per phrase already achieves top performance", and keeping only the phrases that make sense grammatically made the translations worse. A phrase-based system combines a table of millions of phrases, an n-gram language model, a model of the reordering of the phrases and a few other scores, with weights tuned to maximize BLEU. The open-source toolkit Moses made these systems the standard.
+
+<PaperNote id="brown1993" look="Section 4, pages 268 and 269: the five models of translation, each one a refinement of the previous one.">
+
+The paper describes five models of translation, now known as the IBM models, learned from 1,778,620 pairs of sentences from the debates of the Canadian parliament, the Hansards, which are published in English and in French. An alignment is "an object indicating for each word in the French string that word in the English string from which it arose". In Model 1, the order of the words does not matter at all; later models add the positions of the words, and the number of French words that each English word produces. No grammar is involved, as the authors admit: "The linguistic content of our program thus far is scant indeed." The data does the work: correlations between words like "water" and "eau" "shout from the data, and any method that is not stone deaf will hear them."
+
+</PaperNote>
+
+On the task of the first neural papers, the translation of English into French of WMT'14 (a yearly competition of machine translation), Moses gets a BLEU score of 33.3, and the best system of the competition, also phrase-based, 37.0 when scored in the same way. The ensemble of Sutskever et al. reached 34.8 on its own, and 36.5 when it was used to re-rank the 1,000 best translations of Moses. The model of Bahdanau et al. scored 28.5 on all the sentences, but 36.2 against 35.6 for Moses on the sentences without unknown words: with a vocabulary of 30,000 words, rare words were the weak point of neural translation, until subwords (the box of section 7.3) [@sennrich2016]. Two years later, Google's neural system had 8 layers of LSTM in its encoder and in its decoder, attention and subwords, and an ensemble of 8 such models reached 41.2. In September 2016, it replaced Google's phrase-based system for the translation of Chinese into English.
+
+<PaperNote id="wu2016" look="Table 10: human ratings of the translations of the phrase-based system, of the neural system, and of human translators, for six pairs of languages.">
+
+Google's neural machine translation system (GNMT) is the encoder–decoder with attention of this section, at the scale of a product: 8 layers of 1,024 LSTM units in the encoder and in the decoder, with connections that skip layers so that such a deep network can be trained, and a vocabulary of 32,000 subwords shared by the two languages. To translate fast enough, it runs on TPUs, Google's own chips, with weights rounded to 8-bit integers. Human judges rated the translations of 500 sentences on a scale from 0 to 6: in the authors' words, the system "reduces translation errors by an average of 60% compared to Google's phrase-based production system". They also note that "BLEU score does not fully capture the quality of a translation": fine-tuning the model to maximize BLEU directly raised its score, but the gain "did not reflect in the human evaluation".
+
+</PaperNote>
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**Copy instead of reverse.** Train the encoder–decoder of exercise 9.1 to copy the strings of digits, in the same order. Is it easier or harder than the reversal? Explain the difference with the trick of Sutskever et al.
+
+</Bonus>
+
+<Bonus>
+
+**Longer strings.** Test the models of exercises 9.1 and 9.2 on strings of 31 to 50 digits, longer than all their training strings. Does attention still help? Look at the weights of the attention after the 30th digit.
+
+</Bonus>
+
+<Bonus>
+
+**Sort the digits.** Train the model of exercise 9.2 to sort the digits instead of reversing them. What do the weights of the attention look like?
+
+</Bonus>
+
+<Bonus>
+
+**Add two numbers.** Train the model of exercise 9.2 to add two numbers written as strings of digits, like "4817+305" → "5122". Writing the digits of the sum from the last one, as we do by hand, may help. Where does the attention look?
+
+</Bonus>
+
+<Bonus>
+
+**The score of Bahdanau et al.** Replace the dot product of exercise 9.2 by the small network of Bahdanau et al., $e_{N,j} = v \cdot \tanh(W s_N + U h_j)$, with $W$ and $U$ of size H × H and $v$ of size H [@bahdanau2014]. Does it learn faster?
+
+</Bonus>
+
+<Bonus>
+
+**A real translation.** Train the encoder–decoder with attention to translate English into French, on the pairs of sentences of `sentence-transformers/parallel-sentences-tatoeba` (config `en-fr`, 273,270 short pairs, a median of 7 English words), and measure its BLEU score with `sacrebleu`. Other options: `bentrevett/multi30k` (English and German only), or `Helsinki-NLP/opus_books` (config `en-fr`, longer sentences from books).
+
+</Bonus>

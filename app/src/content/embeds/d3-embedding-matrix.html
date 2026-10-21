@@ -1,0 +1,183 @@
+<div class="d3-embedding-matrix"></div>
+<style>
+  .d3-embedding-matrix { font-size: 12px; color: var(--text-color); }
+  .d3-embedding-matrix .words { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .d3-embedding-matrix .words button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-embedding-matrix .words button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-embedding-matrix .words button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .d3-embedding-matrix svg { display: block; width: 100%; height: auto; max-width: 680px; margin: 0 auto; overflow: visible; }
+  .d3-embedding-matrix .cell rect { stroke: var(--border-color); transition: opacity 0.2s ease; }
+  .d3-embedding-matrix .cell text { font-size: 11px; font-variant-numeric: tabular-nums; fill: var(--text-color); transition: opacity 0.2s ease; }
+  .d3-embedding-matrix .col-word { font-size: 12px; fill: var(--text-color); cursor: pointer; transition: opacity 0.2s ease; }
+  .d3-embedding-matrix .col-hit { fill: transparent; cursor: pointer; }
+  .d3-embedding-matrix .dots { fill: var(--muted-color); font-size: 14px; }
+  .d3-embedding-matrix .op { fill: var(--muted-color); font-size: 22px; }
+  .d3-embedding-matrix .caption { fill: var(--muted-color); font-size: 11px; }
+  .d3-embedding-matrix .caption-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-embedding-matrix .frame { fill: none; stroke: var(--accent); stroke-width: 2; transition: transform 0.25s ease; }
+</style>
+<script>
+  (() => {
+    // The embedding matrix W (D rows, V columns): multiplying W by the one-hot vector of a word
+    // selects the column of this word, which is its embedding. The values are made up, but chosen
+    // so that similar words get similar columns, as we hope a trained matrix does.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-embedding-matrix'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-embedding-matrix'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // The words of the two reviews of section 3.4, and "boring", in the order of the vocabulary
+      const WORDS = ['awesome', 'boring', 'excellent', 'film', 'movie', 'score', 'soundtrack', 'superb'];
+      // W[d][v]: one row per dimension, one column per word
+      const W = [
+        [0.71, -0.68, 0.80, 0.05, 0.02, 0.10, 0.12, 0.76],
+        [-0.05, 0.12, 0.02, 0.83, 0.79, 0.21, 0.25, 0.04],
+        [0.10, -0.02, 0.05, 0.08, 0.11, 0.74, 0.81, 0.12],
+        [0.33, 0.25, -0.14, -0.29, -0.22, -0.47, -0.35, -0.09],
+        [-0.38, 0.41, -0.25, 0.16, 0.23, -0.12, 0.07, -0.31],
+        [0.22, -0.15, 0.36, -0.41, -0.36, 0.30, 0.19, 0.28],
+      ];
+      const D = W.length, V = WORDS.length;
+      let selected = WORDS.indexOf('excellent');
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let ACCENT = 'var(--primary-color)';
+      const readColors = () => {
+        try {
+          const div = window.ColorPalettes && window.ColorPalettes.getColors('diverging', 3);
+          if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+          const cat = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 1);
+          if (cat && cat.length) ACCENT = cat[0];
+        } catch (_) {}
+        container.style.setProperty('--accent', ACCENT);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+      const fmt = (v) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+
+      container.innerHTML = `<div class="words" role="group" aria-label="Word"></div>`;
+      const wordsEl = container.querySelector('.words');
+      WORDS.forEach((w, v) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = w;
+        b.addEventListener('click', () => select(v));
+        wordsEl.appendChild(b);
+      });
+
+      // Layout, in the units of the viewBox
+      const cellW = 46, cellH = 24;   // cells of W and of the embedding
+      const xW = 26, xH = 21;         // cells of the one-hot vector
+      const headerH = 64;             // room for the rotated words above W
+      const wLeft = 10, top = headerH;
+      const wRight = wLeft + V * cellW;
+      const opGap = 34;
+      const xLeft = wRight + 20 + opGap;
+      const xTop = top + (D * cellH + 18 - V * xH) / 2;
+      const eLeft = xLeft + xW + 84 + opGap;
+      const W_TOTAL = eLeft + cellW + 10;
+      const H_TOTAL = Math.max(top + D * cellH + 18, xTop + V * xH + 18) + 40;
+
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W_TOTAL} ${H_TOTAL}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'The embedding matrix W times the one-hot vector of a word gives the column of W of this word: its embedding.');
+      const g = svg.append('g');
+
+      // W: the columns, their words, and the "…" of the other words and dimensions
+      const columns = g.selectAll('g.column').data(WORDS).join('g').attr('class', 'column')
+        .attr('transform', (_, v) => `translate(${wLeft + v * cellW},${top})`);
+      columns.each(function (_, v) {
+        const col = d3.select(this);
+        W.forEach((row, d) => {
+          const c = col.append('g').attr('class', 'cell').attr('transform', `translate(0,${d * cellH})`);
+          c.append('rect').attr('width', cellW).attr('height', cellH).attr('fill', fill(row[v]));
+          c.append('text').attr('x', cellW / 2).attr('y', cellH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(fmt(row[v]));
+        });
+        col.append('text').attr('class', 'dots').attr('x', cellW / 2).attr('y', D * cellH + 13).attr('text-anchor', 'middle').text('⋮');
+        col.append('text').attr('class', 'col-word').attr('transform', `translate(${cellW / 2 + 4},-8) rotate(-40)`).text(WORDS[v]);
+        col.append('rect').attr('class', 'col-hit').attr('x', 0).attr('y', -headerH).attr('width', cellW).attr('height', headerH + D * cellH)
+          .on('click', () => select(v));
+      });
+      g.append('text').attr('class', 'dots').attr('x', wRight + 10).attr('y', top + (D * cellH) / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('…');
+      const frame = g.append('rect').attr('class', 'frame').attr('x', wLeft).attr('y', top - 2).attr('width', cellW).attr('height', D * cellH + 4).attr('rx', 3);
+
+      // × the one-hot vector, = the embedding
+      g.append('text').attr('class', 'op').attr('x', wRight + 20 + opGap / 2).attr('y', top + (D * cellH) / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('×');
+      const onehot = g.selectAll('g.onehot').data(WORDS).join('g').attr('class', 'onehot cell')
+        .attr('transform', (_, v) => `translate(${xLeft},${xTop + v * xH})`)
+        .style('cursor', 'pointer')
+        .on('click', (_, w) => select(WORDS.indexOf(w)));
+      onehot.append('rect').attr('width', xW).attr('height', xH);
+      onehot.append('text').attr('class', 'bit').attr('x', xW / 2).attr('y', xH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+      onehot.append('text').attr('class', 'col-word').attr('x', xW + 6).attr('y', xH / 2).attr('dy', '0.35em').text((w) => w);
+      g.append('text').attr('class', 'dots').attr('x', xLeft + xW / 2).attr('y', xTop + V * xH + 13).attr('text-anchor', 'middle').text('⋮');
+
+      g.append('text').attr('class', 'op').attr('x', eLeft - opGap / 2).attr('y', top + (D * cellH) / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('=');
+      const embedding = g.selectAll('g.embedding').data(d3.range(D)).join('g').attr('class', 'embedding cell')
+        .attr('transform', (d) => `translate(${eLeft},${top + d * cellH})`);
+      embedding.append('rect').attr('width', cellW).attr('height', cellH);
+      embedding.append('text').attr('x', cellW / 2).attr('y', cellH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+      g.append('text').attr('class', 'dots').attr('x', eLeft + cellW / 2).attr('y', top + D * cellH + 13).attr('text-anchor', 'middle').text('⋮');
+      g.append('rect').attr('class', 'frame').attr('x', eLeft).attr('y', top - 2).attr('width', cellW).attr('height', D * cellH + 4).attr('rx', 3);
+
+      // Captions under the three blocks
+      const captionY = H_TOTAL - 22;
+      const caption = (x, strong, sub) => {
+        g.append('text').attr('class', 'caption-strong').attr('x', x).attr('y', captionY).attr('text-anchor', 'middle').text(strong);
+        g.append('text').attr('class', 'caption').attr('x', x).attr('y', captionY + 15).attr('text-anchor', 'middle').text(sub);
+      };
+      caption((wLeft + wRight) / 2, 'W', 'D rows, one column per word');
+      caption(xLeft + xW / 2 + 30, 'one-hot vector', 'size V');
+      caption(eLeft + cellW / 2, 'embedding', 'size D');
+
+      function select(v) {
+        selected = v;
+        render();
+      }
+
+      function render() {
+        wordsEl.querySelectorAll('button').forEach((b, v) => b.setAttribute('aria-pressed', String(v === selected)));
+        columns.selectAll('.cell rect, .cell text').style('opacity', function () {
+          return d3.select(this.closest('g.column')).datum() === WORDS[selected] ? 1 : 0.3;
+        });
+        columns.select('.col-word').style('opacity', (w) => (w === WORDS[selected] ? 1 : 0.55)).style('font-weight', (w) => (w === WORDS[selected] ? 700 : 400));
+        frame.style('transform', `translate(${selected * cellW}px, 0px)`);
+        onehot.select('rect').attr('fill', (w) => (w === WORDS[selected] ? `color-mix(in oklab, ${ACCENT} 70%, transparent)` : 'transparent'));
+        onehot.select('.bit').text((w) => (w === WORDS[selected] ? '1' : '0')).style('font-weight', (w) => (w === WORDS[selected] ? 700 : 400));
+        onehot.select('.col-word').style('opacity', (w) => (w === WORDS[selected] ? 1 : 0.55)).style('font-weight', (w) => (w === WORDS[selected] ? 700 : 400));
+        embedding.select('rect').attr('fill', (d) => fill(W[d][selected]));
+        embedding.select('text').text((d) => fmt(W[d][selected]));
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readColors();
+        columns.each(function (_, v) {
+          d3.select(this).selectAll('.cell rect').attr('fill', (_, d) => fill(W[d][v]));
+        });
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

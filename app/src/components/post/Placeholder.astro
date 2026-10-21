@@ -1,0 +1,96 @@
+---
+// A {{TAG: ...}} block of the outline, kept visible in the draft until it is implemented.
+// `tag` is the head of the tag as written in the outline: "WRITE", "FIGURE (recurring)", "EXERCISE (★)"...
+// A button at the bottom of the page hides all placeholders, to read the post without them.
+interface Props {
+  tag: string;
+}
+const { tag } = Astro.props as Props;
+const kind = tag.split(/[\s(]/)[0].toLowerCase();
+---
+
+<aside class={`placeholder placeholder--${kind}`} data-placeholder>
+  <div class="placeholder__tag">{tag}{kind === "write" && <span class="placeholder__who"> · David</span>}</div>
+  <div class="placeholder__body"><slot /></div>
+</aside>
+
+<script>
+  const KEY = "hide-placeholders";
+  const root = document.documentElement;
+  const read = () => { try { return localStorage.getItem(KEY) === "1"; } catch (_) { return false; } };
+  const write = (v: boolean) => { try { localStorage.setItem(KEY, v ? "1" : "0"); } catch (_) {} };
+  const setup = () => {
+    if (document.querySelector(".placeholder-toggle")) return;
+    const count = document.querySelectorAll("[data-placeholder]").length;
+    if (!count) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "placeholder-toggle";
+    const update = () => {
+      const hidden = root.classList.contains("hide-placeholders");
+      button.textContent = hidden ? `Show the ${count} placeholders` : `Hide the ${count} placeholders`;
+      button.setAttribute("aria-pressed", String(hidden));
+    };
+    root.classList.toggle("hide-placeholders", read());
+    button.addEventListener("click", () => {
+      const hidden = !root.classList.contains("hide-placeholders");
+      root.classList.toggle("hide-placeholders", hidden);
+      write(hidden);
+      update();
+    });
+    update();
+    document.body.appendChild(button);
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup, { once: true });
+  else setup();
+</script>
+
+<style is:global>
+  .placeholder {
+    --ph-color: var(--muted-color);
+    margin: var(--spacing-3) 0;
+    padding: 10px 14px 12px;
+    border: 1.5px dashed color-mix(in oklab, var(--ph-color) 60%, transparent);
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--ph-color) 6%, var(--page-bg));
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--muted-color);
+  }
+  .placeholder--write { --ph-color: oklch(0.68 0.16 40); }
+  .placeholder--figure { --ph-color: oklch(0.62 0.13 240); }
+  .placeholder--paper { --ph-color: oklch(0.58 0.14 300); }
+  .placeholder--exercise { --ph-color: oklch(0.62 0.14 150); }
+  .placeholder--bonus { --ph-color: oklch(0.62 0.10 190); }
+  .placeholder__tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ph-color);
+    margin-bottom: 4px;
+  }
+  .placeholder__who { text-transform: none; letter-spacing: 0; font-weight: 600; }
+  .placeholder__body > :first-child { margin-top: 0; }
+  .placeholder__body > :last-child { margin-bottom: 0; }
+  .placeholder__body p, .placeholder__body li { font-size: inherit; }
+  .placeholder__body ul { margin: 4px 0; padding-left: 1.2em; }
+  .hide-placeholders [data-placeholder] { display: none !important; }
+  .placeholder-toggle {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: var(--z-overlay);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+    cursor: pointer;
+  }
+  @media print {
+    .placeholder-toggle { display: none; }
+  }
+</style>

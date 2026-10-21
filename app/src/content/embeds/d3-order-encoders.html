@@ -1,0 +1,285 @@
+<div class="d3-order-encoders"></div>
+<style>
+  .d3-order-encoders { font-size: 12px; color: var(--text-color); }
+  .d3-order-encoders svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; overflow: visible; }
+  .d3-order-encoders .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); transition: stroke 0.2s ease; }
+  .d3-order-encoders .token.lit rect { stroke: var(--accent); stroke-width: 1.6; }
+  .d3-order-encoders .token text { fill: var(--text-color); font-size: 12px; }
+  .d3-order-encoders .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; fill: var(--text-color); }
+  .d3-order-encoders .box text.box-sub { font-weight: 400; letter-spacing: 0; }
+  .d3-order-encoders .cell { stroke: var(--border-color); }
+  .d3-order-encoders .cell.max { stroke: var(--text-color); stroke-width: 1.6; }
+  .d3-order-encoders .arrow { stroke: var(--muted-color); fill: none; }
+  .d3-order-encoders .link { stroke: var(--accent); fill: none; stroke-width: 1.2; }
+  .d3-order-encoders .rnn-cell rect { stroke-width: 1.2; }
+  .d3-order-encoders .rnn-cell text { font-size: 9px; font-weight: 700; letter-spacing: 0.04em; fill: var(--text-color); }
+  .d3-order-encoders .column { cursor: pointer; }
+  .d3-order-encoders .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-order-encoders .side-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-order-encoders .out-label { fill: var(--text-color); font-size: 12px; }
+  .d3-order-encoders .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 12px; }
+  .d3-order-encoders .controls .control-label { font-size: 12px; font-weight: 700; }
+  .d3-order-encoders .controls button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-order-encoders .controls button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-order-encoders .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+<script>
+  (() => {
+    // Two encoders that depend on the order of the words, drawn in the visual language of the
+    // aggregation figure of section 4.1. "Convolve and pool": one small network reads every window
+    // of 3 consecutive embeddings and gives F features per window; the representation keeps, for
+    // each feature, its maximum over the positions. "Recur": a recurrent network reads the
+    // embeddings one after the other and updates a state; its last state is the representation.
+    // The values are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-order-encoders'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-order-encoders'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // The review B of the opening of section 7, as the models of the post see it: words only
+      const WORDS = ['I', 'expected', 'it', 'to', 'be', 'great', 'but', 'it', 'was', 'terrible'];
+      const L = WORDS.length;
+      const D = 4; // size of the embeddings, and of the states of the RNN
+      const F = 4; // number of features of the convolution
+      const K = 3; // size of the window of the convolution
+      const N_WINDOWS = L - K + 1;
+
+      // Made-up embeddings, between −1 and 1, with a common part as in the figure of section 4.1
+      const COMMON = [0.45, -0.35, 0.2, -0.5];
+      const EMB = WORDS.map((w, i) => d3.range(D).map((d) => COMMON[d] + 0.5 * Math.sin(1.7 * (i + 1) * (d + 1) + 0.9 * d + w.length)));
+      // Made-up features of each window: smooth noise, plus a strong response of feature 0 to the
+      // window "it was terrible" and of feature 2 to "to be great"
+      const FEATURES = d3.range(N_WINDOWS).map((j) => d3.range(F).map((f) => 0.35 * Math.sin(2.3 * (j + 1) + 1.9 * f) - 0.1));
+      FEATURES[N_WINDOWS - 1][0] = 0.95;
+      FEATURES[3][2] = 0.7;
+      const POOLED = d3.range(F).map((f) => d3.max(FEATURES, (col) => col[f]));
+      const ARGMAX = d3.range(F).map((f) => d3.maxIndex(FEATURES, (col) => col[f]));
+      // Made-up states of the RNN: each state mixes the previous one and the new embedding
+      const STATES = [];
+      let h = d3.range(D).map(() => 0);
+      EMB.forEach((x, t) => {
+        h = d3.range(D).map((d) => Math.tanh(0.8 * h[(d + 1) % D] - 0.3 * h[d] + 0.9 * x[d] + 0.15 * Math.cos(t + d)));
+        STATES.push(h);
+      });
+
+      const MODES = [
+        { key: 'conv', button: 'Convolve and pool', box: 'MAX', sub: 'over the positions', size: `${F} features, whatever the length of the text` },
+        { key: 'rnn', button: 'Recur', box: '', sub: '', size: 'the last state of the RNN' },
+      ];
+      let mode = MODES[0];
+      let window0 = N_WINDOWS - 1; // the window shown in the convolution mode
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let MODEL = '#4e79a7';
+      let OUT = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { MODEL = cat[0]; OUT = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', MODEL);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+      const boxFill = () => `color-mix(in oklab, ${MODEL} 16%, transparent)`;
+
+      const W = 640, H = 430;
+      const cx = 320;
+      const tokenY = 372, tokenH = 24;
+      const embY = 338, cellW = 7, cellH = 12;
+      const midY = 262;            // feature map (convolution) or RNN cells (recurrence)
+      const poolY = 200, poolH = 34, poolW = 260;
+      const repY = 150, repCellW = 18, repCellH = 18;
+      const headY = 88, headH = 34, headW = 160;
+      const outBottom = 58;
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `order-encoders-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Each word becomes its embedding. A convolution reads every window of three embeddings and keeps the maximum of each feature over the positions; a recurrent network reads the embeddings one after the other and keeps its last state. Either way, the result is a vector of fixed size, which the head turns into probabilities.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+      const arrow = (parent, x1, y1, x2, y2, width = 1.2) => parent.append('path').attr('class', 'arrow').attr('stroke-width', width)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+      const vector = (parent, values, x0, y, w, hgt, cls = 'cell') => values.forEach((v, d) => {
+        parent.append('rect').attr('class', cls).attr('x', x0 + d * w).attr('y', y).attr('width', w).attr('height', hgt).attr('fill', fill(v));
+      });
+
+      // The words, and their embeddings just above them
+      const tokenWidth = (w) => Math.max(40, w.length * 7 + 12);
+      const gap = 6;
+      const rowW = d3.sum(WORDS, tokenWidth) + gap * (L - 1);
+      let x = cx - rowW / 2;
+      const centers = [];
+      const tokens = [];
+      WORDS.forEach((w) => {
+        const width = tokenWidth(w);
+        const t = g.append('g').attr('class', 'token');
+        t.append('rect').attr('x', x).attr('y', tokenY).attr('width', width).attr('height', tokenH).attr('rx', 4);
+        t.append('text').attr('x', x + width / 2).attr('y', tokenY + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+        tokens.push(t);
+        centers.push(x + width / 2);
+        x += width + gap;
+      });
+      const embeddings = g.append('g');
+      EMB.forEach((vec, i) => {
+        vector(embeddings, vec, centers[i] - (D * cellW) / 2, embY, cellW, cellH);
+        g.append('path').attr('class', 'arrow').attr('stroke-width', 1)
+          .attr('d', `M${centers[i]},${tokenY - 2} L${centers[i]},${embY + cellH + 3}`);
+      });
+      const caption = g.append('text').attr('class', 'side').attr('x', cx).attr('y', tokenY + tokenH + 16).attr('text-anchor', 'middle');
+
+      // The part that changes with the mode, then the representation, the head and the output
+      const middle = g.append('g');
+      arrow(g, cx, repY - 3, cx, headY + headH + 3);
+      const headBox = g.append('g').attr('class', 'box');
+      headBox.append('rect').attr('x', cx - headW / 2).attr('y', headY).attr('width', headW).attr('height', headH).attr('rx', 7).attr('stroke-width', 1.3);
+      headBox.append('text').attr('x', cx).attr('y', headY + headH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('HEAD');
+      arrow(g, cx, headY - 3, cx, outBottom + 4);
+      const OUTPUT = [['positive', 0.12], ['negative', 0.88]];
+      const rowH = 16, maxW = 90;
+      const outTop = outBottom - OUTPUT.length * rowH;
+      const out = g.append('g');
+      OUTPUT.forEach(([label, v], i) => {
+        const y = outTop + i * rowH;
+        out.append('text').attr('class', 'out-label').attr('x', cx - 8).attr('y', y + rowH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
+        out.append('rect').attr('class', 'out-bar').attr('x', cx).attr('y', y + 3).attr('width', maxW * v).attr('height', rowH - 6).attr('rx', 2).attr('opacity', 0.85);
+      });
+      out.append('text').attr('class', 'side').attr('x', cx + maxW + 14).attr('y', outTop + (OUTPUT.length * rowH) / 2).attr('dy', '0.35em').text('the label of the review');
+
+      // The toggle, above the figure
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-labelledby', `order-label-${uid}`);
+      controls.innerHTML = `<span class="control-label" id="order-label-${uid}">Encoder</span>`;
+      MODES.forEach((m) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = m.button;
+        b.addEventListener('click', () => { mode = m; render(); });
+        controls.appendChild(b);
+      });
+      container.insertBefore(controls, container.firstChild);
+
+      // Convolution: one column of F features per window, above the middle word of the window
+      function drawConvolution() {
+        const colW = 9, colH = 11;
+        const top = midY - (F * colH) / 2;
+        const colX = (j) => centers[j + 1] - colW / 2;
+        const lit = d3.range(window0, window0 + K);
+        lit.forEach((i) => tokens[i].classed('lit', true));
+        // Links from the embeddings of the window to its column
+        lit.forEach((i) => middle.append('path').attr('class', 'link')
+          .attr('d', `M${centers[i]},${embY - 3} L${centers[window0 + 1]},${top + F * colH + 3}`));
+        d3.range(N_WINDOWS).forEach((j) => {
+          const col = middle.append('g').attr('class', 'column')
+            .on('mouseenter', () => { if (window0 !== j) { window0 = j; render(); } });
+          col.append('rect').attr('x', colX(j) - 6).attr('y', top - 6).attr('width', colW + 12).attr('height', F * colH + 12).attr('fill', 'transparent');
+          FEATURES[j].forEach((v, f) => {
+            col.append('rect').attr('class', `cell${ARGMAX[f] === j ? ' max' : ''}`).attr('x', colX(j)).attr('y', top + f * colH)
+              .attr('width', colW).attr('height', colH).attr('fill', fill(v));
+          });
+        });
+        const right = centers[L - 2] + colW / 2 + 12;
+        middle.append('text').attr('class', 'side-strong').attr('x', right).attr('y', top + 8).text('features');
+        middle.append('text').attr('class', 'side').attr('x', right).attr('y', top + 22).text(`${F} per window`);
+        middle.append('text').attr('class', 'side').attr('x', right).attr('y', top + 35).text(`of ${K} words`);
+        // Max over the positions
+        arrow(middle, cx, top - 8, cx, poolY + poolH + 3);
+        const pool = middle.append('g').attr('class', 'box');
+        pool.append('rect').attr('x', cx - poolW / 2).attr('y', poolY).attr('width', poolW).attr('height', poolH).attr('rx', 7)
+          .attr('stroke-width', 1.3).attr('fill', boxFill()).attr('stroke', MODEL);
+        const t = pool.append('text').attr('x', cx).attr('y', poolY + poolH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+        t.append('tspan').text(mode.box);
+        t.append('tspan').attr('class', 'box-sub').attr('dx', 8).text(mode.sub);
+        arrow(middle, cx, poolY - 3, cx, repY + repCellH + 4);
+        caption.text('hover over a column of features to see its window of words');
+        return POOLED;
+      }
+
+      // Recurrence: one RNN cell per word; each reads its embedding and the previous state
+      function drawRecurrence() {
+        const cellBoxW = 30, cellBoxH = 20;
+        const boxY = midY + 6;
+        const stateY = boxY - 22;
+        STATES.forEach((state, t) => {
+          const c = middle.append('g').attr('class', 'rnn-cell');
+          c.append('rect').attr('x', centers[t] - cellBoxW / 2).attr('y', boxY).attr('width', cellBoxW).attr('height', cellBoxH).attr('rx', 5)
+            .attr('fill', boxFill()).attr('stroke', MODEL);
+          c.append('text').attr('x', centers[t]).attr('y', boxY + cellBoxH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('RNN');
+          arrow(middle, centers[t], embY - 3, centers[t], boxY + cellBoxH + 3, 1);
+          // The state after the word t, above the cell; the cell passes it on to the next cell
+          vector(middle, state, centers[t] - (D * cellW) / 2, stateY, cellW, cellH, `cell${t === L - 1 ? ' max' : ''}`);
+          middle.append('path').attr('class', 'arrow').attr('stroke-width', 1)
+            .attr('d', `M${centers[t]},${boxY - 2} L${centers[t]},${stateY + cellH + 2}`);
+          if (t < L - 1) {
+            arrow(middle, centers[t] + cellBoxW / 2 + 1, boxY + cellBoxH / 2,
+              centers[t + 1] - cellBoxW / 2 - 2, boxY + cellBoxH / 2, 1);
+          }
+        });
+        const left = centers[0] - (D * cellW) / 2;
+        middle.append('text').attr('class', 'side').attr('x', left).attr('y', stateY - 8).text('the state after each word');
+        arrow(middle, centers[L - 1], stateY - 3, cx + 40, repY + repCellH + 4);
+        caption.text('the same RNN cell reads the words one after the other');
+        return STATES[L - 1];
+      }
+
+      const rep = g.append('g');
+      const repLabel = g.append('text').attr('class', 'side-strong');
+      const repSub = g.append('text').attr('class', 'side');
+
+      function render() {
+        controls.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(MODES[k] === mode)));
+        tokens.forEach((t) => t.classed('lit', false));
+        middle.selectAll('*').remove();
+        const values = mode.key === 'conv' ? drawConvolution() : drawRecurrence();
+        headBox.select('rect').attr('fill', boxFill()).attr('stroke', MODEL);
+        out.selectAll('.out-bar').attr('fill', OUT);
+        const repW = values.length * repCellW;
+        const x0 = cx - repW / 2;
+        rep.selectAll('rect').data(values).join('rect').attr('class', 'cell')
+          .attr('x', (_, k) => x0 + k * repCellW).attr('y', repY)
+          .attr('width', repCellW).attr('height', repCellH).attr('fill', (v) => fill(v));
+        const sideX = cx + repW / 2 + 14;
+        repLabel.attr('x', sideX).attr('y', repY + repCellH / 2 - 3).text('representation');
+        repSub.attr('x', sideX).attr('y', repY + repCellH / 2 + 11).text(mode.size);
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readColors();
+        embeddings.selectAll('rect').attr('fill', (_, k) => fill(EMB[Math.floor(k / D)][k % D]));
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

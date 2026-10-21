@@ -1,0 +1,22 @@
+---
+// A box set apart from the text (datasets used, words or characters or subwords...).
+const { title, id } = Astro.props as { title: string; id?: string };
+---
+<aside class="inset" id={id}>
+  <div class="inset__title">{title}</div>
+  <div class="inset__body"><slot /></div>
+</aside>
+
+<style is:global>
+  .inset {
+    margin: var(--spacing-4) 0;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+  }
+  .inset__title { font-weight: 700; margin-bottom: 6px; }
+  .inset__body { font-size: 0.95rem; }
+  .inset__body > :first-child { margin-top: 0; }
+  .inset__body > :last-child { margin-bottom: 0; }
+</style>

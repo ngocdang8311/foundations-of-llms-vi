@@ -1,0 +1,14 @@
+---
+// The solution of an exercise: the cells tagged "solution" in its notebook, with their outputs.
+import Fold from "./Fold.astro";
+import Missing from "./Missing.astro";
+import { fragment } from "./exercises";
+const { nb } = Astro.props as { nb: string };
+const mod = fragment(nb, "solution");
+const Content = mod?.default;
+const detail = mod ? `${mod.cells} cells` : undefined;
+---
+<Fold kind="solution" label="Solution" detail={detail}>
+  <p class="exercise__solution-note">Run the cells in this order, in a fresh notebook: they include the imports, the data loading and the random seeds.</p>
+  {Content ? <Content /> : <Missing notebook={nb} part="solution" />}
+</Fold>

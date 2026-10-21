@@ -1,0 +1,243 @@
+<div class="d3-pretrain-encoder"></div>
+<style>
+  .d3-pretrain-encoder { font-size: 12px; color: var(--text-color); }
+  .d3-pretrain-encoder svg { display: block; width: 100%; height: auto; max-width: 660px; margin: 0 auto; overflow: visible; }
+  .d3-pretrain-encoder .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); }
+  .d3-pretrain-encoder .token text { fill: var(--text-color); font-size: 12px; }
+  .d3-pretrain-encoder .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; fill: var(--text-color); }
+  .d3-pretrain-encoder .box rect { transition: fill 0.25s ease, stroke 0.25s ease; }
+  .d3-pretrain-encoder .cell { stroke: var(--border-color); stroke-width: 0.5; transition: fill 0.3s ease; }
+  .d3-pretrain-encoder .arrow { stroke: var(--muted-color); fill: none; }
+  .d3-pretrain-encoder .copy { stroke: var(--muted-color); fill: none; stroke-dasharray: 5 4; transition: opacity 0.25s ease; }
+  .d3-pretrain-encoder .panel { fill: none; stroke: var(--border-color); stroke-dasharray: 3 3; }
+  .d3-pretrain-encoder .panel-title { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-pretrain-encoder .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-pretrain-encoder .status { font-size: 11px; font-weight: 700; transition: fill 0.25s ease; }
+  .d3-pretrain-encoder .out-label { fill: var(--text-color); font-size: 12px; }
+  .d3-pretrain-encoder .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; margin-bottom: 12px; }
+  .d3-pretrain-encoder .controls .control-label { font-size: 12px; font-weight: 700; }
+  .d3-pretrain-encoder .controls button { font: inherit; font-size: 13px; padding: 3px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-pretrain-encoder .controls button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 16%, transparent); font-weight: 700; }
+  .d3-pretrain-encoder .controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+<script>
+  (() => {
+    // Pre-training the whole encoder, in the visual language of the transfer figure of section 5.5.
+    // On the left, an LSTM language model trained on raw text: embeddings, LSTM, and an output layer
+    // that predicts the next word. On the right, the LSTM classifier of section 7.2. The toggle
+    // chooses what is copied from the language model into the classifier: the embeddings only (as
+    // the word vectors of section 5), or the embeddings and the LSTM (section 8). The parts that
+    // come from pre-training are in color. The values of the matrices are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-pretrain-encoder'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-pretrain-encoder'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      const MODES = [
+        { key: 'embeddings', button: 'The embeddings only', copyLSTM: false },
+        { key: 'encoder', button: 'The embeddings and the LSTM', copyLSTM: true },
+      ];
+      let mode = MODES[1];
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let MODEL = '#4e79a7';
+      let OUT = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { MODEL = cat[0]; OUT = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', MODEL);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+      const tint = (on) => (on ? `color-mix(in oklab, ${MODEL} 16%, transparent)` : 'color-mix(in oklab, var(--text-color) 4%, transparent)');
+
+      // A small embedding matrix: D rows, one column per word, with made-up values
+      const COLS = 10, ROWS = 4;
+      const PRETRAINED = d3.range(ROWS).map((r) => d3.range(COLS).map((c) => 0.9 * Math.sin(0.8 * c * (r + 1) + 1.3 * r)));
+      const TUNED = PRETRAINED.map((row, r) => row.map((v, c) => v + 0.3 * Math.sin(3.1 * (c + 2) * (r + 1))));
+
+      const W = 660, H = 400;
+      const panelTop = 16, panelH = H - panelTop - 6;
+      const leftX = 12, leftW = 250, leftCx = leftX + leftW / 2;
+      const rightX = 300, rightW = 348, rightCx = 430;
+      const cellW = 12, cellH = 12;
+      const matW = COLS * cellW, matH = ROWS * cellH;
+      const boxW = 150, boxH = 30;
+
+      // Heights shared by the two panels, from the words (bottom) to the output (top)
+      const tokenY = 352, tokenH = 24;
+      const matY = 280;
+      const lstmY = 214;
+      const topY = 150;   // the output layer of the language model, or the head of the classifier
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `pretrain-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'An LSTM language model is trained to predict the next word on raw text. Its embeddings, and optionally its LSTM, are copied into a classifier of reviews, which adds a new head and is trained on the labeled reviews.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+      const arrow = (x1, y1, x2, y2) => g.append('path').attr('class', 'arrow').attr('stroke-width', 1.2)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+      const matrix = (x0, y0) => {
+        const m = g.append('g');
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            m.append('rect').attr('class', 'cell').attr('x', x0 + c * cellW).attr('y', y0 + r * cellH)
+              .attr('width', cellW).attr('height', cellH).datum([r, c]);
+          }
+        }
+        return m;
+      };
+      const tokens = (words, cx) => {
+        const width = (w) => Math.max(22, w.length * 7 + 12);
+        const rowW = d3.sum(words, width) + 6 * (words.length - 1);
+        let x = cx - rowW / 2;
+        words.forEach((w) => {
+          const t = g.append('g').attr('class', 'token');
+          t.append('rect').attr('x', x).attr('y', tokenY).attr('width', width(w)).attr('height', tokenH).attr('rx', 4);
+          t.append('text').attr('x', x + width(w) / 2).attr('y', tokenY + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+          x += width(w) + 6;
+        });
+      };
+      const box = (cx, y, label) => {
+        const b = g.append('g').attr('class', 'box');
+        b.append('rect').attr('x', cx - boxW / 2).attr('y', y).attr('width', boxW).attr('height', boxH).attr('rx', 7).attr('stroke-width', 1.3);
+        b.append('text').attr('x', cx).attr('y', y + boxH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(label);
+        return b;
+      };
+      const bars = (cx, y0, rows) => {
+        rows.forEach(([label, v], i) => {
+          const y = y0 + i * 14;
+          g.append('text').attr('class', 'out-label').attr('x', cx - 8).attr('y', y + 6).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
+          g.append('rect').attr('class', 'out-bar').attr('x', cx).attr('y', y + 2).attr('width', 70 * v).attr('height', 8).attr('rx', 2).attr('opacity', 0.85);
+        });
+      };
+      const panel = (x, w, title, sub) => {
+        g.append('rect').attr('class', 'panel').attr('x', x).attr('y', panelTop).attr('width', w).attr('height', panelH).attr('rx', 10);
+        g.append('text').attr('class', 'panel-title').attr('x', x + w / 2).attr('y', panelTop + 24).attr('text-anchor', 'middle').text(title);
+        g.append('text').attr('class', 'side').attr('x', x + w / 2).attr('y', panelTop + 42).attr('text-anchor', 'middle').text(sub);
+      };
+
+      // Left panel: the language model, trained on raw text
+      panel(leftX, leftW, '1. Pre-training', 'predict the next word, on raw text');
+      tokens(['this', 'film', 'was'], leftCx);
+      const preMatX = leftCx - matW / 2;
+      arrow(leftCx, tokenY - 3, leftCx, matY + matH + 5);
+      const preMatrix = matrix(preMatX, matY);
+      g.append('text').attr('class', 'side').attr('x', preMatX - 8).attr('y', matY + matH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text('W');
+      arrow(leftCx, matY - 3, leftCx, lstmY + boxH + 3);
+      const preLSTM = box(leftCx, lstmY, 'LSTM');
+      arrow(leftCx, lstmY - 3, leftCx, topY + boxH + 3);
+      const nextWord = box(leftCx, topY, 'NEXT WORD');
+      arrow(leftCx, topY - 3, leftCx, 128);
+      bars(leftCx, 74, [['great', 0.45], ['a', 0.3], ['terrible', 0.2]]);
+      g.append('text').attr('class', 'status').attr('x', leftCx + boxW / 2 + 8).attr('y', topY + boxH / 2).attr('dy', '0.35em')
+        .attr('fill', 'var(--muted-color)').text('dropped');
+
+      // Right panel: the classifier of section 7.2
+      panel(rightX, rightW, '2. Fine-tuning', 'classify the reviews, with labels');
+      tokens(['a', 'superb', 'film'], rightCx);
+      const dsMatX = rightCx - matW / 2;
+      arrow(rightCx, tokenY - 3, rightCx, matY + matH + 5);
+      const dsMatrix = matrix(dsMatX, matY);
+      g.append('text').attr('class', 'side').attr('x', dsMatX - 8).attr('y', matY + matH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text('W');
+      arrow(rightCx, matY - 3, rightCx, lstmY + boxH + 3);
+      const dsLSTM = box(rightCx, lstmY, 'LSTM');
+      arrow(rightCx, lstmY - 3, rightCx, topY + boxH + 3);
+      const head = box(rightCx, topY, 'HEAD');
+      arrow(rightCx, topY - 3, rightCx, 128);
+      bars(rightCx, 88, [['positive', 0.9], ['negative', 0.1]]);
+
+      // The status of each part of the classifier
+      const statusX = rightCx + boxW / 2 + 10;
+      const status = (y) => {
+        const s = g.append('text').attr('class', 'status').attr('x', statusX).attr('y', y - 4);
+        const n = g.append('text').attr('class', 'side').attr('x', statusX).attr('y', y + 10);
+        return { s, n };
+      };
+      const wStatus = status(matY + matH / 2);
+      const lstmStatus = status(lstmY + boxH / 2);
+      const headStatus = status(topY + boxH / 2);
+
+      // The copies, from the left panel to the right one
+      const midX = (leftX + leftW + rightX) / 2;
+      const copyW = g.append('path').attr('class', 'copy').attr('stroke-width', 1.3)
+        .attr('d', `M${preMatX + matW + 6},${matY + matH / 2} L${dsMatX - 22},${matY + matH / 2}`).attr('marker-end', `url(#${markerId})`);
+      const copyLSTM = g.append('path').attr('class', 'copy').attr('stroke-width', 1.3)
+        .attr('d', `M${leftCx + boxW / 2 + 4},${lstmY + boxH / 2} L${rightCx - boxW / 2 - 6},${lstmY + boxH / 2}`).attr('marker-end', `url(#${markerId})`);
+      const copyLabel = (y) => g.append('text').attr('class', 'side').attr('x', midX + 6).attr('y', y - 6).attr('text-anchor', 'middle').text('copy');
+      copyLabel(matY + matH / 2);
+      const copyLSTMLabel = copyLabel(lstmY + boxH / 2);
+
+      // The toggle, above the figure
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.innerHTML = `<span class="control-label" id="pretrain-label-${uid}">Copy</span>`;
+      controls.setAttribute('role', 'group');
+      controls.setAttribute('aria-labelledby', `pretrain-label-${uid}`);
+      MODES.forEach((m) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = m.button;
+        b.addEventListener('click', () => { mode = m; render(); });
+        controls.appendChild(b);
+      });
+      container.insertBefore(controls, container.firstChild);
+
+      const paint = (b, pretrained) => b.select('rect').attr('fill', tint(pretrained)).attr('stroke', pretrained ? MODEL : 'var(--border-color)');
+      const setStatus = ({ s, n }, pretrained, note) => {
+        s.attr('fill', pretrained ? MODEL : 'var(--text-color)').text(pretrained ? 'pre-trained' : 'new');
+        n.text(note);
+      };
+
+      function render() {
+        controls.querySelectorAll('button').forEach((b, k) => b.setAttribute('aria-pressed', String(MODES[k] === mode)));
+        paint(preLSTM, true);
+        paint(nextWord, true);
+        preMatrix.selectAll('rect').attr('fill', ([r, c]) => fill(PRETRAINED[r][c]));
+        dsMatrix.selectAll('rect').attr('fill', ([r, c]) => fill(TUNED[r][c])).attr('stroke', MODEL);
+        paint(dsLSTM, mode.copyLSTM);
+        paint(head, false);
+        setStatus(wStatus, true, 'copied, then fine-tuned');
+        setStatus(lstmStatus, mode.copyLSTM, mode.copyLSTM ? 'copied, then fine-tuned' : 'random at the start');
+        setStatus(headStatus, false, 'random at the start');
+        copyLSTM.style('opacity', mode.copyLSTM ? 1 : 0);
+        copyLSTMLabel.style('opacity', mode.copyLSTM ? 1 : 0);
+        g.selectAll('.out-bar').attr('fill', OUT);
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

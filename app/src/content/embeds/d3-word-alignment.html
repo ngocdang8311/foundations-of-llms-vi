@@ -1,0 +1,257 @@
+<div class="d3-word-alignment"></div>
+<style>
+  .d3-word-alignment { font-size: 14px; color: var(--text-color); }
+  .d3-word-alignment .controls { display: flex; align-items: center; gap: 10px 14px; margin-bottom: 10px; flex-wrap: wrap; }
+  .d3-word-alignment .control-label { font-size: 12px; font-weight: 700; }
+  .d3-word-alignment .segmented { display: inline-flex; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+  .d3-word-alignment .segmented button { font: inherit; font-size: 12px; padding: 6px 12px; border: 0; border-right: 1px solid var(--border-color); background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-word-alignment .segmented button:last-child { border-right: 0; }
+  .d3-word-alignment .segmented button[aria-pressed="true"] { background: var(--primary-color); color: var(--on-primary); font-weight: 700; }
+  .d3-word-alignment .segmented button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+  .d3-word-alignment svg { display: block; overflow: visible; }
+  .d3-word-alignment .unit { cursor: pointer; }
+  .d3-word-alignment .unit text { fill: var(--text-color); font-size: var(--word-size, 14px); }
+  .d3-word-alignment .unit .hit { fill: transparent; }
+  .d3-word-alignment .unit:focus-visible { outline: none; }
+  .d3-word-alignment .unit:focus-visible .hit { stroke: var(--primary-color); stroke-width: 1.5; }
+  .d3-word-alignment .unit.is-unlinked text { fill: var(--muted-color); }
+  .d3-word-alignment .lang { fill: var(--muted-color); font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
+  .d3-word-alignment .link { fill: none; stroke-width: 1.8; opacity: 0.6; transition: opacity .12s ease; }
+  .d3-word-alignment.has-focus .link { opacity: 0.07; }
+  .d3-word-alignment.has-focus .link.is-active { opacity: 1; stroke-width: 2.6; }
+  .d3-word-alignment.has-focus .unit:not(.is-active) { opacity: 0.35; }
+  .d3-word-alignment .unit.is-active text { font-weight: 700; }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-word-alignment'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-word-alignment'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // The sentences and their cut into morphemes come from a picture shared on Reddit (see the caption);
+      // the alignments are ours. In a sentence, '-' is a cut shown with a hyphen, '|' a cut shown without one.
+      // links: [English units, translated units]: every unit of the first list corresponds to every unit of the second.
+      // Units missing from the links have no counterpart in the other sentence.
+      const ENGLISH = "I|'d like to try on a suit I|'ve see-n in a shop across the street from our hotel.";
+      // Groups of English words colored together: I'd like / to try on / a suit / I've seen / in a shop / across the street / from our hotel.
+      const GROUPS = [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6];
+      const TARGETS = {
+        French: {
+          sentence: "Je voud-r-ai-s essay-er un costume que j'|ai v-u dans un magasin en face de notre hôtel.",
+          links: [
+            [[0], [0]], [[2], [1]], [[1], [2, 3]], [[0], [4]], [[4, 5], [5]], [[3], [6]], [[6], [7]], [[7], [8]],
+            [[8], [10]], [[9], [11]], [[10], [12]], [[11], [13]], [[12], [14]], [[13], [15]], [[14], [16]],
+            [[15, 16, 17], [17, 18]], [[18], [19]], [[19], [20]], [[20], [21]],
+          ],
+        },
+        German: {
+          sentence: 'Ich möch-t-e ein-en Anzug probier-en, d-en ich in ein-em Geschäft gegenüber unser-em Hotel ge-seh-en hab-e.',
+          links: [
+            [[0], [0]], [[2], [1]], [[1], [2]], [[0], [3]], [[6], [4]], [[7], [6]], [[4, 5], [7]], [[3], [8]],
+            [[8], [11]], [[12], [12]], [[13], [13]], [[14], [15]], [[15, 16, 17, 18], [16]], [[19], [17]], [[20], [19]],
+            [[11], [20, 22]], [[10], [21]], [[9], [23]], [[8], [24]],
+          ],
+        },
+        Turkish: {
+          sentence: 'Otel-imiz-in karşı-sın-da-ki dükkân-da gör-düğ-üm bir elbise-yi dene-mek iste-r-im.',
+          links: [
+            [[20], [0]], [[19], [1]], [[18], [2]], [[15, 16, 17], [3]], [[14], [7]], [[12], [8]], [[10], [9]],
+            [[9, 11], [10]], [[8], [11]], [[6], [12]], [[7], [13]], [[4, 5], [15]], [[3], [16]], [[2], [17]],
+            [[1], [18]], [[0], [19]],
+          ],
+        },
+      };
+
+      // A sentence as a list of units (morphemes), each with the index of its word.
+      const parse = (sentence) => {
+        const units = [];
+        sentence.split(' ').forEach((word, w) => word.split('|').forEach((part) => part.split('-')
+          .forEach((m, i) => units.push({ text: i ? `-${m}` : m, word: w }))));
+        return units;
+      };
+      const SOURCE = parse(ENGLISH);
+      Object.values(TARGETS).forEach((t) => {
+        t.units = parse(t.sentence);
+        t.pairs = t.links.flatMap(([ss, ts]) => ss.flatMap((s) => ts.map((u) => ({ s, t: u }))));
+      });
+
+      const PALETTE = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getColors('categorical', 7); } catch (_) {}
+        return d3.schemeTableau10.slice(0, 7);
+      })();
+      // Neighboring groups get hues far apart on the color wheel
+      const groupColor = (g) => PALETTE[(g * 3) % 7];
+
+      let lang = 'French';
+      let active = null; // { side: 'src' | 'tgt', index }
+
+      container.innerHTML = `
+        <div class="controls">
+          <span class="control-label">Translation</span>
+          <div class="segmented" role="group" aria-label="Language of the translation">
+            ${Object.keys(TARGETS).map((k) => `<button type="button" data-lang="${k}">${k}</button>`).join('')}
+          </div>
+        </div>
+        <div class="chart"></div>`;
+      const buttons = Array.from(container.querySelectorAll('.segmented button'));
+      const svg = d3.select(container.querySelector('.chart')).append('svg').attr('width', '100%')
+        .attr('role', 'img').attr('aria-label', 'Alignment of the morphemes of an English sentence and of its translation');
+      const g = svg.append('g');
+
+      const measure = (() => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        return (text, size) => {
+          ctx.font = `${size}px ${getComputedStyle(container).fontFamily}`;
+          return ctx.measureText(text).width;
+        };
+      })();
+
+      function render() {
+        const target = TARGETS[lang];
+        const width = container.clientWidth || 680;
+        g.selectAll('*').remove();
+
+        // Color of a translated unit: the group of the first English unit it corresponds to.
+        const tgtGroup = target.units.map((_, i) => { const p = target.pairs.find((q) => q.t === i); return p ? GROUPS[p.s] : null; });
+        const srcLinked = new Set(target.pairs.map((p) => p.s));
+
+        // Horizontal layout (two lines) when both sentences fit, else vertical (two columns, one word per row).
+        const gap = 0.6;
+        const rowWidth = (units, size) => d3.sum(units, (u) => measure(u.text, size)) + gap * size * (units[units.length - 1].word);
+        let size = 15;
+        while (size > 11 && Math.max(rowWidth(SOURCE, size), rowWidth(target.units, size)) > width - 8) size -= 0.5;
+        const horizontal = Math.max(rowWidth(SOURCE, size), rowWidth(target.units, size)) <= width - 8;
+        container.style.setProperty('--word-size', `${size}px`);
+
+        // Positions: center x and baseline y of each unit, and the point where its lines start.
+        let pos;
+        if (horizontal) {
+          const height = 210;
+          svg.attr('height', height);
+          const row = (units, y, below) => {
+            let x = (width - rowWidth(units, size)) / 2;
+            return units.map((u, i) => {
+              if (i && u.word !== units[i - 1].word) x += gap * size;
+              const w = measure(u.text, size);
+              const p = { x: x + w / 2, y, w, anchor: 'middle', bar: below ? y + 9 : y - 15, end: { x: x + w / 2, y: below ? y + 14 : y - 18 } };
+              x += w;
+              return p;
+            });
+          };
+          pos = { src: row(SOURCE, 24, true), tgt: row(target.units, height - 22, false) };
+          // Language names on the left of the sentences when there is room, else above and below them
+          const margin = (width - Math.max(rowWidth(SOURCE, size), rowWidth(target.units, size))) / 2;
+          const inline = margin >= 90;
+          g.append('text').attr('class', 'lang').attr('x', 0).attr('y', inline ? 24 : 4).attr('dy', inline ? '0.32em' : 0).text('English');
+          g.append('text').attr('class', 'lang').attr('x', 0).attr('y', inline ? height - 22 : height + 2).attr('dy', inline ? '0.32em' : 0).text(lang);
+        } else {
+          const rowH = 24;
+          const nWords = (units) => units[units.length - 1].word + 1;
+          const height = Math.max(nWords(SOURCE), nWords(target.units)) * rowH + 28;
+          svg.attr('height', height);
+          const colW = Math.min(170, width * 0.4);
+          // English is aligned to the right of its column, the translation to the left of its own.
+          const col = (units, x0, right) => {
+            const out = new Array(units.length);
+            const words = d3.groups(units.map((u, i) => ({ ...u, i })), (u) => u.word);
+            words.forEach(([w, us]) => {
+              const y = 32 + w * rowH;
+              const ws = us.map((u) => measure(u.text, size));
+              let x = right ? x0 - d3.sum(ws) : x0;
+              us.forEach((u, k) => {
+                out[u.i] = { x: x + ws[k] / 2, y, w: ws[k], anchor: 'middle', bar: y + 7, end: { x: right ? x0 + 6 : x0 - 6, y } };
+                x += ws[k];
+              });
+            });
+            return out;
+          };
+          pos = { src: col(SOURCE, colW, true), tgt: col(target.units, width - colW, false) };
+          g.append('text').attr('class', 'lang').attr('x', colW).attr('y', 8).attr('text-anchor', 'end').text('English');
+          g.append('text').attr('class', 'lang').attr('x', width - colW).attr('y', 8).text(lang);
+        }
+
+        const linkPath = (a, b) => {
+          if (horizontal) {
+            const my = (a.y + b.y) / 2;
+            return `M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+          }
+          const mx = (a.x + b.x) / 2;
+          return `M${a.x},${a.y} C${mx},${a.y} ${mx},${b.y} ${b.x},${b.y}`;
+        };
+
+        const links = g.append('g').selectAll('path.link').data(target.pairs)
+          .join('path').attr('class', 'link')
+          .attr('stroke', (d) => groupColor(GROUPS[d.s]))
+          .attr('d', (d) => linkPath(pos.src[d.s].end, pos.tgt[d.t].end));
+
+        const drawUnits = (side, units, groupOf) => {
+          const sel = g.append('g').selectAll('g.unit')
+            .data(units.map((u, i) => ({ side, index: i, text: u.text, group: groupOf(i), p: pos[side][i] })))
+            .join('g').attr('class', (d) => `unit${d.group === null ? ' is-unlinked' : ''}`).attr('tabindex', 0);
+          sel.append('rect').attr('class', 'hit').attr('x', (d) => d.p.x - d.p.w / 2).attr('y', (d) => d.p.y - 13)
+            .attr('width', (d) => d.p.w).attr('height', 26).attr('rx', 3);
+          sel.filter((d) => d.group !== null).append('rect').attr('x', (d) => d.p.x - d.p.w / 2 + 1).attr('y', (d) => d.p.bar)
+            .attr('width', (d) => Math.max(2, d.p.w - 2)).attr('height', 3).attr('rx', 1.5).attr('fill', (d) => groupColor(d.group));
+          sel.append('text').attr('x', (d) => d.p.x).attr('y', (d) => d.p.y).attr('text-anchor', 'middle').attr('dy', '0.32em').text((d) => d.text);
+          sel.on('mouseenter focus', (e, d) => setActive(d)).on('mouseleave blur', () => setActive(null))
+            .on('click', (e, d) => setActive(active && active.side === d.side && active.index === d.index ? null : d));
+          return sel;
+        };
+        const srcUnits = drawUnits('src', SOURCE, (i) => (srcLinked.has(i) ? GROUPS[i] : null));
+        const tgtUnits = drawUnits('tgt', target.units, (i) => tgtGroup[i]);
+
+        function setActive(d) {
+          active = d ? { side: d.side, index: d.index } : null;
+          container.classList.toggle('has-focus', !!active);
+          if (!active) {
+            links.classed('is-active', false);
+            srcUnits.classed('is-active', false);
+            tgtUnits.classed('is-active', false);
+            return;
+          }
+          const mine = target.pairs.filter((p) => (active.side === 'src' ? p.s : p.t) === active.index);
+          const srcSet = new Set(mine.map((p) => p.s));
+          const tgtSet = new Set(mine.map((p) => p.t));
+          (active.side === 'src' ? srcSet : tgtSet).add(active.index);
+          links.classed('is-active', (l) => mine.includes(l));
+          srcUnits.classed('is-active', (u) => srcSet.has(u.index));
+          tgtUnits.classed('is-active', (u) => tgtSet.has(u.index));
+        }
+      }
+
+      buttons.forEach((b) => b.addEventListener('click', () => {
+        lang = b.dataset.lang;
+        buttons.forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        render();
+      }));
+      buttons.forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.lang === lang)));
+
+      render();
+      let lastWidth = container.clientWidth;
+      const onResize = () => { if (container.clientWidth !== lastWidth) { lastWidth = container.clientWidth; render(); } };
+      if (window.ResizeObserver) new ResizeObserver(onResize).observe(container);
+      else window.addEventListener('resize', onResize);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

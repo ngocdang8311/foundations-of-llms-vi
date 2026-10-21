@@ -1,0 +1,147 @@
+<div class="d3-encoder-head"></div>
+<style>
+  .d3-encoder-head { font-size: 12px; color: var(--text-color); }
+  .d3-encoder-head svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; overflow: visible; }
+  .d3-encoder-head .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); }
+  .d3-encoder-head .token text { fill: var(--text-color); font-size: 12px; }
+  .d3-encoder-head .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; fill: var(--text-color); }
+  .d3-encoder-head .box text.box-sub { font-weight: 400; letter-spacing: 0; }
+  .d3-encoder-head .cell { stroke: var(--border-color); }
+  .d3-encoder-head .arrow { stroke: var(--muted-color); stroke-width: 1.2; fill: none; }
+  .d3-encoder-head .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-encoder-head .side-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-encoder-head .out-label { fill: var(--text-color); font-size: 12px; }
+</style>
+<script>
+  (() => {
+    // The pattern of every classifier in the post: an encoder turns a text of any length into a
+    // vector of fixed size, and a head turns this vector into probabilities. The same figure comes
+    // back in later sections with another encoder: data-config {"encoder": "...", "sub": "..."}.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-encoder-head'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-encoder-head'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-config')) mountEl = mountEl.parentElement;
+      let config = {};
+      try {
+        const cfg = mountEl ? mountEl.getAttribute('data-config') : null;
+        if (cfg && cfg.trim().startsWith('{')) config = JSON.parse(cfg);
+      } catch (_) {}
+      const ENCODER = config.encoder || 'ENCODER';
+      const ENCODER_SUB = config.sub === undefined ? '?' : config.sub;
+
+      const cat = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getColors('categorical', 2); } catch (_) {}
+        return ['#4e79a7', '#f28e2b'];
+      })();
+      const MODEL = cat[0];
+      const OUT = cat[1];
+
+      // The opening of a review of the IMDB training set
+      const WORDS = ['This', 'film', 'seemed', 'way', 'too', 'long', 'even', 'at', 'only', '75', 'minutes', '…'];
+      // Values of the representation: an illustration, not computed
+      const VECTOR = [0.8, 0.1, 0.5, 0.95, 0.3, 0.65, 0.2, 0.75, 0.4, 0.05];
+      const OUTPUT = [['positive', 0.15], ['negative', 0.85]];
+
+      const W = 640, H = 330;
+      const cx = 320;
+      const tokenY = 286, tokenH = 24;
+      const encY = 214, encH = 38;
+      const vecY = 156, cellW = 22, cellH = 18;
+      const headY = 88, headH = 34;
+      const outBottom = 58;
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `encoder-head-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'A review of any length goes through an encoder, which gives a vector of fixed size; a head turns this vector into the probabilities of the two classes.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+
+      const arrow = (x1, y1, x2, y2) => g.append('path').attr('class', 'arrow')
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+
+      const box = (x, y, w, h, label, sub, color) => {
+        const b = g.append('g').attr('class', 'box');
+        b.append('rect').attr('x', x).attr('y', y).attr('width', w).attr('height', h).attr('rx', 7)
+          .attr('fill', `color-mix(in oklab, ${color} 16%, transparent)`).attr('stroke', color).attr('stroke-width', 1.3);
+        const t = b.append('text').attr('x', x + w / 2).attr('y', y + h / 2).attr('dy', '0.35em').attr('text-anchor', 'middle');
+        t.append('tspan').text(label);
+        if (sub) t.append('tspan').attr('class', 'box-sub').attr('dx', 8).text(sub);
+      };
+
+      // The words of the review, at the bottom
+      const tokenWidth = (w) => Math.max(26, w.length * 7 + 12);
+      const gap = 5;
+      const rowW = d3.sum(WORDS, tokenWidth) + gap * (WORDS.length - 1);
+      let x = cx - rowW / 2;
+      const x0 = x;
+      WORDS.forEach((w) => {
+        const width = tokenWidth(w);
+        const t = g.append('g').attr('class', 'token');
+        t.append('rect').attr('x', x).attr('y', tokenY).attr('width', width).attr('height', tokenH).attr('rx', 4);
+        t.append('text').attr('x', x + width / 2).attr('y', tokenY + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+        x += width + gap;
+      });
+      const x1 = x - gap;
+      g.append('text').attr('class', 'side').attr('x', cx).attr('y', tokenY + tokenH + 16).attr('text-anchor', 'middle')
+        .text('a text of L words: L changes from one text to the next');
+
+      // Encoder
+      const encW = 300;
+      arrow(cx, tokenY - 3, cx, encY + encH + 3);
+      g.append('path').attr('class', 'arrow').attr('d', `M${x0 + 10},${tokenY - 3} L${cx - encW / 2 + 30},${encY + encH + 3}`).attr('marker-end', `url(#${markerId})`);
+      g.append('path').attr('class', 'arrow').attr('d', `M${x1 - 10},${tokenY - 3} L${cx + encW / 2 - 30},${encY + encH + 3}`).attr('marker-end', `url(#${markerId})`);
+      box(cx - encW / 2, encY, encW, encH, ENCODER, ENCODER_SUB, MODEL);
+
+      // The representation: a vector of fixed size
+      const vecW = VECTOR.length * cellW;
+      arrow(cx, encY - 3, cx, vecY + cellH + 4);
+      VECTOR.forEach((v, i) => {
+        g.append('rect').attr('class', 'cell').attr('x', cx - vecW / 2 + i * cellW).attr('y', vecY).attr('width', cellW).attr('height', cellH)
+          .attr('fill', `color-mix(in oklab, ${MODEL} ${Math.round(10 + 70 * v)}%, transparent)`);
+      });
+      g.append('text').attr('class', 'side-strong').attr('x', cx + vecW / 2 + 14).attr('y', vecY + cellH / 2 - 3).text('representation');
+      g.append('text').attr('class', 'side').attr('x', cx + vecW / 2 + 14).attr('y', vecY + cellH / 2 + 11).text('a vector of fixed size');
+
+      // Head
+      const headW = 160;
+      arrow(cx, vecY - 3, cx, headY + headH + 3);
+      box(cx - headW / 2, headY, headW, headH, 'HEAD', '', MODEL);
+
+      // Probabilities of the classes
+      arrow(cx, headY - 3, cx, outBottom + 4);
+      const rowH = 16, maxW = 90;
+      const top = outBottom - OUTPUT.length * rowH;
+      OUTPUT.forEach(([label, v], i) => {
+        const y = top + i * rowH;
+        g.append('text').attr('class', 'out-label').attr('x', cx - 8).attr('y', y + rowH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
+        g.append('rect').attr('x', cx).attr('y', y + 3).attr('width', maxW * v).attr('height', rowH - 6).attr('rx', 2).attr('fill', OUT).attr('opacity', 0.85);
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

@@ -1,0 +1,192 @@
+<div class="d3-ngram-curves"></div>
+<style>
+  .d3-ngram-curves { position: relative; font-size: 12px; }
+  .d3-ngram-curves .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 28px; }
+  .d3-ngram-curves.is-narrow .charts { grid-template-columns: 1fr; }
+  .d3-ngram-curves .chart-title { font-size: 13px; font-weight: 700; color: var(--text-color); margin-bottom: 4px; }
+  .d3-ngram-curves svg { display: block; overflow: visible; }
+  .d3-ngram-curves .axis path, .d3-ngram-curves .axis line { stroke: var(--axis-color); }
+  .d3-ngram-curves .axis text { fill: var(--tick-color); font-size: 11px; }
+  .d3-ngram-curves .axis-label { fill: var(--muted-color); font-size: 11px; }
+  .d3-ngram-curves .grid line { stroke: var(--grid-color); }
+  .d3-ngram-curves .grid path { stroke: none; }
+  .d3-ngram-curves .line { fill: none; stroke-width: 2; }
+  .d3-ngram-curves .point { stroke: var(--surface-bg); stroke-width: 1.5; cursor: pointer; }
+  .d3-ngram-curves .point:hover, .d3-ngram-curves .point:focus-visible { stroke: var(--text-color); outline: none; }
+  .d3-ngram-curves .infinity { font-size: 15px; font-weight: 700; cursor: pointer; }
+  .d3-ngram-curves .legend { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 12px; }
+  .d3-ngram-curves .legend-title { font-size: 12px; font-weight: 700; color: var(--text-color); }
+  .d3-ngram-curves .legend .items { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+  .d3-ngram-curves .legend .item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--text-color); }
+  .d3-ngram-curves .legend .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border-color); }
+  .d3-ngram-curves .error { color: var(--danger-color); white-space: pre-wrap; }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-ngram-curves'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ngram-curves'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // Data: the results of exercises 2.3a and 2.3b on the validation set, saved by the notebook of 2.3b.
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      const file = attr && attr.trim() ? attr.trim() : 'ngram-curves.json';
+      const PATHS = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`];
+      const fetchFirstAvailable = async (paths) => {
+        for (const p of paths) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`Data not found: ${paths.join(', ')}`);
+      };
+
+      const cat = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getColors('categorical', 3); } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#59a14f'];
+      })();
+      const SERIES = [
+        { key: 'none', label: 'no smoothing (infinite for n > 1)', color: 'var(--muted-color)' },
+        { key: 'add_one', label: 'add-one smoothing', color: cat[1] },
+        { key: 'interpolation', label: 'interpolation', color: cat[0] },
+      ];
+
+      container.style.position = 'relative';
+      container.innerHTML = `
+        <div class="charts">
+          <div><div class="chart-title">Validation n-grams never seen in training</div><div class="left"></div></div>
+          <div><div class="chart-title">Validation perplexity</div><div class="right"></div></div>
+        </div>
+        <div class="legend"><div class="legend-title">Legend</div><div class="items"></div></div>`;
+      const items = container.querySelector('.legend .items');
+      SERIES.forEach((s) => {
+        const el = document.createElement('span');
+        el.className = 'item';
+        el.innerHTML = `<span class="swatch" style="background:${s.color}"></span><span>${s.label}</span>`;
+        items.appendChild(el);
+      });
+
+      const tip = document.createElement('div');
+      tip.className = 'd3-tooltip';
+      Object.assign(tip.style, { position: 'absolute', top: '0px', left: '0px', transform: 'translate(-9999px, -9999px)', pointerEvents: 'none', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.35', border: '1px solid var(--border-color)', background: 'var(--surface-bg)', color: 'var(--text-color)', boxShadow: '0 4px 24px rgba(0,0,0,.18)', opacity: '0', transition: 'opacity .12s ease', zIndex: '5' });
+      container.appendChild(tip);
+      const showTip = (event, html) => {
+        const [mx, my] = d3.pointer(event, container);
+        tip.innerHTML = html;
+        tip.style.opacity = '1';
+        const w = tip.offsetWidth;
+        const left = Math.min(Math.max(0, mx + 12), container.clientWidth - w);
+        tip.style.transform = `translate(${left}px, ${my + 14}px)`;
+      };
+      const hideTip = () => { tip.style.opacity = '0'; tip.style.transform = 'translate(-9999px, -9999px)'; };
+
+      const leftSvg = d3.select(container.querySelector('.left')).append('svg').attr('width', '100%')
+        .attr('role', 'img').attr('aria-label', 'Fraction of the validation n-grams never seen in training, for n = 1 to 5');
+      const rightSvg = d3.select(container.querySelector('.right')).append('svg').attr('width', '100%')
+        .attr('role', 'img').attr('aria-label', 'Validation perplexity for n = 1 to 5, without smoothing, with add-one smoothing and with interpolation');
+
+      let data = null;
+      const fmtPct = d3.format('.1%');
+      const fmtPpl = d3.format(',.1f');
+
+      function frame(svg, width, height, margin) {
+        svg.attr('width', width).attr('height', height);
+        let g = svg.select('g.plot');
+        if (g.empty()) g = svg.append('g').attr('class', 'plot');
+        g.attr('transform', `translate(${margin.left},${margin.top})`);
+        return g;
+      }
+
+      function axes(g, x, y, iw, ih, yFormat, yTicks, yLabel) {
+        g.selectAll('g.grid').data([0]).join('g').attr('class', 'grid')
+          .call(d3.axisLeft(y).tickValues(yTicks).tickSize(-iw).tickFormat(''));
+        g.selectAll('g.axis.x').data([0]).join('g').attr('class', 'axis x').attr('transform', `translate(0,${ih})`)
+          .call(d3.axisBottom(x).tickValues([1, 2, 3, 4, 5]).tickFormat(d3.format('d')));
+        g.selectAll('g.axis.y').data([0]).join('g').attr('class', 'axis y')
+          .call(d3.axisLeft(y).tickValues(yTicks).tickFormat(yFormat));
+        g.selectAll('text.axis-label.x').data([0]).join('text').attr('class', 'axis-label x')
+          .attr('x', iw / 2).attr('y', ih + 32).attr('text-anchor', 'middle').text('n');
+        g.selectAll('text.axis-label.y').data([0]).join('text').attr('class', 'axis-label y')
+          .attr('transform', `translate(${-44},${ih / 2}) rotate(-90)`).attr('text-anchor', 'middle').text(yLabel);
+      }
+
+      function render() {
+        if (!data) return;
+        const total = container.clientWidth || 680;
+        const narrow = total < 560;
+        container.classList.toggle('is-narrow', narrow);
+        const width = narrow ? total : Math.floor((total - 28) / 2);
+        const height = Math.round(Math.min(260, Math.max(200, width * 0.7)));
+        const margin = { top: 14, right: 14, bottom: 40, left: 54 };
+        const iw = width - margin.left - margin.right;
+        const ih = height - margin.top - margin.bottom;
+        const x = d3.scaleLinear().domain([0.7, 5.3]).range([0, iw]);
+        const ns = data.n;
+
+        // Left: the fraction of unseen n-grams
+        const gl = frame(leftSvg, width, height, margin);
+        const yl = d3.scaleLinear().domain([0, 1]).range([ih, 0]);
+        axes(gl, x, yl, iw, ih, d3.format('.0%'), [0, 0.25, 0.5, 0.75, 1], 'never seen in training');
+        const pointsL = ns.map((n, i) => ({ n, v: data.unseen[i] }));
+        gl.selectAll('path.line').data([pointsL]).join('path').attr('class', 'line').attr('stroke', cat[0])
+          .attr('d', d3.line().x((d) => x(d.n)).y((d) => yl(d.v)));
+        gl.selectAll('circle.point').data(pointsL).join('circle').attr('class', 'point').attr('r', 4.5)
+          .attr('fill', cat[0]).attr('cx', (d) => x(d.n)).attr('cy', (d) => yl(d.v)).attr('tabindex', 0)
+          .on('mouseenter mousemove', (e, d) => showTip(e, `<b>n = ${d.n}</b><br>${fmtPct(d.v)} of the validation ${d.n}-grams never appear in the training text`))
+          .on('mouseleave blur', hideTip);
+
+        // Right: the perplexity, on a log scale
+        const gr = frame(rightSvg, width, height, margin);
+        const values = SERIES.flatMap((s) => data[s.key].filter((v) => v != null));
+        const yr = d3.scaleLog().domain([200, Math.max(40000, d3.max(values) * 1.2)]).range([ih, 0]);
+        axes(gr, x, yr, iw, ih, d3.format(','), [300, 1000, 3000, 10000, 30000], 'perplexity (log scale)');
+        const series = SERIES.map((s) => ({ ...s, points: ns.map((n, i) => ({ n, v: data[s.key][i], s })) }));
+        gr.selectAll('path.line').data(series, (s) => s.key).join('path').attr('class', 'line')
+          .attr('stroke', (s) => s.color)
+          .attr('d', (s) => d3.line().defined((d) => d.v != null).x((d) => x(d.n)).y((d) => yr(d.v))(s.points));
+        const finitePoints = series.flatMap((s) => s.points.filter((d) => d.v != null));
+        const describe = (d) => {
+          const name = d.s.key === 'none' ? 'no smoothing' : d.s.label;
+          const extra = d.s.key === 'interpolation' && d.n > 1 ? `<br>weight of order ${d.n}: ${data.weights[d.n - 2]}` : '';
+          return `<b>n = ${d.n}, ${name}</b><br>perplexity ${fmtPpl(d.v)}${extra}`;
+        };
+        gr.selectAll('circle.point').data(finitePoints, (d) => d.s.key + d.n).join('circle').attr('class', 'point')
+          .attr('r', 4.5).attr('fill', (d) => d.s.color).attr('cx', (d) => x(d.n)).attr('cy', (d) => yr(d.v)).attr('tabindex', 0)
+          .on('mouseenter mousemove', (e, d) => showTip(e, describe(d)))
+          .on('mouseleave blur', hideTip);
+        // Without smoothing, the perplexity is infinite from n = 2: an infinity sign at the top.
+        const infinite = series.find((s) => s.key === 'none').points.filter((d) => d.v == null);
+        gr.selectAll('text.infinity').data(infinite, (d) => d.n).join('text').attr('class', 'infinity')
+          .attr('x', (d) => x(d.n)).attr('y', -2).attr('text-anchor', 'middle').attr('fill', 'var(--muted-color)').text('∞')
+          .on('mouseenter mousemove', (e, d) => showTip(e, `<b>n = ${d.n}, no smoothing</b><br>infinite: some validation ${d.n}-grams have the probability 0`))
+          .on('mouseleave', hideTip);
+      }
+
+      fetchFirstAvailable(PATHS).then((raw) => { data = raw; render(); }).catch((err) => {
+        const pre = document.createElement('pre'); pre.className = 'error'; pre.textContent = String(err.message || err);
+        container.appendChild(pre);
+      });
+      if (window.ResizeObserver) new ResizeObserver(() => render()).observe(container);
+      else window.addEventListener('resize', render);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

@@ -1,0 +1,193 @@
+<div class="d3-bag-of-words"></div>
+<style>
+  .d3-bag-of-words { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-bag-of-words .label { display: block; font-size: 12px; font-weight: 700; margin: 0 0 6px; }
+  .d3-bag-of-words .label .sub { font-weight: 400; color: var(--muted-color); margin-left: 8px; }
+  .d3-bag-of-words textarea { font: inherit; font-size: 14px; line-height: 1.45; width: 100%; box-sizing: border-box; resize: vertical; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--surface-bg); color: var(--text-color); }
+  .d3-bag-of-words textarea:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+  .d3-bag-of-words .section { margin-top: 16px; }
+  .d3-bag-of-words .vector { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 4px; }
+  .d3-bag-of-words .entry { display: flex; flex-direction: column; align-items: center; min-width: 30px; }
+  .d3-bag-of-words .entry .count { min-width: 30px; height: 30px; box-sizing: border-box; padding: 0 4px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-color); border-radius: 5px; font-weight: 700; font-variant-numeric: tabular-nums; cursor: default; }
+  .d3-bag-of-words .entry .word { font-size: 11px; margin-top: 3px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .d3-bag-of-words .zeros { height: 30px; display: flex; align-items: center; padding: 0 6px; border: 1px dashed var(--border-color); border-radius: 5px; font-size: 11px; color: var(--muted-color); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .d3-bag-of-words .unknown { margin-top: 8px; font-size: 12px; color: var(--muted-color); min-height: 1.3em; }
+  .d3-bag-of-words .unknown s { margin-right: 6px; }
+  .d3-bag-of-words .verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-variant-numeric: tabular-nums; }
+  .d3-bag-of-words .formula { color: var(--muted-color); }
+  .d3-bag-of-words .gauge { display: block; width: 140px; height: 10px; border-radius: 5px; overflow: hidden; }
+  .d3-bag-of-words .gauge span { display: block; height: 100%; }
+  .d3-bag-of-words .score { font-weight: 700; }
+  .d3-bag-of-words .scale { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--muted-color); }
+  .d3-bag-of-words .scale .ramp { width: 120px; height: 8px; border-radius: 4px; }
+  .d3-bag-of-words .error { color: var(--danger-color); font-size: 12px; white-space: pre-wrap; }
+</style>
+<script>
+  (() => {
+    // A review as a bag of words: its count vector over the vocabulary of the model, and the
+    // probability that the model gives it. The data comes from the notebook of exercise 3.2 (its last
+    // cell): the 10,000 words of the vocabulary in the order of the vector (alphabetical, as in
+    // scikit-learn), the weight of each word in the logistic regression, and the bias.
+    const DEFAULT_REVIEW = 'Great acting, great lighting and a flabbergasting soundtrack, but not even Zendaya could save this boring, boring plot.';
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-bag-of-words'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-bag-of-words'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      const file = attr && attr.trim() ? attr.trim() : 'bow-weights.json';
+      const PATHS = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`];
+      const fetchFirstAvailable = async (paths) => {
+        for (const p of paths) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`Data not found: ${paths.join(', ')}`);
+      };
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      container.innerHTML = `
+        <label class="label" for="review-${uid}">Review<span class="sub">edit it</span></label>
+        <textarea id="review-${uid}" rows="3" spellcheck="false"></textarea>
+        <div class="section">
+          <div class="label">Count vector<span class="sub v-size"></span></div>
+          <div class="vector" aria-live="polite"></div>
+          <div class="unknown"></div>
+          <div class="scale"><span>pushes toward negative</span><span class="ramp"></span><span>toward positive</span></div>
+        </div>
+        <div class="section">
+          <div class="label">Logistic regression</div>
+          <div class="verdict"></div>
+        </div>`;
+      const textarea = container.querySelector('textarea');
+      const vectorEl = container.querySelector('.vector');
+      const unknownEl = container.querySelector('.unknown');
+      const verdictEl = container.querySelector('.verdict');
+      const sizeEl = container.querySelector('.v-size');
+      const rampEl = container.querySelector('.ramp');
+      textarea.value = DEFAULT_REVIEW;
+
+      // Tooltip
+      const tip = document.createElement('div');
+      tip.className = 'd3-tooltip';
+      Object.assign(tip.style, { position: 'absolute', top: '0px', left: '0px', transform: 'translate(-9999px, -9999px)', pointerEvents: 'none', padding: '8px 10px', borderRadius: '8px', fontSize: '12px', lineHeight: '1.35', border: '1px solid var(--border-color)', background: 'var(--surface-bg)', color: 'var(--text-color)', boxShadow: '0 4px 24px rgba(0,0,0,.18)', opacity: '0', transition: 'opacity .12s ease', fontVariantNumeric: 'tabular-nums', zIndex: '2' });
+      container.appendChild(tip);
+      const showTip = (el, html) => {
+        tip.innerHTML = html;
+        const box = container.getBoundingClientRect();
+        const r = el.getBoundingClientRect();
+        const left = Math.min(r.left - box.left, box.width - 220);
+        tip.style.transform = `translate(${Math.max(0, left)}px, ${r.bottom - box.top + 6}px)`;
+        tip.style.opacity = '1';
+      };
+      const hideTip = () => { tip.style.opacity = '0'; tip.style.transform = 'translate(-9999px, -9999px)'; };
+
+      // Diverging colors: negative weights at one end, positive at the other (as in the banner)
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      const readColors = () => {
+        try {
+          const div = window.ColorPalettes && window.ColorPalettes.getColors('diverging', 3);
+          if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+        } catch (_) {}
+        rampEl.style.background = `linear-gradient(to right, ${NEG}, color-mix(in oklab, var(--text-color) 8%, transparent), ${POS})`;
+      };
+      readColors();
+
+      let model = null;
+      const fmt = (x, digits = 2) => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(digits);
+      const fmtInt = (n) => n.toLocaleString('en-US');
+
+      // The same words as the notebook: lowercase, line breaks removed, runs of letters and digits
+      const tokenize = (text) => text.toLowerCase().replace(/<br \/>/g, ' ').match(/[\p{L}\p{N}_]+/gu) || [];
+
+      function render() {
+        if (!model) return;
+        const words = tokenize(textarea.value);
+        const counts = new Map();
+        const unknown = [];
+        words.forEach((w) => {
+          const i = model.index.get(w);
+          if (i === undefined) { if (!unknown.includes(w)) unknown.push(w); return; }
+          counts.set(i, (counts.get(i) || 0) + 1);
+        });
+        const entries = Array.from(counts.entries()).sort((a, b) => a[0] - b[0]);
+        const V = model.vocabulary.length;
+        sizeEl.textContent = `V = ${fmtInt(V)} entries, ${entries.length} of them non-zero`;
+
+        // The non-zero entries in the order of the vector, with the runs of zeros between them
+        const maxAbs = model.maxAbs;
+        const parts = [];
+        let previous = -1;
+        entries.forEach(([i, c]) => {
+          const zeros = i - previous - 1;
+          if (zeros > 0) parts.push(`<span class="zeros">${fmtInt(zeros)} zeros</span>`);
+          const w = model.weights[i];
+          const strength = Math.round(12 + 68 * Math.min(1, Math.abs(w) / maxAbs));
+          const color = `color-mix(in oklab, ${w >= 0 ? POS : NEG} ${strength}%, transparent)`;
+          parts.push(`<span class="entry" data-i="${i}" data-c="${c}"><span class="count" tabindex="0" style="background:${color}">${c}</span><span class="word">${model.vocabulary[i]}</span></span>`);
+          previous = i;
+        });
+        if (V - previous - 1 > 0) parts.push(`<span class="zeros">${fmtInt(V - previous - 1)} zeros</span>`);
+        vectorEl.innerHTML = parts.join('');
+        unknownEl.innerHTML = unknown.length
+          ? `Not in the vocabulary, not counted: ${unknown.map((w) => `<s>${w}</s>`).join('')}`
+          : '';
+
+        let score = model.bias;
+        entries.forEach(([i, c]) => { score += c * model.weights[i]; });
+        const p = 1 / (1 + Math.exp(-score));
+        verdictEl.innerHTML = `
+          <span class="formula">score = bias + Σ count × weight = ${fmt(score)}</span>
+          <span class="gauge" aria-hidden="true" style="background:color-mix(in oklab, ${NEG} 70%, transparent)"><span style="width:${(p * 100).toFixed(1)}%;background:${POS}"></span></span>
+          <span class="score">${Math.round(p * 100)}% positive</span>`;
+      }
+
+      vectorEl.addEventListener('mouseover', (e) => {
+        const entry = e.target.closest && e.target.closest('.entry');
+        if (!entry || !model) return;
+        const i = +entry.dataset.i, c = +entry.dataset.c, w = model.weights[i];
+        showTip(entry, `<b>${model.vocabulary[i]}</b>, entry ${fmtInt(i + 1)} of the vector<br>count ${c} × weight ${fmt(w, 3)} = ${fmt(c * w, 3)}`);
+      });
+      vectorEl.addEventListener('mouseout', (e) => {
+        if (!e.relatedTarget || !vectorEl.contains(e.relatedTarget)) hideTip();
+      });
+      vectorEl.addEventListener('focusin', (e) => {
+        const entry = e.target.closest && e.target.closest('.entry');
+        if (entry) entry.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      });
+      vectorEl.addEventListener('focusout', hideTip);
+      textarea.addEventListener('input', render);
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+
+      fetchFirstAvailable(PATHS).then((data) => {
+        model = {
+          vocabulary: data.vocabulary,
+          weights: data.weights,
+          bias: data.bias,
+          index: new Map(data.vocabulary.map((w, i) => [w, i])),
+          maxAbs: Math.max(...data.weights.map((w) => Math.abs(w))) * 0.5,
+        };
+        render();
+      }).catch((err) => {
+        const pre = document.createElement('pre');
+        pre.className = 'error';
+        pre.textContent = String(err && err.message ? err.message : err);
+        container.appendChild(pre);
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    else bootstrap();
+  })();
+</script>

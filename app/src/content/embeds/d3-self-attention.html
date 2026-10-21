@@ -1,0 +1,253 @@
+<div class="d3-self-attention"></div>
+<style>
+  .d3-self-attention { font-size: 12px; color: var(--text-color); }
+  .d3-self-attention svg { display: block; width: 100%; height: auto; max-width: 760px; margin: 0 auto; overflow: visible; }
+  .d3-self-attention .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); transition: stroke 0.15s ease; }
+  .d3-self-attention .token text { fill: var(--text-color); font-size: 12px; }
+  .d3-self-attention .token.special text { font-weight: 700; }
+  .d3-self-attention .column { cursor: pointer; outline: none; }
+  .d3-self-attention .column.lit .token rect { stroke: var(--accent); stroke-width: 1.8; }
+  .d3-self-attention .column.lit .token text { font-weight: 700; }
+  .d3-self-attention .column:focus-visible .token rect { stroke: var(--accent); stroke-width: 2.2; }
+  .d3-self-attention .cell { stroke: var(--border-color); }
+  .d3-self-attention .cell.max { stroke: var(--text-color); stroke-width: 1.6; }
+  .d3-self-attention .all-link { fill: none; stroke: var(--muted-color); stroke-width: 0.6; opacity: 0.14; }
+  .d3-self-attention .weight-link { fill: none; stroke: var(--accent); stroke-linecap: round; }
+  .d3-self-attention .weight { fill: var(--text-color); font-size: 11px; font-weight: 700; }
+  .d3-self-attention .arrow { stroke: var(--muted-color); fill: none; }
+  .d3-self-attention .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; fill: var(--text-color); }
+  .d3-self-attention .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-self-attention .side-strong { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-self-attention .out-label { fill: var(--text-color); font-size: 12px; }
+</style>
+<script>
+  (() => {
+    // Self-attention, in the visual language of the encoders of sections 7 and 9. The review B of
+    // section 7 enters as one vector per word: the embedding of the word plus an embedding of its
+    // position. A self-attention layer computes a new vector for every word at once: a weighted
+    // average of the input vectors of all the words. Hover over a word to see its weights.
+    // data-config {"mode": "attention"} (section 10.1): one layer, no head.
+    // {"mode": "bert"} (section 10.2): the tokens [CLS] and [SEP] are added, and the new vector of
+    // [CLS] is the representation that the head reads, as in the encoder–head diagram of section 3.
+    // The values of the vectors and the weights are made up.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-self-attention'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-self-attention'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-config')) mountEl = mountEl.parentElement;
+      let config = {};
+      try {
+        const cfg = mountEl ? mountEl.getAttribute('data-config') : null;
+        if (cfg && cfg.trim().startsWith('{')) config = JSON.parse(cfg);
+      } catch (_) {}
+      const BERT = config.mode === 'bert';
+
+      // The review B of the opening of section 7
+      const REVIEW = ['I', 'expected', 'it', 'to', 'be', 'great', 'but', 'it', 'was', 'terrible'];
+      const WORDS = BERT ? ['[CLS]', ...REVIEW, '[SEP]'] : REVIEW;
+      const L = WORDS.length;
+      const off = BERT ? 1 : 0; // index of the first word of the review
+      const D = 4; // size of the vectors
+
+      // Made-up weights of the attention: a softmax, for each word, of scores that favor the word
+      // itself, its neighbors, and a few related words ("great" and "expected", "terrible" and "but").
+      const BONUS = {
+        0: { 1: 1.5 }, 1: { 0: 1.5, 5: 1.2 }, 2: { 1: 1.0, 4: 0.5 }, 3: { 4: 1.5 }, 4: { 5: 1.5, 3: 0.8 },
+        5: { 1: 2.0, 4: 1.0 }, 6: { 5: 1.5, 9: 1.5 }, 7: { 2: 1.8, 9: 0.8 }, 8: { 9: 1.5, 7: 1.0 },
+        9: { 6: 1.6, 8: 1.3, 7: 1.0, 5: 1.0 },
+      };
+      const CLS_BONUS = { 1: 0.8, 5: 1.2, 6: 1.6, 9: 2.2 };
+      const scores = WORDS.map((w, i) => WORDS.map((v, j) => {
+        if (BERT && i === 0) return (j === 0 ? 0.5 : 0) + (CLS_BONUS[j - off] || 0);
+        if (BERT && i === L - 1) return j === i ? 1.0 : 0;
+        if (BERT && (j === 0 || j === L - 1)) return -1.0;
+        const a = i - off, b = j - off;
+        return -0.35 * Math.abs(a - b) + (a === b ? 1.2 : 0) + ((BONUS[a] || {})[b] || 0);
+      }));
+      const WEIGHTS = scores.map((row) => {
+        const m = d3.max(row);
+        const e = row.map((s) => Math.exp(s - m));
+        const z = d3.sum(e);
+        return e.map((v) => v / z);
+      });
+      let step = BERT ? 0 : off + 9; // the word whose weights are shown: [CLS], or "terrible"
+
+      // Made-up input vectors, between −1 and 1: the embedding of the word (the same for both "it")
+      // plus a small embedding of its position. The new vectors are the weighted averages.
+      const embed = (w) => d3.range(D).map((d) => 0.6 * Math.sin(1.9 * (d + 1) * w.length + 0.8 * d + w.charCodeAt(0) / 7));
+      const position = (t) => d3.range(D).map((d) => 0.25 * (d % 2 ? Math.cos(t / Math.pow(3, d)) : Math.sin(t / Math.pow(3, d))));
+      const INPUTS = WORDS.map((w, t) => d3.range(D).map((d) => embed(w)[d] + position(t)[d]));
+      const OUTPUTS = WEIGHTS.map((row) => d3.range(D).map((d) => d3.sum(row, (wt, j) => wt * INPUTS[j][d])));
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let MODEL = '#4e79a7';
+      let OUT = '#f28e2b';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 2);
+            if (cat && cat.length >= 2) { MODEL = cat[0]; OUT = cat[1]; }
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', OUT);
+      };
+      readColors();
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
+
+      // Layout, from the bottom: the tokens, the input vectors, the links of the attention, the new
+      // vectors; in the BERT mode, then the representation, the head and the probabilities.
+      const W = 760;
+      const labelX = 112;            // right edge of the labels on the left
+      const left = 124, right = W - 6;
+      const top = BERT ? 168 : 22;
+      const outY = top + 14, cellW = 8, cellH = 12;
+      const inY = outY + 150;
+      const tokenY = inY + 30, tokenH = 22;
+      const captionY = tokenY + tokenH + 18;
+      const H = captionY + 8;
+
+      const tokenWidth = (w) => Math.max(36, w.length * 7 + 12);
+      const gap = 5;
+      const rowW = d3.sum(WORDS, tokenWidth) + gap * (L - 1);
+      const centers = [];
+      let x = left + (right - left - rowW) / 2;
+      WORDS.forEach((w) => { const width = tokenWidth(w); centers.push(x + width / 2); x += width + gap; });
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const markerId = `self-attention-arrow-${uid}`;
+      const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', BERT
+          ? 'BERT reads the review with a token [CLS] at the start. Self-attention computes a new vector for every token at once, from the vectors of all the tokens. The new vector of [CLS] is the representation of the review, which a head turns into the probabilities of the two classes.'
+          : 'Each word of the review enters as its embedding plus an embedding of its position. Self-attention computes a new vector for every word at once: a weighted average of the vectors of all the words.');
+      svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+        .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+        .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+      const g = svg.append('g');
+      const arrow = (x1, y1, x2, y2) => g.append('path').attr('class', 'arrow').attr('stroke-width', 1.2)
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+      const curve = (j, k) => {
+        const x1 = centers[j], y1 = inY - 16, x2 = centers[k], y2 = outY + cellH + 3;
+        const mid = (y1 + y2) / 2;
+        return `M${x1},${y1} C${x1},${mid} ${x2},${mid} ${x2},${y2}`;
+      };
+
+      // Every word is linked to every word: faint lines, under everything else
+      const lattice = g.append('g');
+      WORDS.forEach((_, k) => WORDS.forEach((__, j) => lattice.append('path').attr('class', 'all-link').attr('d', curve(j, k))));
+      const links = g.append('g');
+
+      // The labels on the left
+      const label = (y, title, sub) => {
+        g.append('text').attr('class', 'side-strong').attr('x', labelX).attr('y', y).attr('text-anchor', 'end').text(title);
+        g.append('text').attr('class', 'side').attr('x', labelX).attr('y', y + 14).attr('text-anchor', 'end').text(sub);
+      };
+      const UNIT = BERT ? 'token' : 'word';
+      label(outY + 4, 'new vectors', `one per ${UNIT}`);
+      label((outY + inY) / 2, 'self-attention', BERT ? '× 12 layers in BERT' : 'all the words at once');
+      label(inY + 4, 'input vectors', 'word + position');
+
+      // One column per token: the token, its input vector and its new vector
+      const vectors = [];
+      const vector = (parent, values, cx, y, cls) => {
+        const sel = parent.append('g');
+        values.forEach((v, d) => sel.append('rect').attr('class', cls).attr('x', cx - (D * cellW) / 2 + d * cellW).attr('y', y)
+          .attr('width', cellW).attr('height', cellH));
+        vectors.push({ sel, values });
+        return sel;
+      };
+      const weightLabels = [];
+      const outVectors = [];
+      const columns = WORDS.map((w, t) => {
+        const col = g.append('g').attr('class', 'column').attr('tabindex', 0).attr('role', 'button')
+          .attr('aria-label', `weights of the attention of ${w}`);
+        const width = tokenWidth(w);
+        col.append('rect').attr('x', centers[t] - width / 2 - 2).attr('y', outY - 4).attr('width', width + 4)
+          .attr('height', tokenY + tokenH - outY + 6).attr('fill', 'transparent');
+        const tok = col.append('g').attr('class', `token${w.startsWith('[') ? ' special' : ''}`);
+        tok.append('rect').attr('x', centers[t] - width / 2).attr('y', tokenY).attr('width', width).attr('height', tokenH).attr('rx', 4);
+        tok.append('text').attr('x', centers[t]).attr('y', tokenY + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+        col.append('path').attr('class', 'arrow').attr('stroke-width', 1).attr('d', `M${centers[t]},${tokenY - 2} L${centers[t]},${inY + cellH + 3}`);
+        vector(col, INPUTS[t], centers[t], inY, 'cell');
+        outVectors.push(vector(col, OUTPUTS[t], centers[t], outY, 'cell'));
+        weightLabels.push(col.append('text').attr('class', 'weight').attr('x', centers[t]).attr('y', inY - 4).attr('text-anchor', 'middle'));
+        col.on('mouseenter focus click', () => { if (step !== t) { step = t; render(); } });
+        return col;
+      });
+      g.append('text').attr('class', 'side').attr('x', (left + right) / 2).attr('y', captionY).attr('text-anchor', 'middle')
+        .attr('font-style', 'italic').text(`hover over a ${UNIT} to see the weights of its attention`);
+
+      // BERT: the new vector of [CLS] is the representation; a head turns it into probabilities
+      let headBox = null, outBars = null;
+      if (BERT) {
+        const repY = 118, repCellW = 18, repCellH = 18;
+        const cx = (left + right) / 2;
+        const rep = OUTPUTS[0];
+        arrow(centers[0], outY - 3, cx - 10, repY + repCellH + 4);
+        const repG = g.append('g');
+        rep.forEach((v, d) => repG.append('rect').attr('class', 'cell').attr('x', cx - (D * repCellW) / 2 + d * repCellW).attr('y', repY)
+          .attr('width', repCellW).attr('height', repCellH));
+        vectors.push({ sel: repG, values: rep });
+        g.append('text').attr('class', 'side-strong').attr('x', cx + (D * repCellW) / 2 + 14).attr('y', repY + repCellH / 2 - 3).text('representation');
+        g.append('text').attr('class', 'side').attr('x', cx + (D * repCellW) / 2 + 14).attr('y', repY + repCellH / 2 + 11).text('the new vector of [CLS]');
+        const headY = 62, headH = 32, headW = 160;
+        arrow(cx, repY - 3, cx, headY + headH + 3);
+        headBox = g.append('g').attr('class', 'box');
+        headBox.append('rect').attr('x', cx - headW / 2).attr('y', headY).attr('width', headW).attr('height', headH).attr('rx', 7).attr('stroke-width', 1.3);
+        headBox.append('text').attr('x', cx).attr('y', headY + headH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('HEAD');
+        const outBottom = 36;
+        arrow(cx, headY - 3, cx, outBottom + 4);
+        const OUTPUT = [['positive', 0.08], ['negative', 0.92]];
+        const rowH = 16, maxW = 90;
+        const outTop = outBottom - OUTPUT.length * rowH;
+        outBars = g.append('g');
+        OUTPUT.forEach(([name, v], i) => {
+          const y = outTop + i * rowH;
+          outBars.append('text').attr('class', 'out-label').attr('x', cx - 8).attr('y', y + rowH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(name);
+          outBars.append('rect').attr('class', 'out-bar').attr('x', cx).attr('y', y + 3).attr('width', maxW * v).attr('height', rowH - 6).attr('rx', 2).attr('opacity', 0.85);
+        });
+      }
+
+      function render() {
+        vectors.forEach(({ sel, values }) => sel.selectAll('rect').attr('fill', (_, d) => fill(values[d])));
+        if (headBox) headBox.select('rect').attr('fill', `color-mix(in oklab, ${MODEL} 16%, transparent)`).attr('stroke', MODEL);
+        if (outBars) outBars.selectAll('.out-bar').attr('fill', OUT);
+        columns.forEach((c, t) => c.classed('lit', t === step));
+        outVectors.forEach((sel, t) => sel.selectAll('rect').classed('max', t === step || (BERT && t === 0)));
+        links.selectAll('path').data(WEIGHTS[step]).join('path').attr('class', 'weight-link')
+          .attr('d', (_, j) => curve(j, step))
+          .attr('stroke-width', (w) => 0.6 + 9 * w)
+          .attr('opacity', (w) => 0.2 + 0.8 * Math.min(1, 2 * w));
+        weightLabels.forEach((t, j) => t.text(WEIGHTS[step][j].toFixed(2)));
+      }
+
+      render();
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

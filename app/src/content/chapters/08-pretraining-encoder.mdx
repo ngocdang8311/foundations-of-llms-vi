@@ -1,0 +1,173 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+
+## 8. Pre-training the whole encoder
+
+At the end of section 7, the LSTM could read the words in order, but on IMDB it did no better than a bag of words. It had to learn everything from 20,000 labeled reviews: the embeddings of the words, what to keep in its state, and when to forget it. Section 5 gave us part of a solution: learn the embeddings on raw text first. But only the first layer of the network was pre-trained, and everything above it still started from scratch.
+
+Exercise 7.3 suggests going further. A language model is an LSTM trained on raw text, and its embeddings and its LSTM are exactly the encoder of the classifier of exercise 7.2b. **So why not pre-train the whole encoder as a language model, then copy it into the classifier and fine-tune it on the labeled reviews?** Only the head would start from scratch. The output layer of the language model, which gives the probabilities of the next word, is simply dropped.
+
+<HtmlEmbed
+  src="d3-pretrain-encoder.html"
+  title="What is copied from the language model"
+  desc="On the left, an LSTM language model learns to predict the next word on raw text, as in section 7.3. On the right, the classifier of section 7.2. Switch between the two ways of using the language model: copy only its embedding matrix W, as section 5 did with word2vec and GloVe, or copy its embeddings and its LSTM. Either way, the head starts at random, the output layer of the language model is dropped, and the whole classifier is then trained on the labeled reviews. The parts that come from pre-training are in color. The values of the matrices are made up."
+/>
+
+This is the second question of the introduction again: what can be transferred from one task to another? Section 5 transferred the first layer of the network. This section transfers the whole encoder. And in section 10, we will reach models for which nothing at all is trained for the task.
+
+### 8.1 Pre-train the encoder, then fine-tune it
+
+Andrew Dai and Quoc Le, at Google, tested this idea on text classification in 2015 [@dai2015]. They pre-trained an LSTM of 1,024 units as a language model, used its embeddings and its LSTM to initialize the classifier, and fine-tuned the whole network on the labeled reviews. On IMDB, the accuracy went from 86.5% for the same LSTM trained from scratch to 92.4%, 4 points above our bags of words of section 3. Initializing only the embeddings, with word2vec vectors learned on the reviews, gave 90.0%. They also tried a second pre-training task, the *sequence autoencoder*: read the whole review, then write it again, word by word, starting from the last state. It did a little better, 92.8%. And the pre-trained LSTMs were also easier to train. From scratch, they write, "if we were to increase the number of hidden units or to increase the number of backprop steps, the training breaks down very quickly".
+
+Let's try it with our own LSTM. The 50,000 unlabeled reviews of IMDB (the `unsupervised` split of the dataset) are made for this: more than 10 million words of the same kind as the labeled reviews, five times WikiText-2. We pre-train the encoder of exercise 7.2b on them as a language model, then look at what it transfers, in two ways. First, we freeze it, and train a logistic regression on its last state. If the language model has learned to track the sentiment of a review, because it helps to predict the next words, the logistic regression will find it there. Then we fine-tune the classifier of exercise 7.2b from the pre-trained encoder, on 1,000 labeled reviews: as exercise 5.5b showed, this is where pre-training should matter most.
+
+<Exercise number="8.1" star title="Pre-train the LSTM as a language model" data="IMDB" nb="08-1-pretrained-lstm">
+
+Pre-train the encoder of exercise 7.2b (its embeddings and its LSTM, D = 100, H = 128) as a language model on the 50,000 unlabeled reviews of IMDB, for one epoch, with the vocabulary of exercise 3.2. Measure its perplexity on the validation reviews, and generate the end of a review that starts with "this movie". Then measure what it knows about sentiment: freeze it, train a logistic regression on its last state, and compare with the same LSTM before training. Last, fine-tune the classifier of exercise 7.2b on 1,000 labeled reviews, starting from scratch, from the embeddings of the language model, and from its embeddings and its LSTM, and average each test accuracy over 3 random draws of the 1,000 reviews.
+
+The starter code repeats step (1) of the solution of exercise 3.2, then the vocabulary and the class `LSTMClassifier` of exercise 7.2b. It also turns the 50,000 unlabeled reviews into lists of word indices.
+
+<Starter nb="08-1-pretrained-lstm" />
+
+<Hints>
+
+<Hint>
+
+Write the language model as in exercise 7.3, with `nn.Embedding(V + 1, D)`, `nn.LSTM(D, H, batch_first=True)` and `nn.Linear(H, V + 1)`: the unknown words (index V) are one more word to predict. Name its embeddings and its LSTM as in the classifier of exercise 7.2b, `embedding` and `lstm`, so that you can copy them into the classifier later.
+
+</Hint>
+
+<Hint>
+
+Each review is a training sequence: the inputs are its words but the last one, and the targets are its words but the first one. `pad_sequence` pads the short reviews of a batch at the end. The LSTM reads from left to right, so the padding does not change the states of the real words. Pad the targets with −100: `F.cross_entropy` ignores these positions. The scores of a batch have size (batch, L, V + 1): to compute the perplexity, take 50 reviews at a time, since the scores of 500 reviews would take 8 GB.
+
+</Hint>
+
+<Hint>
+
+Train with Adam (learning rate 0.002), and clip the gradient at 1, as in exercise 7.3. An epoch is 782 batches of 64 reviews, about four minutes on a laptop CPU.
+
+</Hint>
+
+<Hint>
+
+For the logistic regression, compute the state after the last word of each review: run the LSTM on a padded batch, and take, for each review, the state at the position of its last word, `lengths - 1`. `LogisticRegression` of scikit-learn takes this matrix of 20,000 rows and 128 columns, as it took the counts of the words in exercise 3.2.
+
+</Hint>
+
+<Hint>
+
+To fine-tune, create a new `LSTMClassifier`, and copy the parts of the language model into it: `model.embedding.load_state_dict(language_model.embedding.state_dict())`, and the same with `lstm`. Then train it as in exercise 5.5b: 400 batches of 32 reviews drawn at random among the 1,000 (`random.choices`), and keep the model with the best validation accuracy, measured every 50 batches. With 1,000 reviews, the accuracy depends on the reviews drawn: average it over 3 draws.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="08-1-pretrained-lstm">
+
+After one epoch, the validation perplexity is 212.1, and the sample has the words of a review ("believable", "gore", "sci fi story") in sentences that make no sense. The logistic regression on the last state gets 57.7% of the test reviews right, against 54.8% for the same LSTM before training. Fine-tuned on 1,000 labeled reviews, the classifier gets 65.3% from scratch, 70.2% from the embeddings of the language model, and 68.2% from its embeddings and its LSTM. The whole solution takes about 16 minutes on a laptop CPU, most of it for the nine fine-tunings. Your numbers can differ by a point or so.
+
+</Checkpoint>
+
+<Solution nb="08-1-pretrained-lstm" />
+
+<WhatToNotice>
+
+The language model has learned something about reviews: its sample has their vocabulary, and its perplexity on the validation reviews is 212, against 10,001 for a uniform choice among the words of its vocabulary. But look at what its state knows about sentiment. The logistic regression on the last state gets 57.7% of the test reviews right: 3 points more than the same LSTM before training, and 30 points less than the bag of words of section 3. The state holds what the training asked for, what is needed to predict the next word, and for that, the last few words matter most. As Dai and Le put it, "language modeling is a short-term objective, so that the hidden state only captures the ability to predict the next few words" [@dai2015]. The fine-tuning tells the same story. With 1,000 labeled reviews, the embeddings of the language model are worth 5 points over the training from scratch. But adding its LSTM loses 2 of these points: for the classifier, the LSTM of the language model is a worse start than a random LSTM. Note also how far the three versions are from the 82.5% of the averaging network of exercise 5.5b, trained on the same number of labels: an LSTM needs many more labels to learn to read. **A small language model transfers its embeddings, not its LSTM.**
+
+</WhatToNotice>
+
+</Exercise>
+
+So is pre-training the encoder useless? No, but our language model is tiny. Dai and Le trained an LSTM of 1,024 units for "roughly 500K steps with a batch size of 128", while ours has 128 units and saw 782 batches of 64 reviews. In 2017, Alec Radford, Rafal Jozefowicz and Ilya Sutskever, at OpenAI, showed what happens at a much larger scale [@radford2017]. They trained an LSTM of 4,096 units to predict the next character of 82 million Amazon reviews, then trained a logistic regression on its last state, as in exercise 8.1. On IMDB, it reached 92.9%. While looking at the weights of the logistic regression, they found that **most of the work was done by a single unit of the state: this unit alone, with a threshold, gives 92.3%**. Nobody had told the network what sentiment is. It had learned to track it, character after character, probably because knowing whether a review is positive helps to predict its next characters. In their words: *"It is possible that sentiment as a conditioning feature has strong predictive capability for language modelling. This is likely since sentiment is such an important component of a review."*
+
+<PaperNote id="radford2017" look="Figure 4: the value of the sentiment unit along six IMDB reviews, character by character, in green when positive and in red when negative.">
+
+The model is a "multiplicative LSTM" of 4,096 units that reads bytes, trained for a single epoch on 38 billion bytes of Amazon reviews: about a month on 4 GPUs. The authors trained the logistic regression with an L1 penalty, which sets most weights to zero, and noticed, as they wrote on OpenAI's blog, that "it used surprisingly few of the learned units". One of them was the sentiment neuron. Fix its value to −1 while the model generates text, and it writes negative reviews: "The package received was blank and has no barcode. A waste of time and money." But the model knows reviews, not language in general: "The model struggles the more the input text diverges from review data."
+
+</PaperNote>
+
+In 2018, Jeremy Howard and Sebastian Ruder turned the idea into a recipe that works on any classification task, *ULMFiT* (for *universal language model fine-tuning*) [@howard2018]. They start from the best LSTM language model of the time, the AWD-LSTM of Merity et al. [@merity2018]: three layers of 1,150 units, regularized with several kinds of dropout, including dropout on the weights from one state to the next. It reaches a test perplexity of 65.8 on WikiText-2, against 155.8 for our LSTM of exercise 7.3. The recipe has three stages:
+- pre-train the language model on general text: 103 million words of Wikipedia (WikiText-103, the big brother of WikiText-2);
+- fine-tune it as a language model on the text of the task, here the reviews of IMDB, so that it adapts to the words and the style of reviews;
+- add a head, and fine-tune the classifier on the labeled reviews.
+
+The last stage needs care. A pre-trained language model fine-tuned too aggressively with a new head can lose what it learned during the pre-training, which is called *catastrophic forgetting*. So they unfreeze the network gradually, from the top: first the head alone, then the last layer of the LSTM, and so on down to the embeddings. Each layer also gets its own learning rate, smaller for the lower layers. With two classifiers, one that reads the reviews from left to right and one from right to left, ULMFiT reaches 95.4% on IMDB, and 94.7% with a single one.
+
+In three years, from Dai and Le to ULMFiT, pre-training the encoder as a language model took the accuracy on IMDB from 92.4% to 95.4%. Before this section, the best result we had met was 91.2%, for NBSVM with the pairs of words (section 6).
+
+<PaperNote id="howard2018" look="Figure 3, left panel: the validation error on IMDB against the number of labeled reviews, from 100 to 20,000, for the training from scratch and for ULMFiT. It is the chart of exercise 5.5b, with a pre-trained encoder.">
+
+The paper starts from computer vision, where models "are rarely trained from scratch, but instead are fine-tuned from models that have been pretrained on ImageNet". For text, the authors write, "Language modeling can be seen as the ideal source task and a counterpart of ImageNet for NLP". Their most striking result is about labels. On IMDB, with only 100 labeled reviews, ULMFiT matches the training from scratch on 10 times more labels, and on 100 times more when the language model is also fine-tuned on the 50,000 unlabeled reviews.
+
+</PaperNote>
+
+### 8.2 Contextual embeddings
+
+There is another way to use a pre-trained language model. Look again at the states of its LSTM. After each word, the state $h_t$ is a vector of fixed size that depends on the word $x_t$ and on the words before it. So it can be seen as a vector for the word $x_t$, like an embedding, but one that changes with the sentence. Such vectors are called *contextual embeddings*.
+
+They answer the last limit of section 6. In a static embedding like GloVe, "bank" has a single vector, whatever its sentence, and this vector is dominated by its most frequent meaning, the bank that holds money (exercise 6). In a contextual embedding, "bank" gets a new vector each time it appears, computed from the words around it.
+
+<HtmlEmbed
+  src="d3-contextual-vectors.html"
+  title="One vector per word, or one vector per occurrence"
+  desc="Word vectors drawn as arrows: the smaller the angle between two arrows, the more similar the two vectors. A static embedding gives “bank” the same vector in both sentences, closer to the words about money, its most frequent meaning. A contextual embedding computes a vector for each occurrence of the word, from its sentence: close to “river” in the first sentence, and close to “money” in the second. Schematic: the directions are made up."
+/>
+
+The best known contextual embeddings of this period are those of *ELMo* (for *embeddings from language models*), by Matthew Peters and his colleagues at the Allen Institute for AI and the University of Washington [@peters2018]. ELMo is a pair of LSTM language models, trained on about 800 million words of news. One reads the sentence from left to right and predicts the next word, the other reads it from right to left and predicts the previous word, so that the vector of a word depends on the whole sentence. Each has two layers of 4,096 units. They read the characters of the words, so that no word is unknown. The ELMo vector of a word is a weighted sum of the states of all the layers at this word, with weights learned for each task. The language models stay frozen: at the input of the model of each task, the ELMo vector of each word is concatenated with its usual static embedding. Added in this way to strong models of six tasks, from question answering to the sentiment of sentences, ELMo set a new state of the art on all six.
+
+ELMo was not the first to do this. A few months earlier, Peters et al. had already given a tagger the last states of two pre-trained language models, one for each direction [@peters2017], and McCann et al. had taken the states of the encoder of a translation model, which they called CoVe [@mccann2017]. ELMo used all the layers of the language model instead of the last one, and showed that its vectors help on a wide range of tasks. As its authors write, "each token is assigned a representation that is a function of the entire input sentence."
+
+<PaperNote id="peters2018" look="Table 4: the nearest neighbors of “play”. In GloVe, they are mostly about sports: playing, game, games, played, players. With ELMo, the play of a baseball player and a play on Broadway each find a sentence of their own meaning.">
+
+The paper probes what the layers of the language model capture. The upper layer is better at telling the meanings of a word apart: used as is, with a nearest-neighbor rule, it gets an F1 score of 69.0 on a benchmark of word senses, close to methods designed for this task. The lower layer is better at grammar: a linear classifier on it finds the part of speech of 97.3% of the words. In the authors' words, "the higher-level LSTM states capture context-dependent aspects of word meaning [...] while lower-level states model aspects of syntax". This is why ELMo mixes all the layers, with weights chosen by each task. Like pre-trained embeddings, ELMo matters most when labels are few: on a task of semantic role labeling, the model trained with ELMo on 1% of the labeled sentences is about as good as the model without ELMo trained on 10% of them. The paper received the best paper award at NAACL 2018.
+
+</PaperNote>
+
+ELMo and ULMFiT are the two ways of using a pre-trained language model that transformers inherited. ELMo freezes the language model, and uses its states as features for another network trained for the task. ULMFiT fine-tunes the language model itself, and adds only a head. BERT, in section 10.2, is used in both ways, and we will compare the vectors that it gives to "bank" in sentences about rivers and about money.
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**A sentiment neuron?** In the language model of exercise 8.1, look for the unit of the last state whose value alone best separates the positive reviews from the negative ones, with a threshold at its median. How far is it from the 92.3% of the sentiment neuron of Radford et al. [@radford2017]?
+
+</Bonus>
+
+<Bonus>
+
+**A bigger language model.** Pre-train language models with H = 256 and H = 512, or for more epochs, and run the logistic regression of exercise 8.1 on their last states. Does the state learn more about sentiment as the perplexity goes down?
+
+</Bonus>
+
+<Bonus>
+
+**All the states.** The head of ULMFiT reads the last state, but also the average and the maximum of all the states of the review [@howard2018]. Run the logistic regression of exercise 8.1 on the average of the states instead of the last one, for the language model and for the LSTM before training. What changes?
+
+</Bonus>
+
+<Bonus>
+
+**Gradual unfreezing.** Fine-tune the pre-trained encoder of exercise 8.1 as ULMFiT does: first train the head alone, with the encoder frozen, then unfreeze the LSTM, then the embeddings, with a smaller learning rate for the lower layers. Does the LSTM of the language model help now?
+
+</Bonus>
+
+<Bonus>
+
+**All the labels.** Fine-tune the three starts of exercise 8.1 on the 20,000 labeled reviews, for 6 epochs, as in exercise 7.2b. Does pre-training still matter with many labels?
+
+</Bonus>
+
+<Bonus>
+
+**Contextual vectors.** With the language model of exercise 8.1, compute the state after the word "score" in ten sentences, five about the music of a film and five about a game, and the matrix of their cosine similarities. Do the two meanings separate? Keep in mind that this language model only reads the words before "score".
+
+</Bonus>

@@ -1,0 +1,12 @@
+---
+// The starter code of an exercise, with its output, from the cells tagged "starter" in its notebook.
+import { fragment } from "./exercises";
+import Missing from "./Missing.astro";
+const { nb } = Astro.props as { nb: string };
+const mod = fragment(nb, "starter");
+const Content = mod?.default;
+---
+<div class="exercise__starter">
+  <div class="exercise__label">Starter code</div>
+  {Content ? <Content /> : <Missing notebook={nb} part="starter code" />}
+</div>

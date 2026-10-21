@@ -1,0 +1,190 @@
+<div class="d3-lstm-reading"></div>
+<style>
+  .d3-lstm-reading { font-size: 12px; color: var(--text-color); }
+  .d3-lstm-reading svg { display: block; width: 100%; height: auto; max-width: 640px; margin: 0 auto; overflow: visible; }
+  .d3-lstm-reading .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; margin-bottom: 10px; }
+  .d3-lstm-reading .controls label { font-size: 12px; font-weight: 700; }
+  .d3-lstm-reading .controls input[type="range"] { width: min(260px, 55%); accent-color: var(--accent); }
+  .d3-lstm-reading .controls .value { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted-color); min-width: 6em; }
+  .d3-lstm-reading .title { fill: var(--text-color); font-size: 12px; font-weight: 700; }
+  .d3-lstm-reading .side { fill: var(--muted-color); font-size: 11px; }
+  .d3-lstm-reading .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); }
+  .d3-lstm-reading .token text { fill: var(--text-color); font-size: 11px; }
+  .d3-lstm-reading .token.unread { opacity: 0.35; }
+  .d3-lstm-reading .token.current rect { stroke: var(--accent); stroke-width: 1.6; }
+  .d3-lstm-reading .cell { stroke: var(--border-color); stroke-width: 0.6; }
+  .d3-lstm-reading .half { stroke: var(--muted-color); stroke-dasharray: 3 3; stroke-width: 1; }
+  .d3-lstm-reading .axis-label { fill: var(--muted-color); font-size: 10px; }
+  .d3-lstm-reading .p-line { fill: none; stroke-width: 1.6; }
+  .d3-lstm-reading .p-value { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .d3-lstm-reading .error { color: var(--danger-color, #c00); }
+</style>
+<script>
+  (() => {
+    // The LSTM classifier of exercise 7.2b reads the two hard reviews with the same words. For each
+    // review: the probability of being positive that the head gives after each word, and the state
+    // after each word, restricted to the units with the largest weights in the head. Each cell shows
+    // the contribution of a unit to the score of the head (its value times its weight), so that the
+    // colors read as in the other figures: positive or negative. A slider sets the number of words
+    // read. Data: lstm-reading.json, written by code/07-2b-lstm-classifier.ipynb.
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-lstm-reading'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-lstm-reading'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let NEG = 'var(--primary-color)';
+      let POS = 'var(--info-color)';
+      let ACCENT = '#4e79a7';
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const div = window.ColorPalettes.getColors('diverging', 3);
+            if (div && div.length >= 3) { NEG = div[0]; POS = div[div.length - 1]; }
+            const cat = window.ColorPalettes.getColors('categorical', 1);
+            if (cat && cat[0]) ACCENT = cat[0];
+          }
+        } catch (_) {}
+        container.style.setProperty('--accent', ACCENT);
+      };
+      readColors();
+      let scale = 1;   // the largest contribution, set when the data is loaded
+      const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(4 + 80 * Math.min(1, Math.abs(v) / scale))}%, transparent)`;
+      const pColor = (p) => (p >= 0.5 ? POS : NEG);
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      const file = attr && attr.trim() && !attr.trim().startsWith('[') ? attr.trim() : 'lstm-reading.json';
+      const paths = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`, `../../assets/data/${file}`];
+      const fetchFirstAvailable = async (list) => {
+        for (const p of list) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`${file} not found`);
+      };
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.innerHTML = `<label for="lstm-read-${uid}">Words read</label>
+        <input type="range" id="lstm-read-${uid}" min="1" max="1" step="1" value="1">
+        <span class="value" aria-live="polite"></span>`;
+      container.appendChild(controls);
+      const slider = controls.querySelector('input');
+      const value = controls.querySelector('.value');
+
+      fetchFirstAvailable(paths).then((data) => {
+        const reviews = data.reviews;
+        const L = d3.max(reviews, (r) => r.words.length);
+        const U = data.units.length;
+        // Contribution of each unit to the score of the head: its value times its weight
+        reviews.forEach((r) => { r.contributions = r.states.map((state) => state.map((v, u) => v * data.weights[u])); });
+        scale = d3.max(reviews, (r) => d3.max(r.contributions, (c) => d3.max(c, (v) => Math.abs(v)))) || 1;
+        slider.max = String(L);
+        slider.value = String(L);
+
+        const W = 640;
+        const left = 96, colW = 52, cellH = 9;
+        const pH = 46;          // height of the chart of p(positive)
+        const tokenH = 20;
+        const panelH = 18 + pH + 10 + U * cellH + 8 + tokenH + 22;
+        const H = reviews.length * panelH;
+        const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img')
+          .attr('aria-label', 'For each of the two reviews, the probability of being positive after each word, and the state of the LSTM after each word, as a column of colored cells.');
+        const colX = (t) => left + t * colW;
+
+        const panels = reviews.map((review, k) => {
+          const g = svg.append('g').attr('transform', `translate(0, ${k * panelH})`);
+          const letter = String.fromCharCode(65 + k);
+          g.append('text').attr('class', 'title').attr('x', 0).attr('y', 12)
+            .text(`${letter} (${review.label}): ${review.text}`);
+
+          // The probability of being positive after each word
+          const top = 18;
+          const y = d3.scaleLinear().domain([0, 1]).range([top + pH, top]);
+          g.append('line').attr('class', 'half').attr('x1', colX(0)).attr('x2', colX(L)).attr('y1', y(0.5)).attr('y2', y(0.5));
+          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', y(0.5)).attr('dy', '0.35em').attr('text-anchor', 'end').text('p(positive)');
+          g.append('text').attr('class', 'axis-label').attr('x', colX(L) + 4).attr('y', y(1)).attr('dy', '0.35em').text('1');
+          g.append('text').attr('class', 'axis-label').attr('x', colX(L) + 4).attr('y', y(0.5)).attr('dy', '0.35em').text('0.5');
+          g.append('text').attr('class', 'axis-label').attr('x', colX(L) + 4).attr('y', y(0)).attr('dy', '0.35em').text('0');
+          const line = g.append('path').attr('class', 'p-line');
+          const dots = g.append('g');
+          const pValue = g.append('text').attr('class', 'p-value').attr('text-anchor', 'middle');
+
+          // The state after each word: one column of cells per word
+          const stateTop = top + pH + 10;
+          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', stateTop + (U * cellH) / 2 - 6).attr('text-anchor', 'end').text('state');
+          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', stateTop + (U * cellH) / 2 + 7).attr('text-anchor', 'end').text(`(${U} units)`);
+          const columns = review.contributions.map((state, t) => {
+            const c = g.append('g');
+            state.forEach((v, u) => {
+              c.append('rect').attr('class', 'cell').attr('x', colX(t) + 8).attr('y', stateTop + u * cellH)
+                .attr('width', colW - 16).attr('height', cellH).attr('data-v', v);
+            });
+            return c;
+          });
+
+          // The words
+          const tokenTop = stateTop + U * cellH + 8;
+          const tokens = review.words.map((w, t) => {
+            const tk = g.append('g').attr('class', 'token');
+            tk.append('rect').attr('x', colX(t) + 3).attr('y', tokenTop).attr('width', colW - 6).attr('height', tokenH).attr('rx', 4);
+            tk.append('text').attr('x', colX(t) + colW / 2).attr('y', tokenTop + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+            return tk;
+          });
+
+          return { review, y, line, dots, pValue, columns, tokens };
+        });
+
+        const render = () => {
+          const n = Number(slider.value);
+          value.textContent = `${n} of ${L}`;
+          panels.forEach(({ review, y, line, dots, pValue, columns, tokens }) => {
+            const read = Math.min(n, review.words.length);
+            const points = review.p_positive.slice(0, read).map((p, t) => [colX(t) + colW / 2, y(p)]);
+            line.attr('d', d3.line()(points)).attr('stroke', 'var(--muted-color)');
+            dots.selectAll('circle').data(points).join('circle')
+              .attr('cx', (d) => d[0]).attr('cy', (d) => d[1]).attr('r', 3.2)
+              .attr('fill', (_, t) => pColor(review.p_positive[t]));
+            const last = review.p_positive[read - 1];
+            pValue.attr('x', points[read - 1][0]).attr('y', points[read - 1][1] + (last >= 0.5 ? 14 : -7))
+              .attr('fill', pColor(last)).text(last.toFixed(2));
+            columns.forEach((c, t) => c.selectAll('rect')
+              .attr('fill', function () { return t < read ? fill(Number(this.getAttribute('data-v'))) : 'transparent'; })
+              .attr('stroke-opacity', t < read ? 1 : 0.3));
+            tokens.forEach((tk, t) => tk.classed('unread', t >= read).classed('current', t === read - 1));
+          });
+        };
+        slider.addEventListener('input', render);
+        render();
+        document.addEventListener('palettes:updated', () => { readColors(); render(); });
+      }).catch((err) => {
+        const e = document.createElement('pre');
+        e.className = 'error';
+        e.textContent = String(err.message || err);
+        container.appendChild(e);
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

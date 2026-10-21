@@ -1,0 +1,259 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import Placeholder from '../../components/post/Placeholder.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import WrapTable from '../../components/post/WrapTable.astro';
+import Image from '../../components/Image.astro';
+import transformerFigure from '../assets/image/transformer.png';
+
+## 10. Epilogue: how transformers inherit the story
+
+At the end of section 9, attention was helping two RNNs: the encoder still read the source one word after the other, and the decoder still wrote the translation one word after the other. But in June 2017, **a team at Google removed the RNNs, and kept only attention**. Their architecture, the *transformer*, is the basis of all the large language models of today.
+
+Although we will not study it in detail here, I want to highlight something: before 2019 (and GPT-2), transformers were not meant to be used to create LLMs and chatbots as we know them today, but just as a means to solve the classical NLP tasks of classification and translation! Let's see how this story started.
+
+### 10.1 Transformers instead of RNNs
+
+In RNNs, recurrence has two costs. The first is *gradient flow*. As we saw in exercise 7.2a, between two distant words the information and the gradient go through every step in between, and even in an LSTM, the gradient that reaches a word shrinks with its distance to the end of the text. The second cost is *the time it takes*. To compute the state after word $t$, an RNN needs the state after word $t - 1$, so the L states of a text are computed one after the other.
+
+<PaperNote id="vaswani2017" look="Figures 3 to 5, in the appendix of the arXiv version: the weights of a few heads of the fifth layer of the encoder, drawn as lines between the words of a sentence.">
+
+The paper was posted on arXiv on 12 June 2017 by eight authors, most of them at Google Brain and Google Research. The base model has 65 million parameters, with vectors of 512 and 8 heads, and the big model 213 million, with vectors of 1,024 and 16 heads.  Its encoder is a stack of 6 layers of self-attention, and its decoder a stack of 6 layers that attend to the translation written so far, and to the vectors of the encoder. On the translation of English into German of WMT'14, their big model reached a BLEU score of 28.4, more than 2 points above all the previous models, ensembles included, and 41.8 on English into French. The base model was trained in 12 hours, on a single machine with 8 GPUs, and the big model in 3.5 days.
+</PaperNote>
+
+A GPU is fast because it does thousands of operations at the same time, but within a given piece of text, an RNN cannot give it many operations to do in parallel. In the words of Vaswani et al., *"This inherently sequential nature precludes parallelization within training examples, which becomes critical at longer sequence lengths"* [@vaswani2017].
+
+The idea of the transformer is to replace the recurrence by attention inside the text itself. In section 9.2, the decoder compared its state with the states of all the words of the source. In *self-attention*, every word of a text does the same with all the words of the same text, itself included.
+
+Each word gives a score to every word of the text, a dot product as in section 9.2 (computed after learned linear transformations of the vectors, which we skip here). A softmax turns the scores into weights, and the new vector of the word is the weighted average of the vectors of all the words. This removes the two costs of recurrence. Any two words are linked in a single step, whatever the distance between them, so the information and the gradient no longer go through all the words in between. And the new vectors of all the words are computed at the same time, with a few products of matrices, which is what a GPU does best. A transformer stacks several such layers: each one computes new vectors from the vectors of the layer below.
+
+A weighted average does not depend on the order of the words, so self-attention alone would read a text as a bag of words, like the averages of section 4.3. This is why the input vector of each word is its embedding plus a vector that encodes its position in the text.
+
+<HtmlEmbed
+  src="d3-self-attention.html"
+  config={{ mode: "attention" }}
+  title="A layer of self-attention"
+  desc="A layer of self-attention reads the review B of section 7. Each word enters as a vector: its embedding plus an embedding of its position. The layer computes a new vector for every word at the same time, a weighted average of the vectors of all the words. The faint links join every word to every word, and the thick ones show the weights of the word under the mouse. Hover over a word to see its weights. The values and the weights are made up."
+/>
+
+The transformer of Vaswani et al. is an encoder–decoder, like the models of section 9, applied to a translation task. You probably know the picture of its architecture from the paper, shown below, and it might look overcomplicated compared to what we do today. Indeed we tend to forget it today, as "transformer model" is almost synonymous with "autoregressive LLM", but the task for which it was invented was translation!
+
+<div style={{ maxWidth: "380px", margin: "0 auto" }}>
+<Image
+  src={transformerFigure}
+  width={760}
+  alt="The architecture of the transformer: on the left, the encoder, a stack of N layers of multi-head attention and feed-forward networks, reading the input embeddings plus positional encodings; on the right, the decoder, a stack of N layers of masked multi-head attention, multi-head attention over the outputs of the encoder, and feed-forward networks, followed by a linear layer and a softmax that give the output probabilities."
+  caption="The transformer, an encoder–decoder for translation. The encoder (left) and the decoder (right) are stacks of N = 6 identical layers, and the orange boxes are the layers of attention. Figure from <a href='#bib-vaswani2017'>Vaswani et al. (2017)</a>."
+  downloadable={false}
+  skipGallery
+/>
+</div>
+
+Its encoder, on the left of the figure, is a stack of layers of self-attention that read the source sentence. Its decoder, on the right, attends to the vectors of the encoder, as the decoder of section 9.2 did, and it also uses self-attention on the translation written so far. During the training, the decoder computes its predictions for all the positions of the translation at once, so its self-attention needs a *mask* (the "Masked Multi-Head Attention" of the figure): each position may attend only to itself and to the positions before it, and not to the words that it must predict. In the words of the paper, the mask is there "to prevent positions from attending to subsequent positions".
+
+### 10.2 BERT
+
+The transformer was made for translation, but if we focus only on its encoder part, it does exactly what we were looking for in section 8: it is a network that reads a whole text and gives each word a vector that depends on all the other words (and that trains much faster than an LSTM). In October 2018, Jacob Devlin and his colleagues at Google pre-trained a transformer encoder on raw text, and fine-tuned it for each task, as ULMFiT did with an LSTM [@devlin2018]. They called it *BERT*, for *bidirectional encoder representations from transformers*. Once again, they were not trying to create an autoregressive LLM able to generate text; they were simply looking for a better encoder to then perform the usual downstream NLP tasks.
+
+But how do we pre-train the encoder? In other words, which task can train an encoder on raw text? A language model predicts the next word from the words before it, so it ignores the words after. This is a waste for an encoder, whose job is to read the whole text: in their words, *"The major limitation is that standard language models are unidirectional"*. ELMo got around it with two language models, one for each direction (section 8.2), but each of them reads only one side of the word. And a transformer encoder cannot be trained as a language model at all: every word attends to every word, so the word to predict would be in its input.
+
+**BERT hides words instead.** In each text, 15% of the tokens are chosen at random and replaced by a special token, [MASK], and BERT must predict them from all the other tokens, on both sides. (To avoid a gap with the fine-tuning, where nothing is masked, a chosen token is replaced by [MASK] 80% of the time, by a random token 10% of the time, and left as it is 10% of the time.) This *masked language model* was "inspired by the Cloze task", a test of readability from 1953, where readers fill in the missing words of a text. It is also the task of CBOW in section 5.2, predicting a word from the words around it, except that the context is now the whole text, and the model a deep transformer instead of an average of embeddings.
+
+BERT was pre-trained on 3.3 billion words: BooksCorpus, 800 million words of unpublished books, and the English Wikipedia, 2,500 million words. Its vocabulary has 30,000 *WordPieces*, subwords like those of the box of section 7.3, so no word is unknown. It comes in two sizes. BERT base has 12 layers, vectors of 768 and 12 heads, 110 million parameters. BERT large has 24 layers, vectors of 1,024 and 16 heads, 340 million parameters. Each pre-training took 4 days, on Google's own processors, the TPUs.
+
+Now with a simple encoder, we associate a latent vector to *every word* in the text. If we want to do a classification task, this is not what we need, we need a fixed length representation for the *whole* text. **How does BERT turn a text of any length into a vector of fixed size?** With a trick that brings back the box of section 3: **a special token, [CLS]** (for *classification*), is added at the start of every text, and BERT computes a new vector for it, as for every other token:
+
+$$
+x_{\text{CLS}}\, x_1 \dots x_L \longrightarrow h_{\text{CLS}}\, h_1 \dots h_L.
+$$
+
+[CLS] is not a word of the text, so its vector has nothing of its own to represent: through the attention of its 12 layers, it collects what it needs from all the words. A second pre-training task trains it: BERT reads two sentences, and must tell from the vector of [CLS] whether the second one follows the first one in the text, or was drawn at random. In the words of the paper, "The final hidden state corresponding to this token is used as the aggregate sequence representation for classification tasks." **The vector of [CLS] is the fixed-size representation, and the head of a classifier reads it.**
+
+<HtmlEmbed
+  src="d3-self-attention.html"
+  config={{ mode: "bert" }}
+  title="BERT reads a review"
+  desc="The encoder–head diagram of section 3, one last time. BERT reads the review with the token [CLS] at its start and the token [SEP], which marks the end of a sentence, at its end. Each of its 12 layers computes a new vector for every token from the vectors of all the tokens, as in the figure of section 10.1 (a single layer is drawn). After the last layer, the new vector of [CLS] is the representation of the review, which the head turns into probabilities. Hover over a token to see the weights of its attention. The values and the weights are made up."
+/>
+
+To fine-tune BERT for a classification task, add a head that reads $h_{\text{CLS}}$, and train the whole network on the labeled examples, for 2 to 4 epochs, with a small learning rate: the authors recommend values between 2e-5 and 5e-5. This is the recipe of ULMFiT, without its gradual unfreezing. BERT set a new state of the art on eleven tasks. On GLUE, a benchmark of nine tasks of sentence understanding, the score went from 72.8, for GPT (section 10.3), to 80.5 for BERT large. BERT can also be used as ELMo was: frozen, with its vectors given as features to another network. On a task of named entity recognition, the concatenation of the vectors of its last four layers was "only 0.3 F1 behind fine-tuning the entire model".
+
+<PaperNote id="devlin2018" look="Figure 1: pre-training and fine-tuning use the same network, and only the output layers change. “During fine-tuning, all parameters are fine-tuned.”">
+
+BERT was pre-trained on batches of 256 sequences of up to 512 tokens, for 1,000,000 steps, "approximately 40 epochs over the 3.3 billion word corpus". To save time, the sequences had 128 tokens for 90% of the steps. The base model took 4 days on 16 TPU chips, and the large one 4 days on 64. The paper measures what the two pre-training tasks bring (Table 5). Without the task on pairs of sentences, BERT base loses a little on question answering and on inference between sentences. Without this task, and trained as a language model from left to right instead, like GPT, it loses on every task, for instance from 86.5 to 77.5 on MRPC, a task of paraphrases, and from 87.9 to 77.8 F1 on SQuAD, a task of question answering. The masked language model, which reads both sides of every word, is what makes the difference.
+
+</PaperNote>
+
+The other vectors, $h_1 \dots h_L$, are contextual embeddings, like those of ELMo in section 8.2, except that each of them depends on all the words of the text, on both sides, at every layer. Let's look at "bank" again.
+
+<Exercise number="10.2a" title="Compare the vectors of “bank” in BERT" data="BERT" nb="10-2a-contextual-embeddings">
+
+Take the ten sentences of the starter: in the first five, "bank" is the side of a river, and in the last five, it holds money. In GloVe, "bank" has the same vector in all of them. Compute the vector of "bank" in each sentence at the input of BERT and after its last layer, and the cosine similarities between the ten vectors, at the input and after the last layer. Draw the two matrices of similarities. Then compute the average similarity between two sentences with the same meaning, and between two sentences with different meanings.
+
+<Starter nb="10-2a-contextual-embeddings" />
+
+<Hints>
+
+<Hint>
+
+`model(**encoding, output_hidden_states=True)` returns the vectors of every layer in `hidden_states`: a tuple of 13 tensors of shape (1, number of tokens, 768). The first one is the input of BERT, and the last one the output of its last layer. `tokens.index("bank")` gives the position of "bank" among the tokens of the sentence.
+
+</Hint>
+
+<Hint>
+
+As in exercise 6, divide each vector by its length: the product of the matrix of the ten vectors with its transpose then gives all the cosine similarities at once. `plt.imshow` draws a matrix, with one color per value.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="10-2a-contextual-embeddings">
+
+At the input of BERT, all the vectors of "bank" are almost the same: the average similarity is 0.95 for two sentences with the same meaning, and 0.96 for two sentences with different meanings. After the last layer, it is 0.77 for the same meaning, and 0.49 for different meanings: the matrix shows two blocks. The solution takes about fifteen seconds.
+
+</Checkpoint>
+
+<Solution nb="10-2a-contextual-embeddings" />
+
+<WhatToNotice>
+
+At the input of BERT, the vector of "bank" is the embedding of the token, plus the embedding of its position: it is a static vector, as in GloVe, and the small differences between sentences only come from the position of the word. After 12 layers of attention, the vectors have moved apart according to the meaning of the word: two banks of rivers are much more similar to each other than to a bank that holds money. This is what GloVe could not do in exercise 6, where "bank" had a single vector, close to finance. Look also at the sentences that start with "The bank", such as "The bank was steep and covered with reeds." and "The bank refused to give him a loan.". Only the words after "bank" tell its meaning, and BERT puts them in the right block. The language model of exercise 8.1, which reads from left to right, could not do this. **In BERT, the vector of a word depends on all the words of its text, so the same word gets different vectors for different meanings.**
+
+</WhatToNotice>
+
+</Exercise>
+
+Now let's fine-tune BERT on IMDB. With the 20,000 labeled reviews, this takes more than an hour on a laptop CPU. But exercises 5.5b and 8.1 showed that pre-training matters most when labels are few. So let's use the 1,000 labeled reviews of exercise 8.1: from them, the LSTMs of exercise 8.1 reached 65% to 70%, and the deep averaging network of exercise 5.5b reached 82.5%.
+
+<Exercise number="10.2b" title="Fine-tune BERT on 1,000 reviews" data="IMDB" nb="10-2b-bert-fine-tuning">
+
+Add a head to BERT that reads the new vector of the token [CLS], and fine-tune the whole network on the 1,000 labeled reviews of the first of the three draws of exercise 8.1, for 3 epochs, with the first 256 tokens of each review. Measure its test accuracy, and compare it with the classifiers of exercises 5.5b and 8.1, trained on the same number of labels. Then run it on the hard reviews of exercise 3.4.
+
+The starter code repeats step (1) of the solution of exercise 3.2, lists the hard reviews of exercise 3.4, and draws the same 1,000 reviews as exercise 8.1: `chosen` holds their positions in `train_texts`. It also loads the tokenizer of BERT.
+
+<Starter nb="10-2b-bert-fine-tuning" />
+
+<Hints>
+
+<Hint>
+
+Load BERT with `AutoModel.from_pretrained("bert-base-uncased")`. The tokenizer prepares a batch of reviews for it: `tokenizer(texts, truncation=True, max_length=256, padding=True, return_tensors="pt")`. On this batch, BERT returns `last_hidden_state`, the vectors of its last layer, of shape (batch, tokens, 768). The vector of [CLS] is at position 0.
+
+</Hint>
+
+<Hint>
+
+Train with `torch.optim.AdamW`, a variant of Adam, with the learning rate of 2e-5 recommended by the authors of BERT, in batches of 16 reviews. A learning rate like the 1e-3 of our other exercises would change the pre-trained weights too much.
+
+</Hint>
+
+<Hint>
+
+`from_pretrained` returns a model whose dropout is turned off, as for predictions. Call `model.train()` before the training, to turn it on, and `model.eval()` after. On a laptop CPU, the three epochs take about five minutes, and the predictions on the 25,000 test reviews about ten.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="10-2b-bert-fine-tuning">
+
+After 3 epochs on the 1,000 reviews, BERT gets 89.2% of the test reviews right. It gets 10 of the 13 hard reviews right: it misses "Not bad at all, actually." and the two sarcastic reviews. The solution takes about 15 minutes on a laptop CPU, two thirds of them for the predictions on the 25,000 test reviews. Your numbers can differ by a point or so.
+
+</Checkpoint>
+
+<Solution nb="10-2b-bert-fine-tuning" />
+
+<WhatToNotice>
+
+With 1,000 labeled reviews, BERT gets 89.2% of the test reviews right: 24 points more than the LSTM of exercise 8.1 trained from scratch on the same reviews, 19 points more than the best pre-trained LSTM of that exercise, and 6 to 8 points more than the deep averaging networks of exercise 5.5b. It even beats all our classifiers trained on the 20,000 labeled reviews, the best of which got 88.4%. Yet the recipe is the one of exercise 8.1: pre-train the encoder on raw text, add a head, and fine-tune everything. What changed is the scale of the pre-training: 3.3 billion words and 110 million parameters, against 10 million words and about a million parameters for our LSTM. The hard reviews show what BERT brings. It reads the negations of "Nothing about this movie is good." and "I wouldn't call it a masterpiece, but I didn't regret a minute.", the three contrasts, and the two reviews with the same words. It still misses "Not bad at all, actually.", and the two sarcastic reviews, which it calls positive with a probability above 0.95: a thousand movie reviews do not teach that "I only checked my watch twenty times" is not praise. **A large pre-trained encoder transfers so much about language that a thousand labeled reviews are enough.**
+
+</WhatToNotice>
+
+</Exercise>
+
+With all the labeled reviews, and up to 510 tokens of each review, BERT base reaches 94.6% on IMDB. It reaches 95.6% when its pre-training is first continued on the reviews of IMDB, as a masked language model, as ULMFiT did in its second stage [@sun2019].
+
+### 10.3 GPT-1 to GPT-3, then InstructGPT
+
+A few months before BERT, in June 2018, Alec Radford and his colleagues at OpenAI had taken the other half of the transformer, the decoder [@radford2018]. A decoder is a language model: thanks to the mask of section 10.1, each token attends only to the tokens before it, so it can be trained on raw text to predict the next token, like the LSTM of section 7.3, but with all the positions of a text computed at once. Their model, now called GPT-1 (GPT for *generative pre-training*), has 12 layers, vectors of 768 and 12 heads, and reads up to 512 tokens. It was trained on BooksCorpus, more than 7,000 unpublished books, chosen because "it contains long stretches of contiguous text, which allows the generative model to learn to condition on long-range information".
+
+Then GPT-1 is fine-tuned for each task, with a head, as ULMFiT and BERT. But in a decoder, the vector of a token depends only on the tokens before it, so the first token cannot summarize the text, as [CLS] does in BERT. The only token that has read the whole text is the last one. So GPT-1 adds a special token at the end of the text, the *extract* token, and the head reads its vector:
+
+$$
+x_1 \dots x_L \, x_{\text{ext}} \longrightarrow h_1 \dots h_L \, h_{\text{ext}}.
+$$
+
+Fine-tuned in this way, GPT-1 improved the state of the art on 9 of the 12 tasks of the paper. The authors also noticed something else: without any fine-tuning, the language model alone could do some tasks. To find the sentiment of a sentence, they add the word "very" at its end, and compare the probabilities that the model gives to the next words "positive" and "negative". These tricks work better and better as the pre-training goes on (their Figure 2).
+
+GPT-2, in February 2019, pushed this idea to its end [@radford2019]. The architecture is the same, only larger: up to 48 layers and 1.5 billion parameters, reading 1,024 tokens. It was trained on WebText, 40 GB of text from 8 million web pages: the pages linked from Reddit by posts with at least 3 karma, a sign that some readers found them interesting. And GPT-2 is not fine-tuned at all. The claim of the paper is in its abstract: "language models begin to learn these tasks without any explicit supervision". A task can be written as text, for instance a translation as "(translate to french, english text, french text)", and a language model trained on enough text has met such sequences, and learns to continue them, because this predicts their next words. To summarize an article, GPT-2 reads it followed by "TL;DR:", the abbreviation that people write on the web before a summary. To translate, it reads a few pairs written as "english sentence = french sentence", then an English sentence followed by "=". These results were modest, for instance 11.5 BLEU from French to English. But on language modeling, they were spectacular.
+
+Without a single update of its weights on WikiText-2, GPT-2 beat every model trained on it: its smallest version, which has the size of GPT-1, has a test perplexity of 29.41, against 39.14 for the previous best, and the largest one 18.34.
+
+<PaperNote id="radford2019" look="Table 3: the results of the four models, without any training, on the datasets of language modeling of the time, WikiText-2 among them.">
+
+The four models of the paper have 12, 24, 36 and 48 layers, with vectors of 768 to 1,600; the smallest one has the size of GPT-1. Wikipedia was removed from WebText, "since it is a common data source for other datasets and could complicate analysis due to overlapping training data with test evaluation tasks". The authors still measured the overlap: 1.63% of the 8-grams of the test set of WikiText-2 appear in WebText, while 0.66% of them already appear in the training set of WikiText-2. Their idea of the task written as text goes far: "a language model with sufficient capacity will begin to learn to infer and perform the tasks demonstrated in natural language sequences in order to better predict them". For summaries, the hint "TL;DR:" is worth 6.4 points of the ROUGE score, a score that counts the n-grams in common with summaries written by people. GPT-2 translates French into English with 11.5 BLEU, although the authors had removed the pages that are not in English from WebText, and found only 10 MB of French left in it.
+
+</PaperNote>
+
+You probably know the rest of the story. GPT-3, in May 2020, is GPT-2 made a hundred times larger [@brown2020]: 175 billion parameters, 96 layers, vectors of 12,288, a context of 2,048 tokens, trained on 300 billion tokens from the web, books and Wikipedia. Its paper gave the idea of GPT-2 a name, *in-context learning*: the task is described in the text given to the model, the *prompt*, with a few examples, and the model continues the text.
+
+This is the end point of our second question. In sections 2 to 4, nothing was transferred from one task to another. Section 5 transferred the embeddings, section 8 the whole encoder, and BERT and GPT-1 transfer everything but the head. With GPT-3, even the head is gone. The answer to a task is the next words of the text, so the output layer of the language model, which section 8 dropped, is the head of every task, and nothing is trained for the task anymore. **The task is written in the prompt, and the pre-trained language model does all the work.**
+
+One step was still missing. A language model continues texts as they are written on the web, which is not the same as doing what the person who writes the prompt asks for. As the authors of InstructGPT put it, the task of "predicting the next token on a webpage from the internet [...] is different from the objective “follow the user's instructions helpfully and safely”" [@ouyang2022]. In March 2022, they trained GPT-3 to follow instructions, in three steps: fine-tuning on answers written by people, training a reward model on the preferences of people between several answers, and optimizing the language model against this reward model with reinforcement learning. The result was striking: "outputs from the 1.3B parameter InstructGPT model are preferred to outputs from the 175B GPT-3, despite having 100x fewer parameters". This stage, called *post-training*, turns a language model into an assistant. It is the topic of another part of the course.
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**The layers of BERT.** Redo exercise 10.2a for each of the 13 vectors of `hidden_states`, and plot the average similarity for the same meaning and for different meanings against the layer. At which layer do the two meanings separate?
+
+</Bonus>
+
+<Bonus>
+
+**Fill the blanks.** Load the pre-training head of BERT with `AutoModelForMaskedLM.from_pretrained("bert-base-uncased")`, and print its 5 most likely tokens for the [MASK] of a few sentences, such as "The movie was [MASK]." or "I went to the [MASK] to deposit my salary.".
+
+</Bonus>
+
+<Bonus>
+
+**BERT as features.** Freeze BERT, compute the vector of [CLS] of each review, and train a logistic regression on these vectors, as in exercise 8.1, with 1,000 and with 20,000 labeled reviews. How far is it from fine-tuning? Try also the average of the vectors of all the tokens.
+
+</Bonus>
+
+<Bonus>
+
+**All the labels.** Fine-tune BERT on the 20,000 labeled reviews for 2 epochs, on a GPU (the free GPU of Google Colab is enough), and compare with the 94.6% of Sun et al. [@sun2019]. They kept the first 128 and the last 382 tokens of the long reviews: does it matter?
+
+</Bonus>
+
+<Bonus>
+
+**Sentiment without training.** Use the trick of GPT-1 with the smallest GPT-2: add " very" at the end of a review, and compare the probabilities of the next tokens " positive" and " negative". How many hard reviews does it get right, and what accuracy on 1,000 test reviews?
+
+</Bonus>
+
+<Bonus>
+
+**GPT-2 on WikiText-2.** Measure the perplexity of the four GPT-2 models (`gpt2`, `gpt2-medium`, `gpt2-large` and `gpt2-xl`) on the test set of WikiText-2, and plot it against the number of parameters. Join the test words of exercise 2.2 with spaces, and compute the perplexity per word: the exponential of minus the sum of the log-probabilities of the tokens, divided by the number of words, not of tokens, so that it can be compared with the models of the post. GPT-2 reads at most 1,024 tokens: move a window of 1,024 tokens along the text by steps of 512, and score only the tokens that the previous window did not score. Compare with Table 3 of the paper [@radford2019].
+
+</Bonus>
+
+<Bonus extra>
+
+**A detector of AI-written text.** Fine-tune BERT to tell reviews written by people from reviews written by a language model, like the detectors of AI-written text.
+
+</Bonus>
+
+<Bonus extra>
+
+**A cheap JEV-clone.** JEV has been very popular in the past few weeks, as a "general purpose classifier". Many open-source models tried to reproduce its results, for instance starting from a BERT model. You could try to create your own!
+</Bonus>

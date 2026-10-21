@@ -1,0 +1,11 @@
+---
+// What the reader should get: the text of the slot, then the outputs of the cells tagged "checkpoint".
+import Fold from "./Fold.astro";
+import { fragment } from "./exercises";
+const { nb } = Astro.props as { nb?: string };
+const Content = nb ? fragment(nb, "checkpoint")?.default : null;
+---
+<Fold kind="checkpoint" label="Checkpoint" detail="what you should get">
+  <slot />
+  {Content && <div class="exercise__outputs"><Content /></div>}
+</Fold>

@@ -1,258 +1,108 @@
-<div class="d3-galaxy" style="width:100%;margin:10px 0;aspect-ratio:3/1;min-height:260px;"></div>
+<div class="d3-banner"></div>
+<style>
+  .d3-banner { padding: 22px 24px; border: 1px solid var(--border-color); border-radius: 10px; background: color-mix(in oklab, var(--text-color) 5%, var(--page-bg)); text-align: center; color: var(--text-color); }
+  .d3-banner .source { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-color); }
+  .d3-banner .review { margin: 0; font-size: 22px; line-height: 1.45; text-wrap: balance; }
+  .d3-banner .verdict { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 24px; margin-top: 16px; font-size: 15px; color: var(--muted-color); }
+  .d3-banner .model { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; }
+  .d3-banner .model > span { white-space: nowrap; }
+  .d3-banner .gauge { display: block; width: 120px; height: 8px; border-radius: 4px; overflow: hidden; }
+  .d3-banner .gauge span { display: block; height: 100%; }
+  .d3-banner .score { font-weight: 600; color: var(--text-color); font-variant-numeric: tabular-nums; }
+  @media (max-width: 640px) {
+    .d3-banner { padding: 18px 16px; }
+    .d3-banner .review { font-size: 19px; }
+  }
+</style>
 <script>
-    (() => {
-        const ensureD3 = (cb) => {
-            if (window.d3 && typeof window.d3.select === 'function') return cb();
-            let s = document.getElementById('d3-cdn-script');
-            if (!s) {
-                s = document.createElement('script');
-                s.id = 'd3-cdn-script';
-                s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
-                document.head.appendChild(s);
-            }
-            const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
-            s.addEventListener('load', onReady, { once: true });
-            if (window.d3) onReady();
-        };
+  (() => {
+    // Illustration of the chapter, under its title: one of the hard reviews of section 3.4, and the
+    // probability of being positive that a bag-of-words model gives it. The probability is read from
+    // hard-reviews.json, written by the notebook of exercise 3.4 (the model of exercise 3.2); the
+    // value below is only shown if the file cannot be read.
+    const REVIEW = {
+      text: 'Wow, what a masterpiece. Two hours of pure brilliance, and I only checked my watch twenty times. '
+        + 'The acting was so convincing that I truly believed the actors wanted to be somewhere else. '
+        + 'A perfect film if you love naps.',
+      pPositive: 0.761,
+      model: 'Bag of words, counts', // the label of the model in hard-reviews.json
+    };
+    const DATA_PATHS = ['/data/hard-reviews.json', './assets/data/hard-reviews.json', '../assets/data/hard-reviews.json'];
 
-        const bootstrap = () => {
-            const mount = document.currentScript ? document.currentScript.previousElementSibling : null;
-            const container = (mount && mount.querySelector && mount.querySelector('.d3-galaxy')) || document.querySelector('.d3-galaxy');
-            if (!container) return;
-            if (container.dataset) {
-                if (container.dataset.mounted === 'true') return;
-                container.dataset.mounted = 'true';
-            }
-            // Scene params (match previous Plotly ranges)
-            const cx = 1.5, cy = 0.5;
-            const a = 1.3, b = 0.45;
-            const numPoints = 3000;
-            const numArms = 3;
-            const numTurns = 2.1;
-            const angleJitter = 0.12;
-            const posNoise = 0.015;
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-banner'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-banner'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
 
-            // Circle size settings
-            const minCircleSize = 4;  // minimum diameter in pixels
-            const maxCircleSize = 12; // maximum diameter in pixels
+      const source = document.createElement('p');
+      source.className = 'source';
+      source.textContent = 'Sentiment classification of an Internet Movie Database review';
 
-            // Generate spiral + bulge
-            const twoPi = Math.PI * 2;
-            const t = Float64Array.from({ length: numPoints }, () => Math.random() * (twoPi * numTurns));
-            const armIndices = Int16Array.from({ length: numPoints }, () => Math.floor(Math.random() * numArms));
-            const armOffsets = Float64Array.from(armIndices, (k) => k * (twoPi / numArms));
-            const theta = Float64Array.from(t, (tv, i) => tv + armOffsets[i] + d3.randomNormal.source(Math.random)(0, angleJitter)());
-            const rNorm = Float64Array.from(t, (tv) => Math.pow(tv / (twoPi * numTurns), 0.9));
-            const noiseScale = (rn) => posNoise * (0.8 + 0.6 * rn);
-            const noiseX = Float64Array.from(rNorm, (rn) => d3.randomNormal.source(Math.random)(0, noiseScale(rn))());
-            const noiseY = Float64Array.from(rNorm, (rn) => d3.randomNormal.source(Math.random)(0, noiseScale(rn))());
+      const review = document.createElement('p');
+      review.className = 'review';
+      review.textContent = `“${REVIEW.text}”`;
 
-            const xSpiral = Float64Array.from(theta, (th, i) => cx + a * rNorm[i] * Math.cos(th) + noiseX[i]);
-            const ySpiral = Float64Array.from(theta, (th, i) => cy + b * rNorm[i] * Math.sin(th) + noiseY[i]);
+      const verdict = document.createElement('div');
+      verdict.className = 'verdict';
+      const model = document.createElement('span');
+      model.className = 'model';
+      const name = document.createElement('span');
+      name.textContent = 'Bag-of-words model:';
+      const gauge = document.createElement('span');
+      gauge.className = 'gauge';
+      gauge.setAttribute('aria-hidden', 'true');
+      const fill = document.createElement('span');
+      gauge.append(fill);
+      const score = document.createElement('span');
+      score.className = 'score';
+      const showProbability = (p) => {
+        fill.style.width = `${p * 100}%`;
+        score.textContent = `${Math.round(p * 100)}% positive`;
+      };
+      showProbability(REVIEW.pPositive);
+      model.append(name, gauge, score);
+      verdict.append(model);
+      container.append(source, review, verdict);
 
-            const bulgePoints = Math.floor(0.18 * numPoints);
-            const phiB = Float64Array.from({ length: bulgePoints }, () => twoPi * Math.random());
-            const rB = Float64Array.from({ length: bulgePoints }, () => Math.pow(Math.random(), 2.2) * 0.22);
-            const noiseXB = Float64Array.from({ length: bulgePoints }, () => d3.randomNormal.source(Math.random)(0, posNoise * 0.6)());
-            const noiseYB = Float64Array.from({ length: bulgePoints }, () => d3.randomNormal.source(Math.random)(0, posNoise * 0.6)());
-            const xBulge = Float64Array.from(phiB, (ph, i) => cx + a * rB[i] * Math.cos(ph) + noiseXB[i]);
-            const yBulge = Float64Array.from(phiB, (ph, i) => cy + b * rB[i] * Math.sin(ph) + noiseYB[i]);
+      (async () => {
+        for (const path of DATA_PATHS) {
+          try {
+            const r = await fetch(path, { cache: 'no-cache' });
+            if (!r.ok) continue;
+            const data = await r.json();
+            const i = data.reviews.findIndex((d) => d.text === REVIEW.text);
+            const row = data.models.find((m) => m.label === REVIEW.model);
+            if (i >= 0 && row) showProbability(row.p_positive[i]);
+            return;
+          } catch (_) {}
+        }
+      })();
 
-            // Concatenate
-            const X = Array.from(xSpiral).concat(Array.from(xBulge));
-            const Y = Array.from(ySpiral).concat(Array.from(yBulge));
-            const lenSpiral = xSpiral.length;
+      // Diverging palette: the primary color at one end (negative), its complement at the other (positive).
+      const paint = () => {
+        let neg = 'var(--primary-color)';
+        let pos = 'var(--info-color)';
+        try {
+          const div = window.ColorPalettes && window.ColorPalettes.getColors('diverging', 3);
+          if (div && div.length >= 3) { neg = div[0]; pos = div[div.length - 1]; }
+        } catch (_) {}
+        gauge.style.background = `color-mix(in oklab, ${neg} 70%, transparent)`;
+        fill.style.background = pos;
+      };
+      paint();
+      document.addEventListener('palettes:updated', paint);
+    };
 
-            const zSpiral = Array.from(rNorm, (rn) => 1 - rn);
-            const maxRB = rB && rB.length ? (window.d3 && d3.max ? d3.max(rB) : Math.max.apply(null, Array.from(rB))) : 1;
-            const zBulge = Array.from(rB, (rb) => 1 - (maxRB ? rb / maxRB : 0));
-            const Zraw = zSpiral.concat(zBulge);
-            const sizesPx = Zraw.map((z) => minCircleSize + z * (maxCircleSize - minCircleSize)); // diameter in pixels
-
-            // Labels (same categories as Python version)
-            const labelOf = (i) => {
-                const z = Zraw[i];
-                if (z < 0.25) return 'tiny star';
-                if (z < 0.5) return 'small star';
-                if (z < 0.75) return 'medium star';
-                return 'large star';
-            };
-
-            // Sort by size ascending for z-index: small first, big last
-            const idx = d3.range(X.length).sort((i, j) => sizesPx[i] - sizesPx[j]);
-
-            // Colors: piecewise gradient [0 -> 0.5 -> 1]
-            const c0 = d3.rgb(78, 165, 183);    // rgb(78, 165, 183)
-            const c1 = d3.rgb(206, 192, 250);   // rgb(206, 192, 250)
-            const c2 = d3.rgb(232, 137, 171);   // rgb(232, 137, 171)
-            const interp01 = d3.interpolateRgb(c0, c1);
-            const interp12 = d3.interpolateRgb(c1, c2);
-            const colorFor = (v) => {
-                const t = Math.max(0, Math.min(1, v));
-                return t <= 0.5 ? interp01(t / 0.5) : interp12((t - 0.5) / 0.5);
-            };
-
-            // Create SVG
-            const svg = d3.select(container).append('svg')
-                .attr('width', '100%')
-                .style('display', 'block')
-                .style('cursor', 'crosshair');
-
-            const render = () => {
-                const width = container.clientWidth || 800;
-                const height = Math.max(260, Math.round(width / 3)); // keep ~3:1, min height
-                svg.attr('width', width).attr('height', height);
-
-                const xScale = d3.scaleLinear().domain([0, 3]).range([0, width]);
-                const yScale = d3.scaleLinear().domain([0, 1]).range([height, 0]);
-
-                // Subtle stroke color depending on theme
-                const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-                const strokeColor = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
-                const glowColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.25)';
-
-
-                // Group for points (no blend mode for better print/PDF visibility)
-                const g = svg.selectAll('g.points').data([0]).join('g').attr('class', 'points');
-
-                // Ensure container can host an absolute tooltip
-                container.style.position = container.style.position || 'relative';
-                let tip = container.querySelector('.d3-tooltip');
-                let tipInner;
-                if (!tip) {
-                    tip = document.createElement('div');
-                    tip.className = 'd3-tooltip';
-                    Object.assign(tip.style, {
-                        position: 'absolute',
-                        top: '0px',
-                        left: '0px',
-                        transform: 'translate(-9999px, -9999px)',
-                        pointerEvents: 'none',
-                        padding: '10px 12px',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        lineHeight: '1.35',
-                        border: '1px solid var(--border-color)',
-                        background: 'var(--surface-bg)',
-                        color: 'var(--text-color)',
-                        boxShadow: '0 8px 32px rgba(0,0,0,.28), 0 2px 8px rgba(0,0,0,.12)',
-                        opacity: '0',
-                        transition: 'opacity .12s ease',
-                        backdropFilter: 'saturate(1.12) blur(8px)',
-                        zIndex: '20'
-                    });
-                    tipInner = document.createElement('div');
-                    tipInner.className = 'd3-tooltip__inner';
-                    Object.assign(tipInner.style, {
-                        textAlign: 'left',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                        minWidth: '220px'
-                    });
-                    tip.appendChild(tipInner);
-                    container.appendChild(tip);
-                } else {
-                    tipInner = tip.querySelector('.d3-tooltip__inner') || tip;
-                }
-
-                // Final filter: remove small dots very close to the galaxy center (after placement)
-                const centerHoleRadius = 0.48; // elliptical radius threshold
-                const smallSizeThreshold = 7.5; // same notion as Python size cut
-                const rTotal = idx.map((i) => Math.sqrt(((X[i] - cx) / a) ** 2 + ((Y[i] - cy) / b) ** 2));
-                const idxFiltered = idx.filter((i, k) => !(rTotal[k] <= centerHoleRadius && sizesPx[i] < smallSizeThreshold));
-
-                const sel = g.selectAll('circle').data(idxFiltered, (i) => i);
-                sel.join(
-                    (enter) => enter.append('circle')
-                        .attr('cx', (i) => xScale(X[i]))
-                        .attr('cy', (i) => yScale(Y[i]))
-                        .attr('r', (i) => sizesPx[i] / 2)
-                        .attr('fill', (i) => colorFor(Zraw[i]))
-                        .attr('fill-opacity', 0.9)
-                        .on('mouseenter', function (ev, i) {
-                            d3.select(this).raise()
-                                .style('filter', `drop-shadow(0 0 8px ${glowColor})`)
-                                .transition().duration(120).ease(d3.easeCubicOut)
-                                .attr('r', (sizesPx[i] / 2) * 1.25)
-                                .attr('fill-opacity', 1);
-                            const r = Math.sqrt(((X[i] - cx) / a) ** 2 + ((Y[i] - cy) / b) ** 2);
-                            const type = i < lenSpiral ? 'spiral' : 'bulge';
-                            const arm = i < lenSpiral ? (armIndices[i] + 1) : null;
-                            tipInner.innerHTML =
-                                `<div style="font-weight:800;letter-spacing:.1px;"><strong>${labelOf(i)}</strong></div>` +
-                                `<div style="font-size:11px;color:var(--muted-color);margin-top:-4px;margin-bottom:2px;letter-spacing:.1px;"><strong>Type</strong> ${type}${arm ? ` (Arm ${arm})` : ''}</div>` +
-                                `<div style="padding-top:6px;border-top:1px solid var(--border-color);"><strong>Position</strong> X ${X[i].toFixed(2)} · <strong>Y</strong> ${Y[i].toFixed(2)}</div>` +
-                                `<div><strong>Distance</strong> Radius ${r.toFixed(3)} · <strong>Z</strong> ${Zraw[i].toFixed(3)}</div>` +
-                                `<div><strong>Size</strong> ${sizesPx[i].toFixed(1)} px</div>`;
-                            tip.style.opacity = '1';
-                        })
-                        .on('mousemove', (ev, i) => {
-                            const [mx, my] = d3.pointer(ev, container);
-                            const offsetX = 10, offsetY = 12;
-                            tip.style.transform = `translate(${Math.round(mx + offsetX)}px, ${Math.round(my + offsetY)}px)`;
-                        })
-                        .on('mouseleave', function () {
-                            tip.style.opacity = '0';
-                            tip.style.transform = 'translate(-9999px, -9999px)';
-                            d3.select(this)
-                                .style('filter', null)
-                                .transition().duration(120).ease(d3.easeCubicOut)
-                                .attr('r', (i2) => sizesPx[i2] / 2)
-                                .attr('fill-opacity', 0.9);
-                        }),
-                    (update) => update
-                        .attr('cx', (i) => xScale(X[i]))
-                        .attr('cy', (i) => yScale(Y[i]))
-                        .attr('r', (i) => sizesPx[i] / 2)
-                        .attr('fill', (i) => colorFor(Zraw[i]))
-                        .attr('fill-opacity', 0.9)
-                        .on('mouseenter', function (ev, i) {
-                            d3.select(this).raise()
-                                .style('filter', `drop-shadow(0 0 8px ${glowColor})`)
-                                .transition().duration(120).ease(d3.easeCubicOut)
-                                .attr('r', (sizesPx[i] / 2) * 1.25)
-                                .attr('fill-opacity', 1);
-                            const r = Math.sqrt(((X[i] - cx) / a) ** 2 + ((Y[i] - cy) / b) ** 2);
-                            const type = i < lenSpiral ? 'spiral' : 'bulge';
-                            const arm = i < lenSpiral ? (armIndices[i] + 1) : null;
-                            tipInner.innerHTML =
-                                `<div style="font-weight:800;letter-spacing:.1px;"><strong>${labelOf(i)}</strong></div>` +
-                                `<div style="font-size:11px;color:var(--muted-color);margin-top:-4px;margin-bottom:2px;letter-spacing:.1px;"><strong>Type</strong> ${type}${arm ? ` (Arm ${arm})` : ''}</div>` +
-                                `<div style="padding-top:6px;border-top:1px solid var(--border-color);"><strong>Position</strong> X ${X[i].toFixed(2)} · <strong>Y</strong> ${Y[i].toFixed(2)}</div>` +
-                                `<div><strong>Distance</strong> Radius ${r.toFixed(3)} · <strong>Z</strong> ${Zraw[i].toFixed(3)}</div>` +
-                                `<div><strong>Size</strong> ${sizesPx[i].toFixed(1)} px</div>`;
-                            tip.style.opacity = '1';
-                        })
-                        .on('mousemove', (ev, i) => {
-                            const [mx, my] = d3.pointer(ev, container);
-                            const offsetX = 10, offsetY = 12;
-                            tip.style.transform = `translate(${Math.round(mx + offsetX)}px, ${Math.round(my + offsetY)}px)`;
-                        })
-                        .on('mouseleave', function () {
-                            tip.style.opacity = '0';
-                            tip.style.transform = 'translate(-9999px, -9999px)';
-                            d3.select(this)
-                                .style('filter', null)
-                                .transition().duration(120).ease(d3.easeCubicOut)
-                                .attr('r', (i2) => sizesPx[i2] / 2)
-                                .attr('fill-opacity', 0.9);
-                        })
-                );
-            };
-
-            // First render + resize
-            if (window.ResizeObserver) {
-                const ro = new ResizeObserver(() => render());
-                ro.observe(container);
-            } else {
-                window.addEventListener('resize', render);
-            }
-            render();
-        };
-
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
-        } else { ensureD3(bootstrap); }
-    })();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else { bootstrap(); }
+  })();
 </script>

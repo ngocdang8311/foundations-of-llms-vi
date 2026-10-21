@@ -1,0 +1,89 @@
+<div class="d3-char-samples"></div>
+<style>
+  .d3-char-samples { font-size: 12px; color: var(--text-color); }
+  .d3-char-samples .controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px; margin-bottom: 12px; }
+  .d3-char-samples .controls label { font-size: 12px; font-weight: 700; }
+  .d3-char-samples .controls input[type="range"] { width: min(320px, 60%); accent-color: var(--accent); }
+  .d3-char-samples .controls .value { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 15em; color: var(--muted-color); }
+  .d3-char-samples pre.sample {
+    margin: 0 auto; max-width: 640px; height: 27em; overflow-y: auto;
+    padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 3%, transparent);
+    font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word; color: var(--text-color);
+  }
+  .d3-char-samples .error { color: var(--danger-color, #c00); }
+</style>
+<script>
+  (() => {
+    // Samples of a character-level LSTM trained on TinyShakespeare, at several steps of its
+    // training: the same seed and the same first character at every step. Data: the notebook
+    // code/07-char-lstm-samples.ipynb of the course repo (char-lstm-samples.json).
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-char-samples'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-char-samples'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      try {
+        const cat = window.ColorPalettes ? window.ColorPalettes.getColors('categorical', 1) : null;
+        container.style.setProperty('--accent', (cat && cat[0]) || 'var(--primary-color)');
+      } catch (_) { container.style.setProperty('--accent', 'var(--primary-color)'); }
+
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      const file = attr && attr.trim() && !attr.trim().startsWith('[') ? attr.trim() : 'char-lstm-samples.json';
+      const paths = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`, `../../assets/data/${file}`];
+
+      const fetchFirstAvailable = async (list) => {
+        for (const p of list) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`${file} not found`);
+      };
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const controls = document.createElement('div');
+      controls.className = 'controls';
+      controls.innerHTML = `<label for="char-step-${uid}">Training steps</label>
+        <input type="range" id="char-step-${uid}" min="0" max="0" step="1" value="0">
+        <span class="value" aria-live="polite"></span>`;
+      container.appendChild(controls);
+      const pre = document.createElement('pre');
+      pre.className = 'sample';
+      container.appendChild(pre);
+      const slider = controls.querySelector('input');
+      const value = controls.querySelector('.value');
+
+      fetchFirstAvailable(paths).then((data) => {
+        const samples = data.samples;
+        slider.max = String(samples.length - 1);
+        const show = () => {
+          const s = samples[Number(slider.value)];
+          const steps = s.step.toLocaleString('en-US');
+          value.textContent = `${steps} batches · ${s.bits_per_char.toFixed(2)} bits per character`;
+          pre.textContent = s.text;
+        };
+        slider.addEventListener('input', show);
+        show();
+      }).catch((err) => {
+        pre.innerHTML = '';
+        const e = document.createElement('span');
+        e.className = 'error';
+        e.textContent = String(err.message || err);
+        pre.appendChild(e);
+      });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    else bootstrap();
+  })();
+</script>

@@ -1,0 +1,28 @@
+---
+// The hints of an exercise. Only the first hint is offered; each one appears once the previous one was opened.
+---
+<div class="exercise__hints"><slot /></div>
+
+<script>
+  const setup = () => {
+    document.querySelectorAll<HTMLElement>(".exercise__hints").forEach((group) => {
+      if (group.dataset.ready) return;
+      group.dataset.ready = "1";
+      const hints = Array.from(group.querySelectorAll<HTMLDetailsElement>(":scope > details.exercise__fold--hint"));
+      const update = () => {
+        let offered = true;
+        hints.forEach((hint, i) => {
+          if (hint.open) hint.dataset.seen = "1";
+          hint.hidden = !offered;
+          const label = hint.querySelector(".exercise__fold-label");
+          if (label) label.textContent = `Hint ${i + 1} of ${hints.length}`;
+          offered = hint.dataset.seen === "1";
+        });
+      };
+      hints.forEach((hint) => hint.addEventListener("toggle", update));
+      update();
+    });
+  };
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", setup, { once: true });
+  else setup();
+</script>

@@ -1,0 +1,178 @@
+<div class="d3-nlp-tasks"></div>
+<style>
+  .d3-nlp-tasks { font-size: 12px; color: var(--text-color); }
+  .d3-nlp-tasks .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; }
+  .d3-nlp-tasks.is-narrow .panels { grid-template-columns: 1fr; }
+  .d3-nlp-tasks .panel-title { font-size: 14px; font-weight: 700; }
+  .d3-nlp-tasks .panel-desc { font-size: 13px; margin-top: 1px; }
+  .d3-nlp-tasks .panel-formula { font-size: 13px; color: var(--muted-color); margin: 1px 0 4px; font-family: KaTeX_Main, 'Times New Roman', serif; }
+  .d3-nlp-tasks .panel-formula i { font-style: italic; }
+  .d3-nlp-tasks svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .d3-nlp-tasks .token rect { fill: color-mix(in oklab, var(--text-color) 5%, transparent); stroke: var(--border-color); }
+  .d3-nlp-tasks .token text { fill: var(--text-color); font-size: 12px; }
+  .d3-nlp-tasks .token.is-given rect { stroke-dasharray: 3 2; }
+  .d3-nlp-tasks .box text { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
+  .d3-nlp-tasks .arrow { stroke: var(--muted-color); stroke-width: 1.2; fill: none; }
+  .d3-nlp-tasks .out-label { fill: var(--text-color); font-size: 12px; }
+  .d3-nlp-tasks .out-tag { fill: var(--text-color); font-size: 11px; font-weight: 700; letter-spacing: 0.03em; }
+  .d3-nlp-tasks .note { fill: var(--muted-color); font-size: 11px; }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-nlp-tasks'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-nlp-tasks'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      const cat = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getColors('categorical', 2); } catch (_) {}
+        return ['#4e79a7', '#f28e2b'];
+      })();
+      const MODEL = cat[0];
+      const OUT = cat[1];
+
+      // The bars are an illustration of a distribution, not measured probabilities.
+      const TASKS = [
+        {
+          title: 'Classification',
+          desc: 'Predict one class C for the text',
+          formula: '<i>p</i>(<i>C</i> | <i>x</i><sub>1</sub> … <i>x<sub>L</sub></i>)',
+          input: ['I', 'loved', 'this', 'movie'],
+          output: { kind: 'bars', items: [['positive', 0.9], ['negative', 0.1]] },
+        },
+        {
+          title: 'Language modeling',
+          desc: 'Predict the next word',
+          formula: '<i>p</i>(<i>x</i><sub><i>L</i>+1</sub> | <i>x</i><sub>1</sub> … <i>x<sub>L</sub></i>)',
+          input: ['I', 'loved', 'this'],
+          output: { kind: 'bars', items: [['movie', 0.55], ['film', 0.3], ['book', 0.15]] },
+        },
+        {
+          title: 'Translation',
+          desc: 'Predict the next word of the translation',
+          formula: '<i>p</i>(<i>y</i><sub><i>N</i>+1</sub> | <i>y</i><sub>1</sub> … <i>y<sub>N</sub></i> ; <i>x</i><sub>1</sub> … <i>x<sub>L</sub></i>)',
+          input: ['I', 'loved', 'this', 'movie'],
+          given: ["J'", 'ai'],
+          output: { kind: 'bars', items: [['adoré', 0.7], ['aimé', 0.3]] },
+        },
+        {
+          title: 'Tagging',
+          desc: 'Predict one label for each word',
+          formula: '<i>p</i>(<i>t<sub>i</sub></i> | <i>x</i><sub>1</sub> … <i>x<sub>L</sub></i>)',
+          input: ['I', 'loved', 'this', 'movie'],
+          output: { kind: 'tags', items: ['PRON', 'VERB', 'DET', 'NOUN'] },
+        },
+      ];
+
+      const W = 320, H = 184;
+      const tokenY = 140, tokenH = 24;
+      const modelY = 66, modelH = 34;
+
+      container.innerHTML = '<div class="panels"></div>';
+      const panels = container.querySelector('.panels');
+
+      let markerId = '';
+      const arrow = (g, x1, y1, x2, y2) => g.append('path').attr('class', 'arrow')
+        .attr('d', `M${x1},${y1} L${x2},${y2}`).attr('marker-end', `url(#${markerId})`);
+
+      const box = (g, x, y, w, h, label, color) => {
+        const b = g.append('g').attr('class', 'box');
+        b.append('rect').attr('x', x).attr('y', y).attr('width', w).attr('height', h).attr('rx', 7)
+          .attr('fill', `color-mix(in oklab, ${color} 16%, transparent)`).attr('stroke', color).attr('stroke-width', 1.3);
+        b.append('text').attr('x', x + w / 2).attr('y', y + h / 2).attr('dy', '0.35em').attr('text-anchor', 'middle')
+          .attr('fill', 'var(--text-color)').text(label);
+        return b;
+      };
+
+      // Token boxes in a row starting at x0; returns the center x of each token.
+      const tokenWidth = (w) => Math.max(30, w.length * 7 + 14);
+      const rowWidth = (words, gap) => d3.sum(words, tokenWidth) + gap * (words.length - 1);
+      const tokens = (g, words, x0, y, given, gap) => {
+        let x = x0;
+        return words.map((w) => {
+          const width = tokenWidth(w);
+          const t = g.append('g').attr('class', given ? 'token is-given' : 'token');
+          t.append('rect').attr('x', x).attr('y', y).attr('width', width).attr('height', tokenH).attr('rx', 4);
+          t.append('text').attr('x', x + width / 2).attr('y', y + tokenH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text(w);
+          const c = x + width / 2;
+          x += width + gap;
+          return c;
+        });
+      };
+
+      const bars = (g, items, cx, yBottom, color) => {
+        const rowH = 15, maxW = 70;
+        const top = yBottom - items.length * rowH;
+        items.forEach(([label, v], i) => {
+          const y = top + i * rowH;
+          g.append('text').attr('class', 'out-label').attr('x', cx - 6).attr('y', y + rowH / 2).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
+          g.append('rect').attr('x', cx).attr('y', y + 3).attr('width', maxW * v).attr('height', rowH - 6).attr('rx', 2).attr('fill', color).attr('opacity', 0.85);
+        });
+      };
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      TASKS.forEach((task, index) => {
+        markerId = `nlp-tasks-arrow-${uid}-${index}`;
+        const panel = document.createElement('div');
+        panel.innerHTML = `<div class="panel-title">${task.title}</div><div class="panel-desc">${task.desc}</div><div class="panel-formula">${task.formula}</div>`;
+        panels.appendChild(panel);
+        const svg = d3.select(panel).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img').attr('aria-label', `${task.title}: the model reads the words and gives probabilities`);
+        const defs = svg.append('defs');
+        defs.append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
+          .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
+          .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
+        const g = svg.append('g');
+
+        // For translation, the model reads the translation written so far next to the source sentence
+        const gap = task.output.kind === 'tags' ? 14 : 6;
+        const givenGap = 18;
+        const inputW = rowWidth(task.input, gap);
+        const rowW = inputW + (task.given ? givenGap + rowWidth(task.given, 4) : 0);
+        const x0 = W / 2 - rowW / 2;
+        const xs = tokens(g, task.input, x0, tokenY, false, gap);
+        const gx = task.given ? tokens(g, task.given, x0 + inputW + givenGap, tokenY, true, 4) : [];
+        if (task.given) {
+          g.append('text').attr('class', 'note').attr('x', d3.mean(gx)).attr('y', tokenY + tokenH + 14).attr('text-anchor', 'middle').text('written so far');
+        }
+        [...xs, ...gx].forEach((x) => arrow(g, x, tokenY - 2, x, modelY + modelH + 3));
+        box(g, x0 - 14, modelY, rowW + 28, modelH, 'MODEL', MODEL);
+
+        if (task.output.kind === 'tags') {
+          xs.forEach((x, i) => {
+            arrow(g, x, modelY - 2, x, modelY - 16);
+            g.append('text').attr('class', 'out-tag').attr('x', x).attr('y', modelY - 26).attr('text-anchor', 'middle').attr('fill', OUT).text(task.output.items[i]);
+          });
+          return;
+        }
+
+        arrow(g, W / 2, modelY - 2, W / 2, modelY - 14);
+        bars(g, task.output.items, W / 2 - 6, modelY - 18, OUT);
+      });
+
+      const resize = () => container.classList.toggle('is-narrow', (container.clientWidth || 680) < 520);
+      resize();
+      if (window.ResizeObserver) new ResizeObserver(resize).observe(container);
+      else window.addEventListener('resize', resize);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

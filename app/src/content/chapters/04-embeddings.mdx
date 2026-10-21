@@ -1,0 +1,357 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import Optional from '../../components/post/Optional.astro';
+
+
+## 4. Dense word embeddings
+
+At the end of section 3, we saw **the first limit of the bag of words: each word has its own dimension**, so for the model, "superb" is as different from "excellent" as it is from "boring". Let's fix this.
+
+### 4.1 The embedding matrix
+
+The idea is to represent each word by a *dense* vector of real numbers, in a space whose dimension D is much smaller than the size V of the vocabulary: a few hundred dimensions (for instance $D = 300$) for tens of thousands of words. This vector is called the *embedding* of the word.
+
+<PaperNote id="hinton1986" look="Figure 6: the weights from the 24 people to the 6 units. Unit 1 separates the English from the Italians, unit 2 encodes the generation, and unit 6 the branch of the family.">
+
+Hinton calls such vectors *distributed representations*: a concept is spread over many units, instead of having its own unit, as in a one-hot vector. Here he trains a small neural network on two family trees with the same shape, one English and one Italian, with 24 people in total and 12 relationships (father, aunt, nephew...). Given a person and a relationship, the network must output the other person. Each person enters as a one-hot vector, and goes through a layer of only 6 units: the ancestor of our embeddings. Nobody told the network what to put there, yet one unit learned the nationality, one the generation, and one the branch of the family. Trained on 100 of the 104 facts, it got the 4 others right in one run, and 3 of them in another.
+
+</PaperNote>
+
+The embeddings of all the words are stored in an *embedding matrix* $W$, with one column per word of the vocabulary:
+
+$$
+W \in {\cal M}_{D \times V}(\mathbb{R})
+$$
+
+Looking up the embedding of a word is the same as multiplying $W$ by the one-hot vector of this word: the product selects the column of the word.
+
+<HtmlEmbed
+  src="d3-embedding-matrix.html"
+  title="The embedding matrix"
+  desc="Pick a word: its one-hot vector has a single 1, at the position of the word, so multiplying W by this vector selects the column of the word, which is its embedding. The values are made up, but chosen so that similar words have similar columns, as we hope a trained matrix does. In practice, D is a few hundred and V tens of thousands."
+/>
+
+The benefit of dense embeddings over the sparse vectors of the bag of words is that we can compare them, and measure how similar two words are. The usual measure is the **cosine similarity**, the cosine of the angle between the two vectors, which does not depend on their lengths:
+
+$$
+\cos(u, v) = \frac{u \cdot v}{\|u\| \, \|v\|}
+$$
+
+It is 1 when the two vectors point in the same direction, 0 when they are orthogonal, and −1 when they point in opposite directions. Note that the one-hot vectors of two different words are always orthogonal: *in the bag of words, the similarity between two different words is always 0*.
+
+Let's assume for now that we have a good embedding matrix (we will see how to get one, and as you might guess, we will learn it). We can hope that similar words get similar vectors: a high similarity between "excellent" and "superb", but a low one between "ball" and "crocodile". This is what makes a good embedding: **the similarity between the vectors reflects the similarity between the meanings of the words**. A model that has learned something about "excellent" then knows something about "superb" too.
+
+<Optional title="Latent Semantic Analysis" subtitle="another way to get dense vectors">
+
+There are other ways to get dense vectors than learning them with a neural network. For example, take the matrix of the counts of section 3, with one row per word and one column per document, and compress it with a truncated singular value decomposition (SVD): each word gets a dense vector, and the words that appear in the same documents get similar vectors. This is *Latent Semantic Analysis*.
+
+</Optional>
+
+<PaperNote id="deerwester1990" look="Figure 1: nine titles of technical memos and twelve words, in two dimensions. The query “human computer interaction” ends up close to two titles that share no word with it.">
+
+The problem of Deerwester and his colleagues is the one of Salton and Sparck Jones (section 3): find the documents that match a query. But as they put it, "there are usually many ways to express a given concept, so the literal terms in a user's query may not match those of a relevant document". Their solution: decompose the matrix of the word counts of the documents with an SVD, and keep about 100 dimensions. Words and documents become dense vectors, and a query can find a document without sharing a single word with it. The gain was clear on a collection of medical abstracts (13% better precision than plain word matching), but there was none on another collection.
+
+</PaperNote>
+
+Now, **simply using word embeddings does not solve our problem of variable input size.** We replace the L words of a text with L vectors of size D: this is still not a representation of fixed size! So we need a way to *aggregate* these L vectors into a single vector, whose size does not depend on L. Here are three simple options:
+- **the average** of the L vectors, of size D;
+- **a weighted average**, to give more importance to some words, also of size D;
+- **the concatenation** of the vectors of the last n − 1 words only, of size (n − 1) × D, as the n-gram models of section 2 did with the words themselves.
+
+<HtmlEmbed
+  src="d3-embedding-aggregation.html"
+  title="From L embeddings to one vector: 3 methods"
+  desc="An encoder in two steps: each word becomes its embedding, then an aggregation turns the L embeddings into one vector of fixed size. Switch between the three options. (Values are made up for illustration)"
+/>
+
+The concatenation keeps the order of the last words, but forgets everything before them. This suits language modeling, where the next word depends mostly on the last ones, so this is where we start.
+
+### 4.2 Concatenation → Bengio's neural language model
+
+Let's go back to language modeling for a moment. With the n-gram models of section 2, we assumed that the probability of the next word depends only on the n − 1 previous words. We can keep this assumption, but replace the table of counts with **a neural network, whose input is the concatenation of the embeddings** of the n − 1 previous words: a vector of fixed size (n − 1) × D.
+
+This is the idea of the influential paper of *Bengio et al.* from 2003, which can be considered as **the first neural language model**. Its architecture is simple: look up the embeddings $e_{L-n+2}, \dots, e_L$ of the last n − 1 words in the matrix $W$, concatenate them into a vector $c$, then feed $c$ into a feedforward network with one hidden layer:
+
+<PaperNote id="bengio2003" look="Figure 1, the architecture: the table C (our W), shared by all the positions, then the tanh layer and the softmax, with the mention “most computation here”. And Table 1 for the results on the Brown corpus.">
+
+The paper that started neural language modeling. It presents itself as a fight against the curse of dimensionality of section 2.3, using a learned vector for each word: *"having seen the sentence 'The cat is walking in the bedroom' in the training corpus should help us generalize to make the sentence 'A dog was running in a room' almost as likely"*. On the Brown corpus (about a million words), a neural model gets a test perplexity of 268, against 321 for Kneser-Ney smoothing, and 252 when it is mixed half and half with a trigram model. But it was slow: 5 epochs on the 14 million words of AP News took 3 weeks on 40 processors, mostly to compute the softmax over the whole vocabulary.
+
+</PaperNote>
+
+$$
+q(x_{L+1} = v \mid x_1 \dots x_L) = \text{softmax}\big(U \tanh(A c + b) + d\big)_v,
+$$
+
+where $A$ and $b$ are the weights and the biases of the hidden layer, and $U$ and $d$ those of the output layer. The output layer gives one score $z_v$ per word $v$ of the vocabulary, and the softmax, $\text{softmax}(z)_v = e^{z_v} / \sum_{w} e^{z_w}$, turns these V scores into probabilities, positive and summing to 1, as the sigmoid of section 3.2 did for two classes.
+
+The embedding matrix $W$ is a parameter of the model, like $A$, $b$, $U$ and $d$: **the embeddings and the weights of the network are learned jointly**, by minimizing the cross-entropy loss of section 2.2 on the training text. At each step, the gradient of the loss flows back through the network to the columns of $W$ of the words of the context, and moves them.
+
+I'll assume here that you know how to train a neural network with PyTorch. If not, [the course of Andrej Karpathy](https://karpathy.ai/zero-to-hero.html) is a great place to start, and its third lecture builds a model of this kind, on characters.
+
+<Optional title="PyTorch" subtitle="what we use from it in this post">
+
+From here on, the exercises train neural networks with PyTorch. They use only a small part of it, and mostly the same part:
+- **Tensors.** `torch.tensor` turns lists of word indices into tensors. `.to(device)` moves them to the GPU when there is one, and the code runs on the CPU otherwise.
+- **Layers.** A model is a stack of layers in `nn.Sequential`: `nn.Embedding`, which holds the embedding matrix of section 4.1; `nn.Flatten`, which concatenates the embeddings of the context; `nn.Linear`; and the activations `nn.Tanh` and `nn.ReLU`.
+- **Losses.** `F.cross_entropy` takes the V scores of the output layer and the index of the right word, applies the softmax, and computes the cross-entropy of section 2.2. `nn.BCEWithLogitsLoss` does the same for two classes, with the sigmoid of section 3.2.
+
+The training loop is written by hand, and it is the same in every exercise:
+
+```python
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+for epoch in range(n_epochs):
+    order = torch.randperm(len(targets))  # shuffle the examples
+    for start in range(0, len(order), batch_size):
+        batch = order[start:start + batch_size]
+        scores = model(inputs[batch])
+        loss = F.cross_entropy(scores, targets[batch])
+        optimizer.zero_grad()
+        loss.backward()   # compute the gradients
+        optimizer.step()  # update the parameters
+```
+
+To measure a model on the validation set, put the computation inside `with torch.no_grad():`, which skips the gradients. To keep the model of the best epoch, save a copy of it with `copy.deepcopy`. We don't use `Dataset` or `DataLoader`: the data of each exercise fits in memory as a few tensors, and we draw the batches ourselves.
+
+Later sections add a few pieces: `requires_grad_(False)`, to keep pre-trained embeddings fixed during the training (section 5); the recurrent layers `nn.LSTM` and `nn.GRU`, and gradient clipping with `nn.utils.clip_grad_norm_` (section 7); and models written as a subclass of `nn.Module`, with their own `forward` method, when they are not a simple stack of layers, like the LSTM of section 7 and the encoder–decoder of section 9.
+
+</Optional>
+
+Why would this work better than counts? Remember the curse of dimensionality of section 2.3: most contexts of 3 or 4 words never appear in the training text, and for the counts, an unseen context is a dead end. The neural model is not stuck: if it has seen "the cat is walking", and if "dog" has an embedding close to the one of "cat", then it already knows something about "the dog is walking". And similar words do get similar embeddings, because they appear in similar contexts and must lead to similar predictions. **The model generalizes from the contexts it has seen to the contexts it has never seen.**
+
+
+
+Let's train it on WikiText-2, and compare it with the n-gram models of section 2. The model has many more parameters than the logistic regression of section 3, and it overfits after a few epochs, so we choose the number of epochs on the validation set.
+
+<Exercise number="4.2" star title="Train Bengio's neural language model" data="WikiText-2" nb="04-2-neural-language-model">
+
+Train Bengio's neural language model on WikiText-2: look up the embeddings of the 3 words before each word (D = 100), concatenate them, then a hidden layer of 200 units (tanh) and a softmax over the vocabulary. Train for 4 epochs, measure the validation perplexity after each epoch, and compute the test perplexity of the best model. Compare with the smoothed n-gram models of exercise 2.3b. Then print the 5 nearest neighbors of "three", "he", "city", "film", "excellent" and "terrible" in the learned embedding matrix, according to the cosine similarity.
+
+The starter code builds the three sequences, as in exercises 2.1 and 2.2. Then it gives each word of the vocabulary an index, and turns each sequence into pairs: the indices of 3 consecutive words, and the index of the word that follows them.
+
+<Starter nb="04-2-neural-language-model" />
+
+<Hints>
+
+<Hint>
+
+`nn.Embedding(V, D)` holds the embedding matrix: given a tensor of word indices of shape (batch, 3), it returns their embeddings, of shape (batch, 3, D). `nn.Flatten()` then concatenates the 3 embeddings of each row. Start from small embeddings, with `nn.init.normal_(embedding.weight, std=0.1)`: with the default standard deviation of 1, the rare words would barely move from their random starting point in 4 epochs.
+
+</Hint>
+
+<Hint>
+
+The output layer gives V scores. `F.cross_entropy(scores, targets)` applies the softmax and computes the cross-entropy loss in one go. The perplexity is the exponential of the average loss over the validation pairs.
+
+</Hint>
+
+<Hint>
+
+Train with `torch.optim.Adam` (learning rate 0.001) on batches of 512 pairs: an epoch is 4,000 batches. On a laptop CPU, an epoch takes about a minute and a half, and a GPU is much faster. Keep a copy of the model (`copy.deepcopy`) at the epoch with the best validation perplexity.
+
+</Hint>
+
+<Hint>
+
+`nn.Embedding` stores $W$ transposed: row i of its weight is the embedding of word i. Divide each row by its length: the cosine similarities between a word and all the others are then a single product of a matrix by a vector.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="04-2-neural-language-model">
+
+The validation perplexity goes down from 260.1 after the first epoch to 223.9 after the third, then goes back up to 228.5: the model starts to overfit. The test perplexity of the model of epoch 3 is 208.5. The nearest neighbors of "three" are other numbers, and those of "film" include "book", "novel" and "album". On a GPU, your numbers and your neighbors can differ a little.
+
+</Checkpoint>
+
+<Solution nb="04-2-neural-language-model" />
+
+<WhatToNotice>
+
+With 3 words of context, the neural model reaches a test perplexity of 208.5, against 277.7 for the interpolated 5-gram model of section 2.3, which sees one more word. It even beats the Kneser-Ney 5-gram (219.3), the best of the counting models! And look at the embeddings: the neighbors of "three" are other numbers, "he" is closest to "she", and "film" to "book", "novel" and "album". Nobody told the model that these words are alike: it found out because they appear in similar contexts. But the neighbors of "excellent" and "terrible" are noise. These words are rare in Wikipedia: "excellent" appears 28 times in the training text and "terrible" 24 times, against 1,253 times for "film". **A language model gives close embeddings to the words that play the same role, as long as it sees them often enough.**
+
+</WhatToNotice>
+
+</Exercise>
+
+<Optional title="The cost of the softmax" subtitle="where the training time goes">
+
+Notice how long the training takes, compared with the counts of section 2. Almost all of this time goes into the output layer, which computes a score for each of the 33,277 words of the vocabulary, at every position of the text: 200 × 33,277 multiplications per word, against 300 × 200 for the hidden layer. This cost of the softmax over the whole vocabulary will come back in section 5.2.
+
+</Optional>
+
+### 4.3 Ways to aggregate the word vectors of a text
+
+Concatenation works for language modeling, because we can assume that only the last n − 1 words matter. But as we said in section 3.1, it does not work at all for classification: the sentiment of a review can be anywhere in it. How can we aggregate the L embeddings of a review?
+
+The simplest option is to average them. And there is a neat way to write this average. Adding up the embeddings of the words of a review is the same as multiplying $W$ by the bag-of-words vector $C$ of section 3.2, since the column of each word is added as many times as the word appears. So
+
+$$
+\frac{1}{L} \sum_{i=1}^{L} e_i = \frac{1}{L} \, W C = W f,
+$$
+
+where $f = C / L$ is the vector of the *frequencies* of the words in the review. **The average of the embeddings is a bag of words, compressed by $W$ from V to D dimensions.** Like the bag of words, it forgets the order of the words. And it gives the same importance to all the words, "the" included: to avoid diluting the average with uninformative words, we can weight it with the IDF of section 3.3.
+
+What do we gain with this compression? Consider the simplest head, a logistic regression on the average: $p(\text{positive}) = \sigma(b + h \cdot W f)$, where $h$ is the vector of the weights of the head. Expanding the dot product gives
+
+$$
+h \cdot W f = \sum_{v=1}^{V} (h \cdot w_v) \, f_v,
+$$
+
+where $w_v$ is the column of $W$ for the word $v$. This is a logistic regression on the frequencies of the words, where the weight of the word $v$ is $h \cdot w_v$. So if $W$ is learned along with $h$, nothing is gained over section 3! The gains can come from two places:
+- add hidden layers after the average, so that the head is not linear anymore;
+- start from an embedding matrix $W$ that is already good, and keep it fixed. Then the weight $h \cdot w_v$ of a word depends on its embedding, so similar words get similar weights, even the words that never appear in the labeled reviews. This is the topic of section 5.
+
+The first option is the *deep averaging network* (DAN) [@iyyer2015]: average the embeddings, pass the average through a few hidden layers, then classify. In 2015, it rivaled the models that followed the syntax of the sentences, while training in a few minutes on a laptop. Let's train one on IMDB.
+
+<Exercise number="4.3" title="Train a deep averaging network on IMDB" data="IMDB" nb="04-3-deep-averaging">
+
+Train a deep averaging network on IMDB, with the vocabulary of exercise 3.2: the average of the embeddings of the words of the review (D = 100), then two hidden layers of 100 units and one output, all trained together from scratch. Choose the number of epochs on the validation set, measure the test accuracy, and compare it with the bag of words of section 3. Then run the model on the hard reviews of exercise 3.4.
+
+The starter code repeats steps (1) and (2) of the solution of exercise 3.2, which split the reviews and count their words, and lists the hard reviews of exercise 3.4.
+
+<Starter nb="04-3-deep-averaging" />
+
+<Hints>
+
+<Hint>
+
+By the formula above, the average of the embeddings is $W$ times the frequency vector of the review. So the first layer of the network can be `nn.Linear(V, D, bias=False)`, applied to the count vectors of exercise 3.2 divided by their sum: its weight, of size D × V, is $W$. Turn the sparse count vectors into tensors a batch at a time, with `torch.tensor(X[batch].toarray())`: all of them at once would take several gigabytes.
+
+</Hint>
+
+<Hint>
+
+After the average, use `nn.Linear` and `nn.ReLU` layers, and end with a single output, the score of the review. `nn.BCEWithLogitsLoss()` applies the sigmoid to the score and computes the cross-entropy loss for two classes.
+
+</Hint>
+
+<Hint>
+
+Train with Adam (learning rate 0.001) on batches of 64 reviews: an epoch takes about a second. The model overfits after a couple of epochs: keep a copy of the model (`copy.deepcopy`) at the epoch with the best validation accuracy.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="04-3-deep-averaging">
+
+The best validation accuracy, 89.4%, is at epoch 2, and the test accuracy is 88.1%. The model gets 6 of the 13 hard reviews right, with probabilities very close to 0 or 1. The two reviews with the same words get exactly the same probability, 0.043.
+
+</Checkpoint>
+
+<Solution nb="04-3-deep-averaging" />
+
+<WhatToNotice>
+
+88.1%: the deep averaging network does no better than the bag of words (87.6% with the counts, 88.4% with TF-IDF). Iyyer et al. found the same on IMDB with random embeddings at the start: 88.8% for the DAN, and 88.9% without the hidden layers. With 20,000 labeled reviews, the logistic regression of section 3 already had enough data to learn a weight for each word, and the hidden layers have little to add. On the hard reviews, the model makes the same kinds of mistakes as the bag of words, since it also ignores the order of the words. But it is much more sure of itself: "Not bad at all, actually." gets a probability of 0.000 instead of 0.335. In this review of 5 words, "bad" makes up a fifth of the average, while a word of a typical IMDB review, with its 178 words, weighs about 0.6%. **Averaging embeddings learned from scratch is a bag of words in disguise.**
+
+</WhatToNotice>
+
+</Exercise>
+
+<PaperNote id="joulin2017" look="Tables 1 and 2: the accuracy of fastText against convolutional networks on 8 datasets, and the time of one epoch: 10 seconds against 7 hours for VDCNN, on Amazon reviews.">
+
+This is fastText, by a team that includes Tomas Mikolov, the creator of word2vec (section 5). Its classifier is the simplest model of this section: average the embeddings of the words, and feed the average to a linear classifier. To bring back a little of the word order, it adds the pairs of consecutive words to the vocabulary, as Wang and Manning did in section 3.3. On Yelp reviews, it is as accurate as a deep convolutional network (95.7%), and on Amazon reviews it is about one point behind. But it trains on a CPU in seconds instead of hours on a GPU: "We can train fastText on more than one billion words in less than ten minutes using a standard multicore CPU".
+
+</PaperNote>
+
+### 4.4 Embeddings are embeddings
+
+We have now learned two embedding matrices, for two tasks. Yet the words are the same in both: "superb" means the same in a Wikipedia article and in a movie review, so we could expect its embedding to be similar whatever the task. Let's compare the two matrices.
+
+<Exercise number="4.4" title="Compare the embeddings learned on the two tasks" data="IMDB" nb="04-4-neighbors">
+
+Print the 5 nearest neighbors of the six words of exercise 4.2 ("three", "he", "city", "film", "excellent" and "terrible") in the embedding matrix $W$ of the deep averaging network of exercise 4.3, according to the cosine similarity. Compare them with their neighbors in the embeddings of the language model of exercise 4.2.
+
+The starter code trains the network of exercise 4.3 again, with steps (1) and (2) of the solution of exercise 3.2 and steps (1) to (3) of the solution of exercise 4.3: the network of the best epoch is `best_model`. It does not train the language model of exercise 4.2: take its neighbors from your results of exercise 4.2, or from the output of its solution.
+
+<Starter nb="04-4-neighbors" />
+
+<Hints>
+
+<Hint>
+
+The first layer of the network of exercise 4.3 stores $W$ as it is, with one column per word: `best_model[0].weight` has size D × V. `vectorizer.vocabulary_` gives the index of a word, and `vectorizer.get_feature_names_out()` the word at each index.
+
+</Hint>
+
+<Hint>
+
+Divide each column of $W$ by its length: the cosine similarities between a word and all the others are then a single product of a vector by a matrix, as in exercise 4.2.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="04-4-neighbors">
+
+The neighbors of "excellent" are words of praise ("wonderfully", "perfectly", "refreshing", and the grade "7"), and those of "terrible" words of blame ("poorly", "worst", "awful"). The neighbors of "three", "he", "city" and "film" look random.
+
+</Checkpoint>
+
+<Solution nb="04-4-neighbors" />
+
+<WhatToNotice>
+
+The two matrices are the mirror image of each other. The averaging network only learned what the sentiment needs: whether a word is positive or negative. It knows that "excellent" is like "wonderfully" and "terrible" like "awful", which the language model did not learn. But "three", "he", "city" and "film" say nothing about the sentiment, so the training had no consistent reason to move their embeddings, and their neighbors look random. The language model did the opposite: it organized the frequent words of Wikipedia, and left the rare words of praise and blame in the noise. **An embedding learned for a task only captures what this task needs, from the data of this task.**
+
+</WhatToNotice>
+
+</Exercise>
+
+This is the limit of learning the embeddings along with the task. A labeled dataset is small, and it only teaches what the task needs: 20,000 reviews are enough to learn which words are positive, but not that "film" is like "book". Yet the meanings of the words do not depend on the task. Learning embeddings that reflect the structure of the language again for every task, from a few labeled examples, looks like a waste.
+
+**What if we could learn the embeddings once and for all, on a task where data is abundant, and then reuse them for many tasks?** Exercise 4.2 gives a hint of where to find such a task: predicting a word from its context only needs raw text, which is free, and it taught our language model that "three" is like "four" and "film" like "book". This is the idea of *pre-training* and *transfer learning*, and the topic of the next section.
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**The size of the context.** Train the neural language model of exercise 4.2 with 1, 2 and 5 words of context, and plot its validation perplexity against n, next to the curve of the interpolated n-gram models of exercise 2.3b. Does the neural model make better use of long contexts?
+
+</Bonus>
+
+<Bonus>
+
+**Unseen contexts.** Measure the perplexity of the neural language model and of the interpolated 4-gram model only on the words of the validation set whose 3 previous words never appear together in the training text. Which model suffers more?
+
+</Bonus>
+
+<Bonus>
+
+**Mixing the two models.** As Bengio et al. did, average the probabilities given by the neural language model and by the interpolated 5-gram model, with a weight of 0.5 each. How much does the perplexity improve? Why do the two models help each other?
+
+</Bonus>
+
+<Bonus>
+
+**Generation.** Generate a text with the neural language model, as you did with the n-gram models in exercise 2.3a. Does it copy the training text, like the 5-gram model?
+
+</Bonus>
+
+<Bonus>
+
+**No hidden layers.** Remove the hidden layers of the deep averaging network of exercise 4.3. By section 4.3, the model is then a logistic regression on the frequencies of the words. Check that it does as well as the bag of words of section 3.
+
+</Bonus>
+
+<Bonus>
+
+**A weighted average.** Weight the average of exercise 4.3 by the IDF of the words (section 3.3). Does the accuracy change? And the predictions on the hard reviews?
+
+</Bonus>
+
+<Bonus>
+
+**Negation in a bag of words.** For six adjectives, three positive and three negative, compare the probabilities that the bag of words of exercise 3.2 gives to "The movie was X." and to "The movie was not X.". Check that "not" moves the score of every sentence by the same amount. Does the deep averaging network of exercise 4.3 do better?
+
+</Bonus>

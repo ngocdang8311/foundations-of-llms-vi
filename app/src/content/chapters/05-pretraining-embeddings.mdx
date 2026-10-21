@@ -1,0 +1,414 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+import PaperNote from '../../components/post/PaperNote.astro';
+import Exercise from '../../components/post/Exercise.astro';
+import Starter from '../../components/post/Starter.astro';
+import Hints from '../../components/post/Hints.astro';
+import Hint from '../../components/post/Hint.astro';
+import Checkpoint from '../../components/post/Checkpoint.astro';
+import Solution from '../../components/post/Solution.astro';
+import WhatToNotice from '../../components/post/WhatToNotice.astro';
+import Bonus from '../../components/post/Bonus.astro';
+import Optional from '../../components/post/Optional.astro';
+
+## 5. Pre-training embeddings: word2vec and GloVe
+
+At the end of section 4, we saw that **an embedding learned for a task only captures what this task needs, from the data of this task.** And exercise 4.2 gave us a hint of a solution: trained only to predict the next word of Wikipedia articles, Bengio's language model had found on its own that "three" is like "four" and "film" like "book".
+
+### 5.1 Splitting the training
+
+The idea is simple: split the training in two. First, learn the embedding matrix $W$ on a task for which data is free and abundant: this is *pre-training*. Then copy $W$ into the model of the task we care about, called the *downstream task*, and train this model on its own labeled data. Raw text is cheap: there are billions of words of Wikipedia and news articles online, and nobody needs to annotate them. Labels are expensive: someone has to read each review and say whether it is positive.
+
+<PaperNote id="collobert2011" look="Tables 6 and 7: the nearest neighbors of the same six words (FRANCE, JESUS, XBOX...) in a network trained on a tagging task alone, where they look random, and in the network trained on Wikipedia, where FRANCE is next to AUSTRIA, BELGIUM and GERMANY.">
+
+One of the first large demonstrations of this split in NLP with neural networks. The authors train a network on the whole English Wikipedia (631 million words), with a task that needs no labels: give a higher score to a real window of 11 words than to the same window with its middle word replaced by a random word. The training took about four weeks, then three more weeks with news articles added. The embeddings that it learned, in 50 dimensions, then initialize the networks of four tagging tasks, and improve all four: for the recognition of named entities, the F1 score goes from 81.5 to 88.7. As the authors note, "if we had decided ten years ago to train the language model network LM2 using a vintage computer, training would only be nearing completion today".
+
+</PaperNote>
+
+So let's forget about our downstream classification task for a moment, and focus on the embeddings. The problem is that to learn embeddings, we need something to optimize! We need a task, and an objective that can be computed from raw text only.
+
+The answer comes from linguistics, and it is older than computers: **words that appear in similar contexts tend to have similar meanings.** This is the *distributional hypothesis*. In 1954, Zellig Harris wrote that "difference of meaning correlates with difference of distribution" [@harris1954], and John Firth summarized it in 1957 with a famous sentence: "You shall know a word by the company it keeps!" [@firth1957].
+
+So a model trained to predict a word from its context, or the context from the word, has every reason to give similar vectors to words with similar meanings. This is what happened in exercise 4.2. But Bengio's model was slow: almost all of its time went into the softmax over the whole vocabulary (see "The cost of the softmax" in section 4.2). In 2013, word2vec kept the idea, and removed everything that was expensive.
+
+### 5.2 Word2vec
+
+Word2vec is the name of two models proposed by Tomas Mikolov and his colleagues at Google [@mikolov2013a]. Both look at a window of words around a middle word:
+- **CBOW** (for *continuous bag of words*) predicts the middle word from the average of the embeddings of the words around it;
+- **skip-gram** does the opposite: it predicts each word around from the embedding of the middle word.
+
+**Neither model has a hidden layer.** CBOW is Bengio's model without its hidden layer, with context on both sides of the word, and an average instead of a concatenation. Skip-gram reverses the direction of the prediction. This is what makes them fast: from the embeddings to the scores of the words, there is a single product of a matrix by a vector.
+
+<HtmlEmbed
+  src="d3-word2vec-models.html"
+  title="Three ways to learn embeddings by predicting words"
+  desc="Bengio's model predicts the next word from the embeddings of the previous words, concatenated and passed through a hidden layer. The two models of word2vec use the words on both sides, and have no hidden layer: CBOW predicts the middle word from the average of the embeddings around it, skip-gram predicts each word around from the embedding of the middle word. The embeddings and the probabilities are made up."
+/>
+
+<PaperNote id="mikolov2013a" look="Figure 1: CBOW and skip-gram side by side. And Table 8, with analogies that work (Paris − France + Italy = Rome) and some that do not: Einstein is to scientist as Mozart is to violinist.">
+
+In December 2012, Yoshua Bengio asked Mikolov to submit a paper to ICLR, a new conference that Bengio had co-founded, and Mikolov wrote this one during his Christmas holidays (as he told in an interview in 2023). It was rejected, although about 70% of the submissions were accepted, and one reviewer complained that the model did not consider the order of the words (we will come back to this in section 7). It was published in the workshop of the conference instead. Its main claim is speed: CBOW learns vectors of 300 dimensions from 1.6 billion words in less than a day, on a single CPU. The paper also introduces the analogy test set of section 5.4.
+
+</PaperNote>
+
+Let's write skip-gram. For this, two matrices $W$ and $U$ have to be learned. $W$ is the embedding matrix (dimension $D \times V$, as in section 4.1) that associates an embedding vector $v_w$, its column, to each word $w$. $U$ is the output projector matrix (dimension $V \times D$) in the linear layer, which can also be seen as providing a vector $u_c$, its row, for each candidate output word $c$.
+
+The probability that the word $c$ appears around the middle word $w$ is then a softmax of dot products:
+$$
+q(c \mid w) = \frac{e^{u_c \cdot v_w}}{\sum_{c'=1}^{V} e^{u_{c'} \cdot v_w}},
+$$
+and the model is trained, as usual, by minimizing the cross-entropy over all the pairs (middle word, word around it) of the training text.
+
+But the denominator is still a sum over the whole vocabulary: the cost of the softmax has not gone away. The second paper of word2vec [@mikolov2013b] removes it with a trick called **negative sampling**. Instead of asking the model "which of the V words appears around $w$?", it asks a yes-or-no question: "is $(w, c)$ a real pair, taken from the text, or a fake one?". For each real pair, we draw $k$ random words $n_1 \dots n_k$, which make $k$ fake pairs $(w, n_i)$, and we train a logistic regression (section 3.2) to tell the real pair from the fake ones, with the dot product as its score:
+
+$$
+\mathcal{L} = -\log \sigma(u_c \cdot v_w) - \sum_{i=1}^{k} \log \sigma(-u_{n_i} \cdot v_w).
+$$
+
+Since $\sigma(-z) = 1 - \sigma(z)$, the first term is the cross-entropy loss of section 3.2 for a pair labeled 1 (real), and each of the others for a pair labeled 0 (fake). With $k = 5$, each pair costs 6 dot products, instead of one for each of the 33,277 words of WikiText-2. The fake words are drawn from the counts of the words raised to the power 3/4, which gives the rare words a little more chance than their frequency alone.
+
+<PaperNote id="mikolov2013b" look="Figure 2: the countries and their capitals, projected in 2 dimensions. We draw the same picture with GloVe in section 5.4.">
+
+The second paper of word2vec adds negative sampling and subsampling, and learns vectors for phrases like "New York Times", whose meaning is not the sum of the meanings of their words. With these tricks, "an optimized single-machine implementation can train on more than 100 billion words in one day". Google released the code in 2013, with vectors trained on about 100 billion words of Google News: 3 million words and phrases, in 300 dimensions. For years, these "GoogleNews vectors" were among the most used embeddings of NLP. The reviews of the paper are public, and one of the reviewers wrote: "I would not call the contributions significantly original." Ten years later, the paper received the Test of Time award of NeurIPS.
+
+</PaperNote>
+
+One last trick: **subsampling**. Frequent words like "the" appear in the window of almost every word, and tell us little about it. So before building the pairs, each occurrence of a word of frequency $f$ is dropped with probability $1 - \sqrt{t/f}$, where $t$ is a threshold, around $10^{-5}$ in the paper. With $t = 10^{-4}$, about 4% of the occurrences of "the" in WikiText-2 are kept, and all the occurrences of the words of frequency below $10^{-4}$. This is the intuition of the IDF of section 3.3 again: a word that is everywhere carries little information.
+
+<Optional title="The hierarchical softmax" subtitle="the other way around the softmax">
+
+The first paper of word2vec avoided the softmax in another way. The words of the vocabulary are the leaves of a binary tree, built so that frequent words are close to the root (a Huffman tree). To give a probability to a word, the model follows the path from the root to its leaf, and at each node, a logistic regression gives the probability of going left or right. The probability of the word is the product of the probabilities of these choices. A path has about $\log_2 V$ nodes: 15 logistic regressions for 33,277 words, instead of 33,277 scores. Negative sampling, simpler, replaced it in the second paper.
+
+</Optional>
+
+Let's train skip-gram with negative sampling on WikiText-2, the text on which we trained Bengio's model in exercise 4.2, and compare the two.
+
+<Exercise number="5.2" title="Train word2vec on WikiText-2" data="WikiText-2" nb="05-2-word2vec">
+
+Train a skip-gram model with negative sampling on the training text of WikiText-2. Subsample the frequent words with $t = 10^{-4}$, then pair each remaining word with the 2 words before it and the 2 words after it. For each real pair, draw 5 fake context words from the counts of the words raised to the power 3/4. Train embeddings of size D = 100 for 3 epochs, then print the 5 nearest neighbors of the six words of exercise 4.2 ("three", "he", "city", "film", "excellent" and "terrible"). Compare the neighbors and the training time with those of Bengio's model in exercise 4.2.
+
+The starter code builds the training sequence, with step (1) of the solution of exercise 2.1, and gives each word of the vocabulary an index, as in the starter of exercise 4.2.
+
+<Starter nb="05-2-word2vec" />
+
+<Hints>
+
+<Hint>
+
+Count the words with a dictionary, as in section 2. Then turn the subsampled sequence of word indices into a tensor `sequence`: `sequence[:-1]` and `sequence[1:]` pair each word with the next one, and `sequence[:-2]` and `sequence[2:]` with the word two positions later. Use each of these pairs in both directions.
+
+</Hint>
+
+<Hint>
+
+Use two `nn.Embedding(V, D)`: one for the middle words, whose rows are the embeddings $v$ that we keep, and one for the context words, the output vectors $u$. Start both from small values, with `nn.init.normal_(..., std=0.1)`. For a batch of pairs, the scores are `(center * context).sum(dim=1)`, where `center` and `context` have size (batch, D).
+
+</Hint>
+
+<Hint>
+
+`torch.multinomial(noise, n, replacement=True)` draws n word indices, with probabilities proportional to `noise`, here the counts raised to the power 3/4. For each batch, put the score of each real pair and the scores of its 5 fake pairs side by side, in a tensor of size (batch, 6), with the labels 1, 0, 0, 0, 0, 0. `nn.BCEWithLogitsLoss()` then computes the loss of negative sampling.
+
+</Hint>
+
+<Hint>
+
+Train with Adam (learning rate 0.003) on batches of 4,096 pairs. For the neighbors, reuse the code of exercise 4.2 on the matrix of the middle words.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="05-2-word2vec">
+
+Subsampling keeps 997,693 of the 2,051,910 words, which gives 3,990,766 pairs. The training takes about 15 seconds on a laptop CPU. The neighbors of "three" are other numbers, and those of "film" include "cinema" and "movie". The neighbors of "excellent" and "terrible" look random. Your neighbors can differ, especially those of the rare words.
+
+</Checkpoint>
+
+<Solution nb="05-2-word2vec" />
+
+<WhatToNotice>
+
+Word2vec trains in 15 seconds, where Bengio's model needed almost 6 minutes on the same text and the same computer, with fewer pairs per epoch: per pair, word2vec is about 30 times faster. The neighbors are of the same kind: numbers with numbers, "he" with "him" and "she". But they are not quite the same: "film" is now closest to "cinema" and "movie", words of the same topic, while Bengio's model put it next to "book", "novel" and "album", words that play the same role in a sentence. As for the rare words, they are noise again: "excellent" appears only 28 times in the training text. 2 million words are not enough, and this is where the speed of word2vec matters. **Word2vec is cheap enough to learn from billions of words.**
+
+</WhatToNotice>
+
+</Exercise>
+
+### 5.3 GloVe
+
+Word2vec learns by predicting, one window at a time. A year later, Jeffrey Pennington, Richard Socher and Christopher Manning went back to counting [@pennington2014]. Their model, *GloVe* (for *global vectors*), first counts, over the whole training text, how many times each word $j$ appears in the window of each word $i$. This gives a *co-occurrence matrix* $X$ of size V × V, like the counts of pairs of section 2.1, but with a window on both sides of the word. Then GloVe looks for vectors whose dot products give the logarithm of these counts:
+
+$$
+w_i \cdot \tilde{w}_j + b_i + \tilde{b}_j \approx \log X_{ij},
+$$
+
+where $w_i$ and $\tilde{w}_j$ are two vectors of the words, as in skip-gram, and $b_i$ and $\tilde{b}_j$ are biases. The vectors are fitted by least squares, weighted by a function of the count $X_{ij}$: the rare pairs, whose counts are noisy, weigh less, and the weight stops growing beyond 100 occurrences, so that the very frequent pairs do not dominate. Like the Latent Semantic Analysis of section 4.1, **GloVe compresses a big table of counts into dense vectors of a few hundred dimensions.**
+
+<PaperNote id="pennington2014" look="Table 1: the probabilities of solid, gas, water and fashion near ice and near steam, and their ratios.">
+
+GloVe starts from a remark about ratios. In 6 billion words, "solid" appears 8.9 times more often near "ice" than near "steam", and "gas" about 12 times less often. "Water", related to both, and "fashion", related to neither, have ratios close to 1 (1.36 and 0.96). As the authors put it, "compared to the raw probabilities, the ratio is better able to distinguish relevant words (solid and gas) from irrelevant words (water and fashion)". GloVe is designed so that the difference between the vectors of two words predicts the logarithm of such ratios. On the analogy test set of section 5.4, the GloVe vectors trained on 6 billion words get 71.7%, against 69.1% for skip-gram trained by the authors on the same text.
+
+</PaperNote>
+
+So which is better, predicting or counting? In 2014, Omer Levy and Yoav Goldberg showed that the two are much closer than they look [@levy2014]. Consider skip-gram with negative sampling, with $k$ fake pairs for each real pair. If the embeddings are large enough, its loss is minimal when the dot product of the vectors of a word $w$ and of a context word $c$ is
+
+$$
+v_w \cdot u_c = \log \frac{p(w, c)}{p(w)\, p(c)} - \log k,
+$$
+
+where $p(w, c)$ is the probability that $c$ appears in the window of $w$, and $p(w)$ and $p(c)$ are the frequencies of the two words. The logarithm is the *pointwise mutual information* (PMI) of the two words: it compares how often they appear together with how often they would if they were independent. It is high for "ice" and "cold", and close to zero for "ice" and "the". So word2vec, without ever building the table, factorizes a table of co-occurrence statistics, just like GloVe and LSA. **Predicting the context and counting the contexts end up computing nearly the same thing.**
+
+<Optional title="Where the PMI comes from" subtitle="the optimum of negative sampling in three lines">
+
+Take a word $w$ and a context word $c$, and write $x = v_w \cdot u_c$. In the loss of negative sampling, summed over the whole text, the pair $(w, c)$ appears as a real pair $\#(w, c)$ times, the number of times $c$ is in the window of $w$. It also appears as a fake pair: each of the $\#(w)$ real pairs of $w$ draws $k$ fake words, and $c$ is drawn with probability $p_n(c)$, so about $k\, \#(w)\, p_n(c)$ times. The part of the loss that depends on $x$ is
+
+$$
+-\#(w, c) \log \sigma(x) - k\, \#(w)\, p_n(c) \log \sigma(-x).
+$$
+
+Its derivative with respect to $x$ is $-\#(w, c)\, \sigma(-x) + k\, \#(w)\, p_n(c)\, \sigma(x)$, which is zero when $e^x = \sigma(x) / \sigma(-x) = \#(w, c) / \big(k\, \#(w)\, p_n(c)\big)$. With the frequencies $p(w, c) = \#(w, c)/N$ and $p(w) = \#(w)/N$, where $N$ is the total number of real pairs, and with fake words drawn from the plain frequencies, $p_n(c) = p(c)$, this gives the formula above. With the power 3/4 of word2vec, $p(c)$ is replaced by its smoothed version. The argument assumes that each dot product can take any value, which requires large enough embeddings.
+
+</Optional>
+
+<PaperNote id="levy2014" look="Table 2: the SVD of the shifted PMI table against skip-gram, on four tests. The SVD wins on the similarity of words, skip-gram on the analogies.">
+
+The paper that connected predicting and counting. Its main result is the formula above: skip-gram with negative sampling, as implemented in word2vec, factorizes a table of PMI without saying so. The authors then took the direct route: build the table of a Wikipedia corpus of 1.5 billion words, subtract $\log k$, set the negative entries to zero, and compress it with an SVD. On the similarity of words, it is as good as word2vec. On the analogies, it is behind, for instance 44.8% against 62.7% on a set of grammatical analogies. Why set the negative entries to zero? Because they are unreliable, and as the authors put it, "humans can easily think of positive associations (e.g. "Canada" and "snow") but find it much harder to invent negative ones ("Canada" and "desert")".
+
+</PaperNote>
+
+The Stanford team released GloVe vectors trained on several corpora. In the rest of this section, we use the vectors trained on 6 billion words of Wikipedia and news articles: 400,000 words in lower case, in 300 dimensions. This is 3,000 times more text than WikiText-2.
+
+### 5.4 What embeddings capture
+
+The first thing embeddings capture is similarity: the nearest neighbors of exercises 4.2 and 5.2. But they also hold a more surprising structure. Take the vector $v_\text{paris} - v_\text{france} + v_\text{spain}$, and look for the word whose vector is the closest: it is "madrid". In other words, the difference $v_\text{paris} - v_\text{france}$ is almost the same as $v_\text{madrid} - v_\text{spain}$: there is a direction in the space of embeddings that means "the capital of". In the same way, the word closest to $v_\text{king} - v_\text{man} + v_\text{woman}$ is "queen", once we exclude "king" itself (we will come back to this detail in exercise 5.4).
+
+<HtmlEmbed
+  src="d3-analogy-directions.html"
+  data="analogy-directions.json"
+  title="Relations are directions"
+  desc="For each relation, the GloVe vectors of 9 pairs of words, projected on 2 dimensions with a principal component analysis (PCA), and an arrow from the first word of each pair to the second. The arrows are almost parallel: going from a country to its capital, or from a man to a woman, is about the same move everywhere in the space. Hover over a word to highlight its pair. After Figure 2 of <a href='#bib-mikolov2013b'>Mikolov et al. (2013b)</a>."
+/>
+
+<PaperNote id="mikolov2013c" look="Figure 2: the parallel arrows man → woman, uncle → aunt and king → queen. It is a drawing, not a plot of real vectors.">
+
+The analogy king − man + woman ≈ queen first appeared in this paper, with the vectors of a recurrent language model trained on 320 million words of Broadcast News. Mikolov found it during an internship at Microsoft Research. As he told in 2023, he asked his supervisor, Geoffrey Zweig, what the closest vector to king − man + woman would be: Zweig "told me this was a rather silly idea and that nothing sensible could come out of this". It returned "queen". The paper then measures the idea on 8,000 grammatical analogies: the best score is 39.6%, with several models combined.
+
+</PaperNote>
+
+This gives a way to answer analogies, "a is to b as c is to ?": look for the word whose vector is the closest to $v_b - v_a + v_c$. Mikolov et al. turned it into a test of the quality of embeddings [@mikolov2013a]: 19,544 analogies in 14 categories, about meaning (capitals, currencies, family) and about grammar (plurals, tenses, comparatives). Let's try it on GloVe. As in some experiments of the first paper of word2vec, we only keep the 30,000 most frequent words, both for the questions and for the answers.
+
+<Exercise number="5.4" title="Solve analogies with GloVe" data="GloVe, analogy test set" nb="05-4-analogies">
+
+Answer the analogies "man is to king as woman is to ?", "france is to paris as spain is to ?", "big is to bigger as small is to ?", "walk is to walked as swim is to ?" and "man is to doctor as woman is to ?". For each one, look for the word whose GloVe vector is the closest to $v_b - v_a + v_c$, first excluding the three words of the question from the answers, then allowing them. Then measure the accuracy on the analogy test set of Mikolov et al. in both ways, separately for the questions about meaning and about grammar.
+
+<Starter nb="05-4-analogies" />
+
+<Hints>
+
+<Hint>
+
+Divide each vector by its length first, so that the dot products give the cosine similarities. The target $v_b - v_a + v_c$ does not need to be divided by its length: dividing it by a positive number does not change the ranking of the words.
+
+</Hint>
+
+<Hint>
+
+`vectors @ target` gives the dot products of the target with the 30,000 vectors at once. To exclude a word, set its score to `-math.inf` before taking the `argmax`.
+
+</Hint>
+
+<Hint>
+
+The words of the test set are capitalized ("Athens", "Greece"), while GloVe only has lower-case words: put them in lower case. Skip the questions with a word outside the 30,000. The categories about grammar are those whose `Subject` starts with "gram".
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="05-4-analogies">
+
+With the question words excluded, the answers are "queen", "madrid", "larger" (a mistake), "swam" and "physician", and the accuracy is 79.2% on meaning and 70.6% on grammar. With the question words allowed, three of the five answers are a word of the question, starting with "king", and the accuracy falls to 24.8% on meaning and 20.7% on grammar. 14,877 of the 19,544 questions have their four words among the 30,000 most frequent words.
+
+</Checkpoint>
+
+<Solution nb="05-4-analogies" />
+
+<WhatToNotice>
+
+GloVe answers about three analogies out of four, without having been trained for it: it was only fitted to the counts of pairs of words. The questions about meaning are mostly about geography, since capitals and American states make up 85% of them in the test set. Now look at the second column. When the words of the question are allowed, the best answer is most often one of them: "man is to king as woman is to king". The vector $v_\text{king} - v_\text{man} + v_\text{woman}$ is still closer to $v_\text{king}$ than to any other vector, because the difference between "man" and "woman" is small compared with everything that makes "king" different from other words. On the whole test set, the accuracy falls from 74% to 22%. **"Queen" is not the word closest to king − man + woman: it is the closest one once "king" is excluded.**
+
+</WhatToNotice>
+
+</Exercise>
+
+This is the first caveat of analogies: **an analogy search must exclude the words of the question**, otherwise it returns one of them most of the time. The rule is in the first paper of word2vec, and in most evaluations since. But it also forces an answer that is not a word of the question, even when the best answer is one of them. In the exercise, "man is to doctor as woman is to ?" gives "physician" with the rule, and "doctor" without it. Keep this in mind when you read that embeddings answer "man is to computer programmer as woman is to homemaker" [@bolukbasi2016].
+
+<PaperNote id="nissim2020" look="Table 1: the famous analogies, with the question words excluded and allowed. With the standard search on the GoogleNews vectors, man is to doctor as woman is to gynecologist; when the question words are allowed, the answer is doctor.">
+
+In 2016, a paper with a striking title showed that the GoogleNews vectors answer "man is to computer programmer as woman is to x" with x = homemaker, and many papers followed with similar examples. The authors of this paper point out that the code behind such results never returns a word of the question: "man is to doctor as woman is to doctor" is impossible by construction. On the test set of Mikolov et al., allowing the question words lowers the accuracy from 71% to 21%, as in exercise 5.4. They do not claim that embeddings have no bias: "We stand by the truth that human biases are present in word embeddings, and, of course, the need to address them." Their point is that analogies are a poor tool to measure them.
+
+</PaperNote>
+
+The second caveat: **the meaning is in the directions, not in the coordinates.** It is tempting to look for the coordinate of the embeddings that encodes gender, or the one that encodes royalty. But the losses of word2vec and GloVe only depend on dot products of vectors, and dot products do not change if all the vectors are rotated in the same way. A rotated embedding is just as good as the original, and each of its coordinates is completely different. So a single coordinate has no meaning in itself: only directions do, like $v_\text{woman} - v_\text{man}$. Hinton's network of section 4.1 was different: each of its units went through its own non-linearity, so a rotation would change the outputs of the network. There, the axes are special, and a unit can have a meaning of its own.
+
+### 5.5 Transfer learning
+
+Let's go back to our movie reviews. We now have embeddings learned on 6 billion words, and the deep averaging network of section 4.3 starts with an embedding matrix: we can copy the GloVe vectors into it. This is *transfer learning*: what was learned on one task, here fitting the counts of pairs of words, is reused for another one, classifying reviews. There are two ways to do it:
+- *freeze* the embeddings: keep $W$ fixed, and only train the hidden layers and the head on the labeled reviews;
+- *fine-tune* the embeddings: start from the GloVe vectors, but let the training on the reviews change them, like the other parameters.
+
+<HtmlEmbed
+  src="d3-transfer.html"
+  title="Three ways to get the embedding matrix of a classifier"
+  desc="From scratch, the embedding matrix W starts at random and is learned from the labeled reviews, as in section 4.3. With transfer learning, W is first learned on raw text, for instance by word2vec or GloVe, then copied into the classifier, where it is either kept fixed (frozen) or trained further with the rest of the network (fine-tuned). The values of the matrices are made up."
+/>
+
+Frozen embeddings keep everything they learned from the 6 billion words, including what they know about words that appear in few labeled reviews, or in none. As we saw in section 4.3, the weight of a word in the head then depends on its embedding, so similar words get similar weights. Fine-tuned embeddings can also adapt to the task, but the words that appear in the labeled reviews move, while the others stay where they were. Let's compare the two with the training from scratch of section 4.3.
+
+<Exercise number="5.5a" title="Start the averaging network from GloVe" data="IMDB, GloVe" nb="05-5a-pretrained-dan">
+
+Build the embedding matrix $W$ of the deep averaging network of exercise 4.3 from the GloVe vectors of the 10,000 words of the vocabulary (D = 300). Train the network three times: with $W$ random (from scratch), with $W$ copied from GloVe and frozen, and with $W$ copied from GloVe and fine-tuned. Compare their test accuracies. Then print the 5 nearest neighbors of "good" and "bad" in GloVe, and in $W$ after fine-tuning.
+
+The starter code repeats steps (1) and (2) of the solution of exercise 3.2, which split the reviews and count their words, and loads all the GloVe vectors, as in the starter of exercise 5.4. The network is not in the starter: start from your code of exercise 4.3.
+
+<Starter nb="05-5a-pretrained-dan" />
+
+<Hints>
+
+<Hint>
+
+`vectorizer.get_feature_names_out()` gives the words of the vocabulary, in the order of the count vectors. Build $W$ as a tensor of size 300 × 10,000, with the GloVe vector of word j in column j, and copy it into the first layer of the network with `model[0].weight.data = W_glove.clone()`. A few words, like "hadn", have no GloVe vector: leave their column at zero.
+
+</Hint>
+
+<Hint>
+
+To freeze $W$, call `model[0].weight.requires_grad_(False)`: PyTorch then does not compute its gradient. Give the optimizer only the parameters that are trained: `[p for p in model.parameters() if p.requires_grad]`.
+
+</Hint>
+
+<Hint>
+
+Exercise 5.5b trains the same network on subsets of the reviews, down to 100 reviews. To prepare for it, write a function `train(model, X, labels)` that draws each batch of 64 reviews at random from `X` (with `torch.randint`), for 1,500 batches, and keeps the model with the best validation accuracy, measured every 100 batches.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="05-5a-pretrained-dan">
+
+The test accuracy is 87.6% from scratch, 83.3% with GloVe frozen, and 88.1% with GloVe fine-tuned. In GloVe, the nearest neighbor of "bad" is "good". After fine-tuning, the neighbors of "bad" are "worse", "unfortunately", "awful", "nothing" and "worst".
+
+</Checkpoint>
+
+<Solution nb="05-5a-pretrained-dan" />
+
+<WhatToNotice>
+
+With 20,000 labeled reviews, pre-training barely helps: fine-tuned GloVe gains half a point over the training from scratch, and frozen GloVe loses more than 4 points. Iyyer et al. found the same on IMDB, as we will see below. Why are the frozen embeddings so poor? Look at the neighbors of "bad" in GloVe: the first one is "good". The two words appear in the same contexts ("the film was ___", "a ___ idea"), so for a model of the counts of pairs of words, they are almost the same word. The difference of sentiment is in the vectors, but it is a small part of them. Fine-tuning makes it a big part: after training on the reviews, "bad" is close to "worse", "awful" and "worst", as Kim also observed with word2vec vectors [@kim2014]. **Pre-trained embeddings know the language, not the task.**
+
+</WhatToNotice>
+
+</Exercise>
+
+In their paper, Iyyer et al. ran the same comparison [@iyyer2015]. Their variants NBOW-RAND and DAN-RAND start from random embeddings of 300 dimensions instead of GloVe. The effect depends a lot on the dataset. On short sentences, pre-training helps clearly: on binary SST, the Stanford Sentiment Treebank [@socher2013], made of short sentences from movie reviews, the DAN gets 86.3% with GloVe and 83.2% with random embeddings; on the sentences of Rotten Tomatoes, 80.3% and 77.3%. On IMDB, the gain is tiny: 89.4% and 88.8%. With long reviews and 25,000 labels, there is enough data to learn the embeddings of the useful words from scratch.
+
+<PaperNote id="iyyer2015" look="Table 1: compare each “-RAND” row with the row below it. The GloVe vectors give 2 to 3 points on the short sentences of RT and SST, and less than 1 point on IMDB.">
+
+In this paper, the networks start from GloVe vectors trained on Common Crawl, and fine-tune them during the training. The authors conclude that "the choice of composition function is not as important as initializing with pretrained embeddings and using a deep network". And they asked the question of exercise 5.5a: "Is it possible that unsupervised training algorithms are already capturing sentiment?" Their answer is yes, partly: a logistic regression trained on frozen GloVe vectors tells the positive words of a sentiment lexicon from the negative ones with more than 95% accuracy. So the sentiment is in the vectors, but it is not what makes two words close.
+
+</PaperNote>
+
+This suggests that pre-training should matter most when labels are few. Let's measure it.
+
+<Exercise number="5.5b" star title="Train with fewer labels" data="IMDB, GloVe" nb="05-5b-label-efficiency">
+
+Train the three versions of exercise 5.5a (from scratch, GloVe frozen, GloVe fine-tuned) on 100, 300, 1,000, 3,000, 10,000 and 20,000 training reviews drawn at random, and plot their test accuracy against the number of labeled reviews.
+
+The starter code repeats steps (1) to (3) of the solution of exercise 5.5a, after the code of exercises 3.2 and 5.4 that they need. It gives the GloVe matrix `W_glove`, the function `make_model`, which builds one of the three versions, and the function `train`, which trains a model on the reviews that you give it. What is left is the loop over the numbers of reviews, and the chart.
+
+<Starter nb="05-5b-label-efficiency" />
+
+<Hints>
+
+<Hint>
+
+`random.sample(range(len(train_labels)), n)` draws n distinct indices, and `X_train[chosen]` selects the rows of the sparse matrix of the counts.
+
+</Hint>
+
+<Hint>
+
+With 100 reviews, the accuracy changes a lot from one draw to the next: average it over 3 draws for the sizes up to 1,000.
+
+</Hint>
+
+<Hint>
+
+We keep the validation set of 5,000 reviews to choose the best model, whatever the number of training reviews. This is a little optimistic: someone who has only 100 labeled reviews does not have 5,000 more to validate on.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="05-5b-label-efficiency">
+
+With 100 labeled reviews, the test accuracy is 69.2% from scratch, 75.2% with GloVe frozen, and 73.4% with GloVe fine-tuned. Frozen GloVe is the best version with 100 reviews, and fine-tuned GloVe from 300 reviews on. With 20,000 reviews, the training from scratch and fine-tuned GloVe both reach 87.5%, and frozen GloVe stays at 83.3%. These last numbers differ a little from those of exercise 5.5a, because the batches are not drawn in the same order.
+
+</Checkpoint>
+
+<Solution nb="05-5b-label-efficiency" />
+
+<WhatToNotice>
+
+With 100 labeled reviews, the GloVe vectors are worth 6 points: 75.2% frozen, against 69.2% from scratch. Only 3,686 of the 10,000 words of the vocabulary appear in 100 random reviews. From scratch, the 6,314 other words keep their random embeddings, and the model knows nothing about them when it meets them in a test review. With frozen GloVe vectors, every word comes with what was learned from 6 billion words, and gets a weight close to the weights of similar words, even if it appears in no labeled review. As the number of labels grows, the gap closes: from 1,000 reviews on, the frozen embeddings are the worst version, and with 20,000 reviews, fine-tuning GloVe and training from scratch give the same accuracy. **Pre-training matters most when labels are few.**
+
+</WhatToNotice>
+
+</Exercise>
+
+This is a first answer to the second question of this post: what is learned on a task with abundant data can be transferred to another task. But only the first layer of the network is transferred. The hidden layers and the head are still learned from the labeled reviews alone. The average still forgets the order of the words: whatever the embeddings, the two hard reviews with the same words get exactly the same probability. And each word has a single vector, whatever the sentence it is in. The next section takes stock of these limits.
+
+If you want to dig deeper, below are a few bonus exercises.
+
+<Bonus>
+
+**CBOW.** Replace skip-gram with CBOW in exercise 5.2: average the embeddings of the 4 words around each word, and give a score to this average with the real middle word and with 5 fake ones. Do the neighbors change?
+
+</Bonus>
+
+<Bonus>
+
+**The size of the window.** Train the skip-gram model of exercise 5.2 with 1 word and with 10 words on each side. How do the neighbors change?
+
+</Bonus>
+
+<Bonus>
+
+**More text.** Train the skip-gram model of exercise 5.2 on text8 (`afmck/text8`), the first 100 MB of a cleaned English Wikipedia: 17 million words, 8 times WikiText-2. Compare the neighbors, and evaluate both models on the analogy test set of exercise 5.4.
+
+</Bonus>
+
+<Bonus>
+
+**Counting instead of predicting.** Build the co-occurrence matrix of WikiText-2 with a window of 2 words, replace its entries by their PMI, set the negative ones to zero, and compress it to 100 dimensions with a truncated SVD (`torch.svd_lowrank`), as Levy and Goldberg did [@levy2014]. Are the neighbors as good as those of exercise 5.2?
+
+</Bonus>
+
+<Bonus>
+
+**A rotation.** Multiply all the GloVe vectors by a random orthogonal matrix (the Q of `torch.linalg.qr` of a random matrix). Check that the neighbors and the analogies of exercise 5.4 do not change, while all the coordinates do.
+
+</Bonus>
+
+<Bonus>
+
+**A direction for gender.** Compute $v_\text{woman} - v_\text{man}$, $v_\text{queen} - v_\text{king}$ and $v_\text{girl} - v_\text{boy}$ in GloVe. How similar are these three directions? Project a few words of professions on their average: which ones are on the side of "woman"? Read Nissim et al. first [@nissim2020].
+
+</Bonus>
+
+<Bonus>
+
+**Text of the same kind.** Train the skip-gram model of exercise 5.2 on the 50,000 unlabeled reviews of IMDB (the `unsupervised` split), and use these embeddings in exercise 5.5a instead of GloVe. Does text of the same kind beat 3,000 times more text of another kind?
+
+</Bonus>

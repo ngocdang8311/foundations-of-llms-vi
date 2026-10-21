@@ -1,0 +1,163 @@
+<div class="d3-ngram-explorer"></div>
+<style>
+  .d3-ngram-explorer { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-ngram-explorer .controls { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; margin-bottom: 14px; }
+  .d3-ngram-explorer .control-group { display: flex; flex-direction: column; gap: 6px; }
+  .d3-ngram-explorer .control-label { font-size: 12px; font-weight: 700; color: var(--text-color); }
+  .d3-ngram-explorer .segmented { display: inline-flex; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+  .d3-ngram-explorer .segmented button { font: inherit; font-size: 12px; padding: 6px 11px; border: 0; border-right: 1px solid var(--border-color); background: var(--surface-bg); color: var(--text-color); cursor: pointer; }
+  .d3-ngram-explorer .segmented button:last-child { border-right: 0; }
+  .d3-ngram-explorer .segmented button[aria-pressed="true"] { background: var(--primary-color); color: var(--on-primary); font-weight: 700; }
+  .d3-ngram-explorer .segmented button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 1px; }
+  .d3-ngram-explorer .sentence { font-size: 15px; line-height: 1.6; padding: 3px 0; }
+  .d3-ngram-explorer .sentence .w { padding: 1px 3px; border-radius: 4px; font-weight: 700; background: color-mix(in srgb, var(--primary-color) 18%, transparent); }
+  .d3-ngram-explorer .sentence .none { color: var(--muted-color); font-style: italic; }
+  .d3-ngram-explorer .sentence .slot { display: inline-block; min-width: 2.5em; margin-left: 3px; border-bottom: 2px solid var(--primary-color); text-align: center; color: var(--muted-color); }
+  .d3-ngram-explorer svg { display: block; overflow: visible; }
+  .d3-ngram-explorer .bar-label { fill: var(--text-color); font-size: 12px; }
+  .d3-ngram-explorer .bar-label.is-aggregate { fill: var(--muted-color); font-style: italic; }
+  .d3-ngram-explorer .bar-value { fill: var(--muted-color); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .d3-ngram-explorer .bar-track { fill: var(--text-color); opacity: 0.05; }
+  .d3-ngram-explorer .error { color: var(--danger-color); font-size: 12px; white-space: pre-wrap; }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) { s = document.createElement('script'); s.id = 'd3-cdn-script'; s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js'; document.head.appendChild(s); }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (!(container && container.classList && container.classList.contains('d3-ngram-explorer'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ngram-explorer'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // The data comes from the notebook of exercise 2.3a (its last cell): for each n, an example
+      // context of n - 1 words, the number of times it is followed by a word in the training
+      // text, and its 10 most frequent next words with their counts.
+      let mountEl = container;
+      while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
+      const attr = mountEl ? mountEl.getAttribute('data-datafiles') : null;
+      const file = attr && attr.trim() ? attr.trim() : 'ngram-explorer.json';
+      const PATHS = file.includes('/') ? [file] : [`/data/${file}`, `./assets/data/${file}`, `../assets/data/${file}`];
+      const fetchFirstAvailable = async (paths) => {
+        for (const p of paths) {
+          try { const r = await fetch(p, { cache: 'no-cache' }); if (r.ok) return await r.json(); } catch (_) {}
+        }
+        throw new Error(`Data not found: ${paths.join(', ')}`);
+      };
+
+      const uid = Math.random().toString(36).slice(2, 8);
+      const state = { n: 3 };
+      let data = null;
+
+      const wordColor = (() => {
+        try { if (window.ColorPalettes) return window.ColorPalettes.getColors('categorical', 1)[0]; } catch (_) {}
+        return 'var(--primary-color)';
+      })();
+
+      container.innerHTML = `
+        <div class="controls">
+          <div class="control-group">
+            <span class="control-label" id="n-label-${uid}">n</span>
+            <div class="segmented" role="group" aria-labelledby="n-label-${uid}">
+              ${[1, 2, 3, 4, 5].map((k) => `<button type="button" data-n="${k}">${k}</button>`).join('')}
+            </div>
+          </div>
+          <div class="control-group">
+            <span class="control-label">Context (the n − 1 previous words)</span>
+            <div class="sentence"></div>
+          </div>
+        </div>
+        <div class="chart"></div>`;
+      const nButtons = Array.from(container.querySelectorAll('.segmented button'));
+      const sentence = container.querySelector('.sentence');
+      const chartEl = container.querySelector('.chart');
+
+      const svg = d3.select(chartEl).append('svg').attr('width', '100%')
+        .attr('role', 'img').attr('aria-label', 'Probabilities of the 10 most likely next words');
+      const g = svg.append('g');
+
+      const fmtPct = (p) => (p >= 0.1 ? d3.format('.0%')(p) : p >= 0.001 ? d3.format('.1%')(p) : p > 0 ? '<0.1%' : '0%');
+
+      // The context of the example, then the slot of the next word.
+      function renderSentence(row) {
+        sentence.innerHTML = '';
+        const s = document.createElement('span');
+        s.className = row.context ? 'w' : 'none';
+        s.textContent = row.context || 'no context';
+        sentence.append(s, ' ');
+        const slot = document.createElement('span');
+        slot.className = 'slot';
+        slot.textContent = '?';
+        sentence.append(slot);
+      }
+
+      function renderChart(row) {
+        const width = container.clientWidth || 600;
+        const rows = row.top.map(([word, count]) => ({ key: 'w:' + word, label: word, p: count / row.total, kind: 'word' }));
+        const other = row.total - row.top.reduce((a, [, c]) => a + c, 0);
+        rows.push({ key: 'other', label: state.n === 1 ? 'all the other words' : 'other words seen after it', p: other / row.total, kind: 'other' });
+
+        const rowH = 22;
+        const labelW = Math.min(190, Math.max(150, Math.round(width * 0.3)));
+        const valueW = 46;
+        const barW = Math.max(60, width - labelW - valueW - 12);
+        svg.attr('height', rows.length * rowH);
+        const x = d3.scaleLinear().domain([0, 1]).range([0, barW]);
+
+        const sel = g.selectAll('g.row').data(rows, (r) => r.key);
+        sel.exit().remove();
+        const enter = sel.enter().append('g').attr('class', 'row');
+        enter.append('text').attr('class', 'bar-label').attr('dy', '0.35em').attr('text-anchor', 'end');
+        enter.append('rect').attr('class', 'bar-track').attr('rx', 3);
+        enter.append('rect').attr('class', 'bar').attr('rx', 3).attr('width', 0);
+        enter.append('text').attr('class', 'bar-value').attr('dy', '0.35em');
+        const all = enter.merge(sel);
+        all.sort((a, b) => rows.indexOf(a) - rows.indexOf(b));
+        all.attr('transform', (r, i) => `translate(0,${i * rowH})`);
+        all.select('text.bar-label').attr('x', labelW - 8).attr('y', rowH / 2)
+          .classed('is-aggregate', (r) => r.kind !== 'word')
+          .text((r) => r.label);
+        all.select('rect.bar-track').attr('x', labelW).attr('y', 4).attr('height', rowH - 8).attr('width', barW);
+        all.select('rect.bar').attr('x', labelW).attr('y', 4).attr('height', rowH - 8)
+          .attr('fill', (r) => (r.kind === 'word' ? wordColor : 'var(--muted-color)'))
+          .attr('opacity', (r) => (r.kind === 'other' ? 0.5 : 0.9))
+          .transition().duration(200).attr('width', (r) => Math.max(0, x(r.p)));
+        all.select('text.bar-value').attr('x', labelW + barW + 6).attr('y', rowH / 2).text((r) => fmtPct(r.p));
+      }
+
+      function render() {
+        nButtons.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.n) === state.n)));
+        if (!data) return;
+        renderSentence(data[state.n]);
+        renderChart(data[state.n]);
+      }
+
+      nButtons.forEach((b) => b.addEventListener('click', () => { state.n = Number(b.dataset.n); render(); }));
+      render();
+
+      fetchFirstAvailable(PATHS).then((raw) => { data = raw; render(); }).catch((err) => {
+        const pre = document.createElement('pre'); pre.className = 'error'; pre.textContent = String(err.message || err);
+        container.appendChild(pre);
+      });
+
+      if (window.ResizeObserver) new ResizeObserver(() => { if (data) renderChart(data[state.n]); }).observe(container);
+      else window.addEventListener('resize', () => { if (data) renderChart(data[state.n]); });
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

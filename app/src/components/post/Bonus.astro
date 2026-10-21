@@ -1,0 +1,38 @@
+---
+// An exercise without a solution. `extra`: only the idea, with no hint and no dataset.
+// Consecutive bonuses are drawn as one list.
+const { extra = false } = Astro.props as { extra?: boolean };
+---
+<div class={`bonus${extra ? " bonus--extra" : ""}`}>
+  <span class="bonus__tag">{extra ? "Idea" : "Bonus"}</span>
+  <div class="bonus__body"><slot /></div>
+</div>
+
+<style is:global>
+  /* Blue like the exercises: --exercise-color is defined in Exercise.astro */
+  .bonus {
+    --primary-color: var(--exercise-color);
+    --primary-color-hover: oklch(from var(--exercise-color) calc(l - 0.05) c h);
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+    margin: var(--spacing-3) 0 0;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 0.95rem;
+  }
+  .bonus + .bonus { margin-top: -1px; border-top-left-radius: 0; border-top-right-radius: 0; }
+  .bonus:has(+ .bonus) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .bonus__tag {
+    flex: 0 0 4.2em;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--exercise-text-color);
+  }
+  .bonus--extra .bonus__tag { color: var(--muted-color); }
+  .bonus__body > :first-child { margin-top: 0; }
+  .bonus__body > :last-child { margin-bottom: 0; }
+</style>

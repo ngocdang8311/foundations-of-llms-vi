@@ -1,0 +1,85 @@
+import HtmlEmbed from '../../components/HtmlEmbed.astro';
+
+## 1. The typical tasks of NLP
+
+Now that we live in a world of LLMs, it's easy to think that autoregressive language modeling is all there is to NLP. But before 2019 and the realization that GPT-2 could generate coherent text and hence do other tasks without being specifically trained for them, language modeling was only one among the many tasks of classical NLP.
+
+For decades, **text classification, tagging and translation** were the most important challenges that were tackled using the tools of machine learning.
+
+Each of these four tasks can be formally represented as **learning certain probability distributions conditioned on an input piece of text** seen as a sequence of words. This is illustrated below.
+
+<HtmlEmbed
+  src="d3-nlp-tasks.html"
+  title="Four NLP tasks"
+  desc="Each task drawn as a model that reads the words of a text and gives probabilities: over the classes (classification), over the words of the vocabulary (language modeling, translation), or over the labels of each word (tagging)."
+/>
+
+Let's consider these different tasks.
+
+### 1.1 Classification
+
+This is the simplest task to state in NLP: you receive a piece of text and you have to classify it among a predefined list of categories. It can be spam detection, sentiment analysis (*Is this movie review positive or not?*), or classification among topics (*Is this news article about sports, politics, technology...?*).
+
+For that, a classifier has to learn the conditional probability
+
+$$
+p(C \mid x_1 \dots x_L)
+$$
+
+that a certain sequence of words $x_1 \dots x_L$ belongs to a class $C$, where here **$L$ is not fixed a priori, and depends on the sequence.**
+
+As shown in the introductory example at the top of this post (*"Wow, what a masterpiece. [...] A perfect film if you love naps."*), sentiment classification can be subtle and involve detecting things like sarcasm.
+
+### 1.2 Language modeling
+
+In principle, modeling a language means learning the probability distribution $p(x_1 \dots x_L)$ of its possible sequences of words. In practice, it is often more convenient to learn the *next-word probability*
+
+$$
+p(x_{L+1} \mid x_1 \dots x_L).
+$$
+
+From this next-word probability, we can simply recover the full probability by using the chain rule, for instance
+
+$$
+p(x_1 x_2 x_3 x_4) = p(x_1)\, p(x_2 \mid x_1)\, p(x_3 \mid x_1 x_2)\, p(x_4 \mid x_1 x_2 x_3)
+$$
+
+From today's perspective, the main use of such a probability distribution is to generate text using autoregression: *draw a word from the next-word distribution, append it to the text, and repeat*. This is the principle behind LLM chatbots and agents.
+
+But knowing the language probability distribution can have other uses, for instance to score the probability of sentences among a list of candidates. Imagine an Automatic Speech Recognition (ASR) model producing two candidate transcriptions that both reasonably fit the audio sample: it can be followed by a post-processing stage using a language model, to score these candidates and help choose the right one. For instance on any reasonable language model, the probability of the sentence *"General relativity was formulated by **Alfred** Einstein"* would certainly rank lower than that of *"General relativity was formulated by **Albert** Einstein"*.
+
+Although I present them separately, it is important to realize that **next-word prediction is a form of classification task!** Instead of assigning probabilities to a finite set of classes, you assign probabilities to a finite set of words among the pre-defined vocabulary. The main practical difference is the size: generally a few classes in NLP classification tasks, while the vocabulary size in language modeling is often tens of thousands.
+
+### 1.3 Translation
+
+Translation from one language to another has long been one of the most important tasks in NLP, but also a hard one.
+Formally, we want to learn the probability of a candidate translation $y_1 \dots y_K$ conditioned on the original sentence $x_1 \dots x_L$. Again, in practice, we seek to estimate the next-word probability of the translated sequence, conditioned on the original sentence and what has been written so far:
+
+$$
+p(y_{i+1} \mid y_1 \dots y_i; x_1 \dots x_L)
+$$
+
+Note that learning this probability distribution is far from obvious since the two sentences a priori have different lengths, and the translation is generally not a word-for-word correspondence.
+
+On top of that, the word order can be totally different, see a nice example below showing the same sentence in 4 languages...you should try the English vs Turkish comparison!
+
+<HtmlEmbed
+  src="d3-word-alignment.html"
+  title="Word alignment in different languages"
+  wide
+  desc="An English sentence and its translation into French, German or Turkish, cut into morphemes (the smallest parts of a word that carry a meaning, like the -n of seen). French keeps nearly the same order as English, German moves the verbs to the end of their clause, and Turkish nearly reverses the order. The example sentences come from <a href='https://www.reddit.com/r/interestingasfuck/comments/gekhiv/links_in_sentences_between_languages/'>a picture shared on Reddit</a>."
+/>
+
+### 1.4 Tagging
+
+Finally, another typical NLP task is *tagging*. Its goal is to assign a class per word (or group of words). It can be grammar mistake detection, or tagging the grammatical category of each word in a sentence (noun, verb, ...), a task that is known as *part-of-speech* tagging.
+
+It can also be *Named Entity Recognition* (NER), for instance tagging all the names of people (or all places) in a text.
+
+Tagging can be seen as "a classifier applied to each word", but each taking into account the surrounding context.
+
+$$
+p(t_i \mid x_1 \dots x_L)
+$$
+
+I will not cover much of tagging here.

@@ -1,0 +1,7 @@
+---
+// Shown in place of a fragment that tools/nb2mdx has not generated yet.
+const { notebook, part } = Astro.props as { notebook: string; part: string };
+---
+<div class="exercise__missing">
+  Missing {part} of <code>{notebook}</code>: run <code>tools/nb2mdx</code> on the notebook.
+</div>
