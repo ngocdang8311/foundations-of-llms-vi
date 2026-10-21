@@ -2,7 +2,7 @@
 
 This repo is the Hugging Face Space of the blog post "Natural Language Processing before LLMs" (chapter 0 of the series "Foundations of Large Language Models: Learning by Doing", based on David Louapre's MVA course). It is a separate git repo cloned inside the course repo, at `blog/00-nlp-before-llms/space/`. The parent folder holds the outline (`../outline.md`) and the code of the exercises and figures (`../code/`). The course repo has its own `CLAUDE.md` and `README.md`.
 
-The Space is `dlouapre/nlp-before-llms` (renamed from `dlouapre/nlp-before-transformers` on 2026-10-19). It is private until the post is published.
+The Space is `dlouapre/nlp-before-llms` (renamed from `dlouapre/nlp-before-transformers` on 2026-10-19). The post was published on 2026-10-21: the Space is public, and chapter 0 has its `url` in `series.json`. Every push to `main` now changes the public page.
 
 ## How we work on this post
 
@@ -75,7 +75,7 @@ The chapters are in `app/src/content/chapters/`, one file per section of the out
 - Citations: `[@key]`, with the entry in `bibliography.bib`. Do not put BibTeX comments in that file: braces in comments break the MDX parser.
 - Math: `$...$` inline, `$$...$$` for blocks (KaTeX).
 - `banner.html` in `embeds/` is the chapter illustration, under the title: a hard review of section 3.4 and the probability that a bag-of-words model gives it. It reads the probability from `hard-reviews.json` (the model "Bag of words, counts", written by the notebook of exercise 3.4), and falls back on a value written in the file. The file must exist: it is also hard-coded in `pages/dataviz.astro` and in the `paper` layout.
-- The post is public once published. Before you reuse a picture from a course deck, check where it comes from: pictures from the web may not be reusable. Figures from the course `visuals/` folders and equations from `.eqn` files are David's own.
+- The post is public. Before you reuse a picture from a course deck, check where it comes from: pictures from the web may not be reusable. Figures from the course `visuals/` folders and equations from `.eqn` files are David's own.
 - Images, CSV and JSON files are stored with Git LFS (see `.gitattributes`). Hugging Face rejects binary files pushed outside LFS.
 
 ## Development
@@ -98,6 +98,8 @@ GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c credential.helper='!f() { ech
 ```
 
 Commit and push only when David asks.
+
+The drafts of the post were squashed into one commit before publication, on top of the template's commits. Their history is kept in the local branch `drafts`, which is not pushed.
 
 ## Template updates
 
