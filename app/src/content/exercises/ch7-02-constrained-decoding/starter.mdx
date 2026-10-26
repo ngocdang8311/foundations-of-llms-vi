@@ -1,0 +1,38 @@
+export const cells = 1;
+
+```python
+import re
+import json
+import numpy as np
+
+# Từ vựng thu gọn gồm 12 token ứng viên (gồm cả token nhiễu làm hỏng JSON)
+VOCAB = [
+    '{"', 'tool', '": "', 'calc', 'search', '", "expr": "',
+    '(14*8)+5', '"}', 'Sure! ', '```json', 'python_eval', '=117'
+]
+
+# Các mẫu Regex kiểm tra tiền tố JSON hợp lệ tại từng bước mở rộng
+VALID_PREFIX_PATTERNS = [
+    r'^\{"$',
+    r'^\{"tool$',
+    r'^\{"tool": "$',
+    r'^\{"tool": "(calc|search)$',
+    r'^\{"tool": "(calc|search)", "expr": "$',
+    r'^\{"tool": "(calc|search)", "expr": "[0-9+\-*/()]+$',
+    r'^\{"tool": "(calc|search)", "expr": "[0-9+\-*/()]+"\}$',
+]
+
+# Ma trận logits giả lập (7 bước x 12 token) nơi các token nhiễu có logit rất cao
+RAW_LOGITS = np.array([
+    [3.5, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 4.4, 3.9, 0.1, 0.1],
+    [0.1, 3.6, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2, 0.1, 4.1, 0.1],
+    [0.1, 0.1, 4.0, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 3.2],
+    [0.1, 0.1, 0.1, 3.8, 2.5, 0.1, 0.1, 0.1, 0.1, 0.1, 4.5, 0.1],
+    [0.1, 0.1, 0.1, 0.1, 0.1, 3.9, 0.1, 4.2, 0.1, 0.1, 0.1, 0.1],
+    [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 3.7, 0.1, 0.1, 0.1, 0.1, 4.3],
+    [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 4.1, 4.6, 0.1, 0.1, 0.1],
+])
+print("Vocab size:", len(VOCAB), "| Decoding steps:", len(RAW_LOGITS))
+```
+
+<section className="code-output"><pre>{"Vocab size: 12 | Decoding steps: 7"}</pre></section>

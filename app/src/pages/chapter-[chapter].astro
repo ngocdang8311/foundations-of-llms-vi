@@ -1,0 +1,31 @@
+---
+import ChapterPage from "../components/post/ChapterPage.astro";
+import * as Chapter0Mod from "../content/article.mdx";
+
+export function getStaticPaths() {
+  return [
+    { params: { chapter: "0" } },
+    { params: { chapter: "1" } },
+    { params: { chapter: "2" } },
+    { params: { chapter: "3" } },
+    { params: { chapter: "4" } },
+    { params: { chapter: "5" } },
+    { params: { chapter: "6" } },
+    { params: { chapter: "7" } },
+  ];
+}
+
+const { chapter } = Astro.params;
+const partModules = import.meta.glob("../content/part-*.mdx", { eager: true }) as Record<string, any>;
+
+let ArticleMod: any = Chapter0Mod;
+if (chapter && chapter !== "0") {
+  const suffix = `/part-${chapter}.mdx`;
+  const key = Object.keys(partModules).find((k) => k.endsWith(suffix));
+  if (key) {
+    ArticleMod = partModules[key];
+  }
+}
+---
+
+<ChapterPage ArticleMod={ArticleMod} />

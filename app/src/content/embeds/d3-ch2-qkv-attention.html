@@ -1,0 +1,405 @@
+<div class="d3-ch2-qkv"></div>
+<style>
+  .d3-ch2-qkv {
+    margin: 1.2rem 0;
+    padding: 16px 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 13px;
+  }
+  .d3-ch2-qkv .qkv-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .d3-ch2-qkv .qkv-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .d3-ch2-qkv .qkv-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted-color);
+  }
+  .d3-ch2-qkv .qkv-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch2-qkv .qkv-btn.active {
+    border-color: var(--qkv-accent, var(--primary-color));
+    background: color-mix(in oklab, var(--qkv-accent, var(--primary-color)) 18%, var(--page-bg));
+  }
+  .d3-ch2-qkv svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch2-qkv .qkv-summary {
+    margin-top: 10px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    border: 1px solid var(--border-color);
+    font-size: 12.5px;
+    line-height: 1.45;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 16px;
+  }
+  .d3-ch2-qkv .qkv-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch2-qkv'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch2-qkv'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        const TOKENS = ['Con', 'mèo', 'ngồi', 'trên', 'chiếu', 'nó', 'ngủ'];
+        const L = TOKENS.length;
+
+        // Pre-scaled dot product Q_i . K_j / sqrt(d_k) for d_k = 64
+        // Notice token 5 ("nó") attends strongly to token 1 ("mèo"), and token 6 ("ngủ") attends to "nó" and "mèo".
+        const BASE_LOGITS = [
+          [ 1.35,  0.80,  0.20, -0.30, -0.40,  0.10, -0.20],
+          [ 0.95,  1.45,  0.70,  0.10,  0.25,  1.20,  0.60],
+          [ 0.25,  1.20,  1.30,  0.85,  0.90,  0.65,  0.50],
+          [-0.20,  0.30,  0.95,  1.25,  1.35,  0.15,  0.10],
+          [-0.10,  0.40,  0.90,  1.15,  1.40,  0.30,  0.20],
+          [ 0.55,  1.75,  0.60,  0.15,  0.35,  1.10,  0.95],
+          [ 0.30,  1.25,  0.75,  0.10,  0.40,  1.50,  1.35],
+        ];
+
+        let causalMask = true;
+        let scaleDivisor = true; // true = divide by sqrt(d_k)=8, false = unscaled (multiply logits by 8)
+        let selectedRow = 5; // default to "nó" (index 5)
+
+        let cPrimary = '#4e79a7', cAccent = '#f28e2b', cNeg = '#e15759';
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 3);
+              if (cat && cat.length >= 3) [cPrimary, cAccent, cNeg] = cat;
+            }
+          } catch (_) {}
+          container.style.setProperty('--qkv-accent', cPrimary);
+        };
+        readPalette();
+
+        const controls = document.createElement('div');
+        controls.className = 'qkv-controls';
+
+        const gMask = document.createElement('div');
+        gMask.className = 'qkv-group';
+        const lblMask = document.createElement('span');
+        lblMask.className = 'qkv-label';
+        lblMask.textContent = 'Mặt nạ nhân quả M:';
+        const btnMaskOn = document.createElement('button');
+        btnMaskOn.type = 'button';
+        btnMaskOn.className = 'qkv-btn active';
+        btnMaskOn.textContent = 'Bật Causal Mask (j ≤ i)';
+        const btnMaskOff = document.createElement('button');
+        btnMaskOff.type = 'button';
+        btnMaskOff.className = 'qkv-btn';
+        btnMaskOff.textContent = 'Tắt Mask (Hai chiều)';
+        gMask.append(lblMask, btnMaskOn, btnMaskOff);
+
+        const gScale = document.createElement('div');
+        gScale.className = 'qkv-group';
+        const lblScale = document.createElement('span');
+        lblScale.className = 'qkv-label';
+        lblScale.textContent = 'Hệ số chia (d_k = 64):';
+        const btnScaleOn = document.createElement('button');
+        btnScaleOn.type = 'button';
+        btnScaleOn.className = 'qkv-btn active';
+        btnScaleOn.textContent = 'Chia √d_k = 8 (Chuẩn)';
+        const btnScaleOff = document.createElement('button');
+        btnScaleOff.type = 'button';
+        btnScaleOff.className = 'qkv-btn';
+        btnScaleOff.textContent = 'Không chia √d_k (Bão hòa!)';
+        gScale.append(lblScale, btnScaleOn, btnScaleOff);
+
+        controls.append(gMask, gScale);
+        container.appendChild(controls);
+
+        const W = 760, H = 315;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img')
+          .attr('aria-label', 'Trực quan hóa ma trận điểm chú ý QK^T / sqrt(d_k) + M và trọng số Softmax');
+
+        const summary = document.createElement('div');
+        summary.className = 'qkv-summary';
+        container.appendChild(summary);
+
+        btnMaskOn.addEventListener('click', () => {
+          causalMask = true;
+          btnMaskOn.classList.add('active');
+          btnMaskOff.classList.remove('active');
+          render();
+        });
+        btnMaskOff.addEventListener('click', () => {
+          causalMask = false;
+          btnMaskOff.classList.add('active');
+          btnMaskOn.classList.remove('active');
+          render();
+        });
+        btnScaleOn.addEventListener('click', () => {
+          scaleDivisor = true;
+          btnScaleOn.classList.add('active');
+          btnScaleOff.classList.remove('active');
+          render();
+        });
+        btnScaleOff.addEventListener('click', () => {
+          scaleDivisor = false;
+          btnScaleOff.classList.add('active');
+          btnScaleOn.classList.remove('active');
+          render();
+        });
+
+        const computeMatrices = () => {
+          const factor = scaleDivisor ? 1.0 : 8.0; // sqrt(64) = 8
+          const scores = BASE_LOGITS.map((row, i) =>
+            row.map((val, j) => {
+              if (causalMask && j > i) return -Infinity;
+              return val * factor;
+            })
+          );
+          const weights = scores.map((row) => {
+            const finite = row.filter((v) => Number.isFinite(v));
+            const maxVal = d3.max(finite);
+            const exps = row.map((v) => (Number.isFinite(v) ? Math.exp(v - maxVal) : 0));
+            const sumExp = d3.sum(exps);
+            return exps.map((e) => e / sumExp);
+          });
+          return { scores, weights };
+        };
+
+        const render = () => {
+          svg.selectAll('*').remove();
+          const { scores, weights } = computeMatrices();
+
+          const cell = 34;
+          const leftMatX = 76, rightMatX = 436, topY = 54;
+
+          // Panel titles
+          svg.append('text')
+            .attr('x', leftMatX + (L * cell) / 2)
+            .attr('y', 18)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--text-color)')
+            .attr('font-weight', 700)
+            .attr('font-size', 12.5)
+            .text(scaleDivisor ? '1. Điểm trước Softmax: QKᵀ / √d_k + M' : '1. Điểm chưa chia √d_k: QKᵀ + M (Phương sai gấp 64×)');
+
+          svg.append('text')
+            .attr('x', rightMatX + (L * cell) / 2)
+            .attr('y', 18)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--text-color)')
+            .attr('font-weight', 700)
+            .attr('font-size', 12.5)
+            .text('2. Trọng số Chú ý α = Softmax(·) (Tổng mỗi hàng = 1)');
+
+          // Arrow between matrices
+          svg.append('text')
+            .attr('x', 368).attr('y', topY + (L * cell) / 2 + 4)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--muted-color)')
+            .attr('font-size', 12)
+            .attr('font-weight', 700)
+            .text('Softmax →');
+
+          // Draw both matrices
+          TOKENS.forEach((tokI, i) => {
+            const y = topY + i * cell;
+            const isRowSel = i === selectedRow;
+
+            // Row labels
+            [leftMatX, rightMatX].forEach((mx) => {
+              svg.append('text')
+                .attr('x', mx - 8)
+                .attr('y', y + cell / 2 + 4)
+                .attr('text-anchor', 'end')
+                .attr('fill', isRowSel ? cAccent : 'var(--text-color)')
+                .attr('font-weight', isRowSel ? 700 : 500)
+                .attr('font-size', 11.5)
+                .style('cursor', 'pointer')
+                .text(tokI)
+                .on('click mouseenter', () => {
+                  if (selectedRow !== i) { selectedRow = i; render(); }
+                });
+            });
+
+            // Column labels
+            const colI = i;
+            [leftMatX, rightMatX].forEach((mx) => {
+              svg.append('text')
+                .attr('x', mx + colI * cell + cell / 2)
+                .attr('y', topY - 8)
+                .attr('text-anchor', 'middle')
+                .attr('fill', 'var(--muted-color)')
+                .attr('font-size', 11)
+                .text(TOKENS[colI]);
+            });
+
+            TOKENS.forEach((tokJ, j) => {
+              const sVal = scores[i][j];
+              const wVal = weights[i][j];
+
+              // Left cell: pre-softmax score
+              const lx = leftMatX + j * cell;
+              const isMasked = !Number.isFinite(sVal);
+              const sNorm = isMasked ? 0 : Math.min(1, Math.abs(sVal) / (scaleDivisor ? 2.0 : 14.0));
+              const sColor = isMasked
+                ? 'color-mix(in oklab, var(--text-color) 7%, var(--page-bg))'
+                : `color-mix(in oklab, ${sVal >= 0 ? cPrimary : cNeg} ${Math.round(12 + 65 * sNorm)}%, var(--page-bg))`;
+
+              const gL = svg.append('g')
+                .style('cursor', 'pointer')
+                .on('click mouseenter', () => {
+                  if (selectedRow !== i) { selectedRow = i; render(); }
+                });
+
+              gL.append('rect')
+                .attr('x', lx).attr('y', y)
+                .attr('width', cell - 2).attr('height', cell - 2)
+                .attr('rx', 4)
+                .attr('fill', sColor)
+                .attr('stroke', isRowSel ? cAccent : 'var(--border-color)')
+                .attr('stroke-width', isRowSel ? 1.6 : 0.8);
+
+              gL.append('text')
+                .attr('x', lx + (cell - 2) / 2)
+                .attr('y', y + (cell - 2) / 2 + 4)
+                .attr('text-anchor', 'middle')
+                .attr('fill', isMasked ? 'var(--muted-color)' : 'var(--text-color)')
+                .attr('font-size', 10)
+                .attr('font-weight', isMasked ? 600 : 500)
+                .text(isMasked ? '−∞' : sVal.toFixed(1));
+
+              // Right cell: post-softmax attention weight
+              const rx = rightMatX + j * cell;
+              const wColor = wVal <= 0.001
+                ? 'color-mix(in oklab, var(--text-color) 4%, var(--page-bg))'
+                : `color-mix(in oklab, ${cAccent} ${Math.round(10 + 78 * wVal)}%, var(--page-bg))`;
+
+              const gR = svg.append('g')
+                .style('cursor', 'pointer')
+                .on('click mouseenter', () => {
+                  if (selectedRow !== i) { selectedRow = i; render(); }
+                });
+
+              gR.append('rect')
+                .attr('x', rx).attr('y', y)
+                .attr('width', cell - 2).attr('height', cell - 2)
+                .attr('rx', 4)
+                .attr('fill', wColor)
+                .attr('stroke', isRowSel ? cAccent : 'var(--border-color)')
+                .attr('stroke-width', isRowSel ? 1.6 : 0.8);
+
+              gR.append('text')
+                .attr('x', rx + (cell - 2) / 2)
+                .attr('y', y + (cell - 2) / 2 + 4)
+                .attr('text-anchor', 'middle')
+                .attr('fill', wVal <= 0.001 ? 'var(--muted-color)' : 'var(--text-color)')
+                .attr('font-size', 10)
+                .attr('font-weight', wVal > 0.25 ? 700 : 500)
+                .text(wVal <= 0.001 ? '0.00' : wVal.toFixed(2));
+            });
+          });
+
+          svg.append('text')
+            .attr('x', W / 2).attr('y', topY + L * cell + 18)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--muted-color)')
+            .attr('font-size', 11.5)
+            .attr('font-style', 'italic')
+            .text('Nhấp hoặc di chuột vào một hàng (Query token i) để phân tích phân phối chú ý của từ đó.');
+
+          const rowW = weights[selectedRow];
+          const entropy = -d3.sum(rowW, (p) => (p > 1e-9 ? p * Math.log2(p) : 0));
+          const maxW = d3.max(rowW);
+          const maxIdx = rowW.indexOf(maxW);
+          const topTerms = rowW
+            .map((w, idx) => ({ w, tok: TOKENS[idx] }))
+            .filter((d) => d.w >= 0.03)
+            .sort((a, b) => b.w - a.w)
+            .slice(0, 4)
+            .map((d) => `${d.tok} (${(d.w * 100).toFixed(1)}%)`)
+            .join(' + ');
+
+          summary.innerHTML = `
+            <div>
+              Truy vấn đang chọn: <strong>Query "${TOKENS[selectedRow]}" (vị trí i = ${selectedRow})</strong> →
+              Tổ hợp Value: <span class="qkv-mono">${topTerms}</span>
+            </div>
+            <div>
+              Trọng số lớn nhất: <span class="qkv-mono">${(maxW * 100).toFixed(1)}% ("${TOKENS[maxIdx]}")</span> ·
+              Entropy chú ý: <span class="qkv-mono">${entropy.toFixed(2)} bits</span>
+              ${!scaleDivisor ? ' <strong style="color:var(--primary-color)">(Bão hòa Softmax → Đạo hàm gần bằng 0!)</strong>' : ''}
+            </div>
+          `;
+        };
+
+        render();
+        document.addEventListener('palettes:updated', () => {
+          readPalette();
+          render();
+        });
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

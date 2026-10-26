@@ -51,8 +51,8 @@
       container.dataset.mounted = 'true';
 
       const MODES = [
-        { key: 'embeddings', button: 'The embeddings only', copyLSTM: false },
-        { key: 'encoder', button: 'The embeddings and the LSTM', copyLSTM: true },
+        { key: 'embeddings', button: 'Chỉ các vector nhúng', copyLSTM: false },
+        { key: 'encoder', button: 'Vector nhúng và mạng LSTM', copyLSTM: true },
       ];
       let mode = MODES[1];
 
@@ -98,7 +98,7 @@
       const markerId = `pretrain-arrow-${uid}`;
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
         .attr('role', 'img')
-        .attr('aria-label', 'An LSTM language model is trained to predict the next word on raw text. Its embeddings, and optionally its LSTM, are copied into a classifier of reviews, which adds a new head and is trained on the labeled reviews.');
+        .attr('aria-label', 'Một mô hình ngôn ngữ LSTM được huấn luyện để dự đoán từ tiếp theo trên văn bản thô. Các vector nhúng và tùy chọn cả mạng LSTM của nó được sao chép sang bộ phân loại bài đánh giá, thêm một đầu phân loại mới và huấn luyện trên các bài đánh giá có nhãn.');
       svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
         .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
@@ -146,7 +146,7 @@
       };
 
       // Left panel: the language model, trained on raw text
-      panel(leftX, leftW, '1. Pre-training', 'predict the next word, on raw text');
+      panel(leftX, leftW, '1. Tiền huấn luyện (Pre-training)', 'dự đoán từ tiếp theo trên văn bản thô');
       tokens(['this', 'film', 'was'], leftCx);
       const preMatX = leftCx - matW / 2;
       arrow(leftCx, tokenY - 3, leftCx, matY + matH + 5);
@@ -155,14 +155,14 @@
       arrow(leftCx, matY - 3, leftCx, lstmY + boxH + 3);
       const preLSTM = box(leftCx, lstmY, 'LSTM');
       arrow(leftCx, lstmY - 3, leftCx, topY + boxH + 3);
-      const nextWord = box(leftCx, topY, 'NEXT WORD');
+      const nextWord = box(leftCx, topY, 'TỪ TIẾP THEO');
       arrow(leftCx, topY - 3, leftCx, 128);
       bars(leftCx, 74, [['great', 0.45], ['a', 0.3], ['terrible', 0.2]]);
       g.append('text').attr('class', 'status').attr('x', leftCx + boxW / 2 + 8).attr('y', topY + boxH / 2).attr('dy', '0.35em')
-        .attr('fill', 'var(--muted-color)').text('dropped');
+        .attr('fill', 'var(--muted-color)').text('bỏ đi');
 
       // Right panel: the classifier of section 7.2
-      panel(rightX, rightW, '2. Fine-tuning', 'classify the reviews, with labels');
+      panel(rightX, rightW, '2. Tinh chỉnh (Fine-tuning)', 'phân loại bài đánh giá có nhãn');
       tokens(['a', 'superb', 'film'], rightCx);
       const dsMatX = rightCx - matW / 2;
       arrow(rightCx, tokenY - 3, rightCx, matY + matH + 5);
@@ -171,9 +171,9 @@
       arrow(rightCx, matY - 3, rightCx, lstmY + boxH + 3);
       const dsLSTM = box(rightCx, lstmY, 'LSTM');
       arrow(rightCx, lstmY - 3, rightCx, topY + boxH + 3);
-      const head = box(rightCx, topY, 'HEAD');
+      const head = box(rightCx, topY, 'ĐẦU PHÂN LOẠI');
       arrow(rightCx, topY - 3, rightCx, 128);
-      bars(rightCx, 88, [['positive', 0.9], ['negative', 0.1]]);
+      bars(rightCx, 88, [['tích cực', 0.9], ['tiêu cực', 0.1]]);
 
       // The status of each part of the classifier
       const statusX = rightCx + boxW / 2 + 10;
@@ -192,14 +192,14 @@
         .attr('d', `M${preMatX + matW + 6},${matY + matH / 2} L${dsMatX - 22},${matY + matH / 2}`).attr('marker-end', `url(#${markerId})`);
       const copyLSTM = g.append('path').attr('class', 'copy').attr('stroke-width', 1.3)
         .attr('d', `M${leftCx + boxW / 2 + 4},${lstmY + boxH / 2} L${rightCx - boxW / 2 - 6},${lstmY + boxH / 2}`).attr('marker-end', `url(#${markerId})`);
-      const copyLabel = (y) => g.append('text').attr('class', 'side').attr('x', midX + 6).attr('y', y - 6).attr('text-anchor', 'middle').text('copy');
+      const copyLabel = (y) => g.append('text').attr('class', 'side').attr('x', midX + 6).attr('y', y - 6).attr('text-anchor', 'middle').text('sao chép');
       copyLabel(matY + matH / 2);
       const copyLSTMLabel = copyLabel(lstmY + boxH / 2);
 
       // The toggle, above the figure
       const controls = document.createElement('div');
       controls.className = 'controls';
-      controls.innerHTML = `<span class="control-label" id="pretrain-label-${uid}">Copy</span>`;
+      controls.innerHTML = `<span class="control-label" id="pretrain-label-${uid}">Sao chép</span>`;
       controls.setAttribute('role', 'group');
       controls.setAttribute('aria-labelledby', `pretrain-label-${uid}`);
       MODES.forEach((m) => {
@@ -213,7 +213,7 @@
 
       const paint = (b, pretrained) => b.select('rect').attr('fill', tint(pretrained)).attr('stroke', pretrained ? MODEL : 'var(--border-color)');
       const setStatus = ({ s, n }, pretrained, note) => {
-        s.attr('fill', pretrained ? MODEL : 'var(--text-color)').text(pretrained ? 'pre-trained' : 'new');
+        s.attr('fill', pretrained ? MODEL : 'var(--text-color)').text(pretrained ? 'tiền huấn luyện' : 'mới');
         n.text(note);
       };
 
@@ -225,9 +225,9 @@
         dsMatrix.selectAll('rect').attr('fill', ([r, c]) => fill(TUNED[r][c])).attr('stroke', MODEL);
         paint(dsLSTM, mode.copyLSTM);
         paint(head, false);
-        setStatus(wStatus, true, 'copied, then fine-tuned');
-        setStatus(lstmStatus, mode.copyLSTM, mode.copyLSTM ? 'copied, then fine-tuned' : 'random at the start');
-        setStatus(headStatus, false, 'random at the start');
+        setStatus(wStatus, true, 'sao chép, rồi tinh chỉnh');
+        setStatus(lstmStatus, mode.copyLSTM, mode.copyLSTM ? 'sao chép, rồi tinh chỉnh' : 'khởi tạo ngẫu nhiên');
+        setStatus(headStatus, false, 'khởi tạo ngẫu nhiên');
         copyLSTM.style('opacity', mode.copyLSTM ? 1 : 0);
         copyLSTMLabel.style('opacity', mode.copyLSTM ? 1 : 0);
         g.selectAll('.out-bar').attr('fill', OUT);

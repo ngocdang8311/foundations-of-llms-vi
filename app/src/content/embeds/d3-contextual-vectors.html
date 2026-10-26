@@ -70,8 +70,8 @@
       ];
       const STATIC = 62;   // closer to the frequent meaning, as in exercise 6
       const MODES = [
-        { key: 'static', button: 'One vector per word (GloVe)' },
-        { key: 'contextual', button: 'One vector per occurrence (ELMo)' },
+        { key: 'static', button: 'Một vector cho mỗi từ (GloVe)' },
+        { key: 'contextual', button: 'Một vector cho mỗi lần xuất hiện (ELMo)' },
       ];
       let mode = MODES[0];
 
@@ -84,7 +84,7 @@
       controls.className = 'controls';
       controls.setAttribute('role', 'group');
       controls.setAttribute('aria-labelledby', `ctx-label-${uid}`);
-      controls.innerHTML = `<span class="control-label" id="ctx-label-${uid}">The vector of “bank”</span>`;
+      controls.innerHTML = `<span class="control-label" id="ctx-label-${uid}">Vector của từ “bank”</span>`;
       MODES.forEach((m) => {
         const b = document.createElement('button');
         b.type = 'button';
@@ -96,7 +96,7 @@
 
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
         .attr('role', 'img')
-        .attr('aria-label', 'Word vectors drawn as arrows. With a static embedding, bank has one vector, close to money, whatever its sentence. With a contextual embedding, bank has one vector in each sentence: close to river in a sentence about a river, and close to money in a sentence about an account.');
+        .attr('aria-label', 'Các vector từ được vẽ dưới dạng mũi tên. Với nhúng tĩnh, từ bank chỉ có một vector duy nhất gần với money bất kể câu văn. Với nhúng ngữ cảnh, từ bank có một vector riêng trong mỗi câu: gần với river trong câu về bờ sông, và gần với money trong câu về tài khoản ngân hàng.');
       const defs = svg.append('defs');
       const marker = (id, fillColor) => defs.append('marker').attr('id', id).attr('viewBox', '0 0 10 10').attr('refX', 8).attr('refY', 5)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
@@ -153,7 +153,7 @@
           line.transition().duration(500).attr('x2', x).attr('y2', y).attr('stroke', c)
             .attr('marker-end', `url(#${contextual ? markers[k].id : textMarker})`);
           label.attr('text-anchor', angle < 90 ? 'start' : 'end').attr('fill', c)
-            .text(contextual ? `bank (sentence ${k + 1})` : 'bank (both sentences)')
+            .text(contextual ? `bank (câu ${k + 1})` : 'bank (cả hai câu)')
             .style('opacity', contextual || k === 0 ? 1 : 0)
             .transition().duration(500).attr('x', tx).attr('y', ty);
         });

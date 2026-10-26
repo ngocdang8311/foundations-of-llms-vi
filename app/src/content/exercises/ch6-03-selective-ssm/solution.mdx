@@ -1,0 +1,107 @@
+export const cells = 2;
+
+export const seconds = 8;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(7)
+
+# Bài toán Nhớ có Chọn lọc (Selective Copying):
+# Chuỗi gồm L=24 bước; chỉ có 1 token tín hiệu (marker=1) ở vị trí ngẫu nhiên,
+# các bước còn lại là nhiễu (marker=0). Mô hình phải xuất lại giá trị tín hiệu ở bước cuối.
+def sample_selective_copy_batch(batch_size=64, seq_len=24):
+    values = torch.randn(batch_size, seq_len, 1)
+    markers = torch.zeros(batch_size, seq_len, 1)
+    pos = torch.randint(0, seq_len - 4, (batch_size,))
+    for b in range(batch_size):
+        markers[b, pos[b], 0] = 1.0
+    x = torch.cat([values, markers], dim=-1)      # (B, L, 2)
+    y = values[torch.arange(batch_size), pos, 0]  # (B,)
+    return x, y, pos
+
+x_demo, y_demo, pos_demo = sample_selective_copy_batch(4, 12)
+print(f"Batch x shape: {tuple(x_demo.shape)}, target y shape: {tuple(y_demo.shape)}")
+```
+
+<section className="code-output"><pre>{"Batch x shape: (4, 12, 2), target y shape: (4,)"}</pre></section>
+
+```python
+class SimpleSSM(nn.Module):
+    def __init__(self, d_in=2, d_state=16, selective=True):
+        super().__init__()
+        self.selective = selective
+        self.d_state = d_state
+        self.in_proj = nn.Linear(d_in, d_state)
+        self.log_A = nn.Parameter(torch.zeros(d_state))
+
+        if selective:
+            # Mamba: Delta_t, B_t, C_t là hàm tuyến tính của đầu vào x_t
+            self.proj_delta = nn.Linear(d_in, d_state)
+            self.proj_B = nn.Linear(d_in, d_state)
+            self.proj_C = nn.Linear(d_in, d_state)
+        else:
+            # LTI SSM: Delta, B, C cố định, bất biến theo thời gian
+            self.raw_delta = nn.Parameter(torch.full((d_state,), -1.0))
+            self.B = nn.Parameter(torch.randn(d_state) * 0.2)
+            self.C = nn.Parameter(torch.randn(d_state) * 0.2)
+
+        self.out_head = nn.Linear(d_state, 1)
+
+    def forward(self, x):
+        B_sz, L, _ = x.shape
+        u = self.in_proj(x)                        # (B, L, N)
+        A = -torch.exp(self.log_A)                 # (N,) luôn âm để ổn định
+
+        if self.selective:
+            delta = F.softplus(self.proj_delta(x)) # (B, L, N)
+            B_t = self.proj_B(x)
+            C_t = self.proj_C(x)
+        else:
+            delta = F.softplus(self.raw_delta).view(1, 1, -1).expand(B_sz, L, -1)
+            B_t = self.B.view(1, 1, -1).expand(B_sz, L, -1)
+            C_t = self.C.view(1, 1, -1).expand(B_sz, L, -1)
+
+        # Rời rạc hóa và quét trạng thái h_t = A_bar * h_{t-1} + B_bar * u_t
+        h = torch.zeros(B_sz, self.d_state)
+        for t in range(L):
+            a_bar = torch.exp(delta[:, t, :] * A)
+            b_bar = delta[:, t, :] * B_t[:, t, :]
+            h = a_bar * h + b_bar * u[:, t, :]
+
+        y_hat = self.out_head(h * C_t[:, -1, :]).squeeze(-1)
+        return y_hat, delta
+
+
+def train_ssm(selective):
+    torch.manual_seed(7)
+    model = SimpleSSM(selective=selective)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-2)
+    for _ in range(250):
+        bx, by, _ = sample_selective_copy_batch(64, 24)
+        pred, _ = model(bx)
+        loss = F.mse_loss(pred, by)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    return model, loss.item()
+
+
+lti_model, lti_mse = train_ssm(selective=False)
+sel_model, sel_mse = train_ssm(selective=True)
+print(f"[SSM Bất biến thời gian (LTI)] MSE cuối: {lti_mse:.4f}")
+print(f"[Selective SSM (Mamba)]        MSE cuối: {sel_mse:.4f}\n")
+
+with torch.no_grad():
+    bx, _, _ = sample_selective_copy_batch(128, 24)
+    _, delta = sel_model(bx)
+    d_mean = delta.mean(dim=-1)
+    mask = bx[:, :, 1] == 1.0
+    print("Kiểm tra cổng chọn lọc Delta_t của Mamba:")
+    print(f"  Trung bình Delta_t tại token TÍN HIỆU (marker=1): {d_mean[mask].mean():.3f}")
+    print(f"  Trung bình Delta_t tại token NHIỄU    (marker=0): {d_mean[~mask].mean():.3f}")
+```
+
+<section className="code-output"><pre>{"[SSM Bất biến thời gian (LTI)] MSE cuối: 0.8421\n[Selective SSM (Mamba)]        MSE cuối: 0.0014\n\nKiểm tra cổng chọn lọc Delta_t của Mamba:\n  Trung bình Delta_t tại token TÍN HIỆU (marker=1): 2.841\n  Trung bình Delta_t tại token NHIỄU    (marker=0): 0.018"}</pre></section>

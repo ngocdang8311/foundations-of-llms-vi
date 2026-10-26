@@ -1,0 +1,406 @@
+<div class="d3-ch6-moe-routing"></div>
+<style>
+  .d3-ch6-moe-routing {
+    font-size: 12.5px;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    background: var(--surface-bg);
+  }
+  .d3-ch6-moe-routing .moe-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .d3-ch6-moe-routing .moe-btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .d3-ch6-moe-routing button {
+    font-size: 12px;
+    padding: 5px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 4%, transparent);
+    color: var(--text-color);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+  }
+  .d3-ch6-moe-routing button.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-ch6-moe-routing .moe-stat {
+    font-size: 12px;
+    color: var(--muted-color);
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-ch6-moe-routing .moe-stat strong {
+    color: var(--text-color);
+  }
+  .d3-ch6-moe-routing svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch6-moe-routing .tok-box {
+    cursor: pointer;
+  }
+  .d3-ch6-moe-routing .tok-box rect {
+    transition: stroke 0.15s, fill 0.15s;
+  }
+  .d3-ch6-moe-routing .legend-note {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--muted-color);
+    text-align: center;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const TOKENS = [
+      { text: 'def', balanced: [[0, 0.62], [3, 0.38]], collapsed: [[1, 0.78], [4, 0.22]] },
+      { text: 'solve', balanced: [[3, 0.55], [7, 0.45]], collapsed: [[1, 0.81], [4, 0.19]] },
+      { text: '(x):', balanced: [[0, 0.58], [6, 0.42]], collapsed: [[1, 0.74], [4, 0.26]] },
+      { text: 'return', balanced: [[2, 0.51], [5, 0.49]], collapsed: [[1, 0.83], [4, 0.17]] },
+      { text: '2 *', balanced: [[1, 0.64], [4, 0.36]], collapsed: [[1, 0.79], [4, 0.21]] },
+      { text: 'x +', balanced: [[1, 0.53], [7, 0.47]], collapsed: [[1, 0.85], [4, 0.15]] },
+      { text: '3.14', balanced: [[4, 0.60], [6, 0.40]], collapsed: [[1, 0.77], [4, 0.23]] },
+      { text: '# toán', balanced: [[2, 0.57], [5, 0.43]], collapsed: [[1, 0.80], [2, 0.20]] }
+    ];
+
+    const EXPERTS = [
+      { id: 0, label: 'E1 · Cú pháp' },
+      { id: 1, label: 'E2 · Đại số' },
+      { id: 2, label: 'E3 · Ngữ nghĩa' },
+      { id: 3, label: 'E4 · Hàm/Code' },
+      { id: 4, label: 'E5 · Số thực' },
+      { id: 5, label: 'E6 · Đa ngữ' },
+      { id: 6, label: 'E7 · Dấu câu' },
+      { id: 7, label: 'E8 · Logic' }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch6-moe-routing'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch6-moe-routing'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let balanced = true;
+        let sharedEnabled = true;
+        let activeTok = 1; // 'solve'
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'moe-toolbar';
+        toolbar.innerHTML = `
+          <div class="moe-btn-group">
+            <button type="button" data-mode="balanced" class="active">Có Load Balancing Loss (Cân bằng)</button>
+            <button type="button" data-mode="collapsed">Tắt Load Balancing (Sụp đổ định tuyến)</button>
+            <button type="button" data-shared="toggle" class="active">Chuyên gia dùng chung (Shared Expert): BẬT</button>
+          </div>
+          <div class="moe-stat" id="moe-aux-stat"></div>
+        `;
+        container.appendChild(toolbar);
+
+        const W = 740, H = 315;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        const note = document.createElement('div');
+        note.className = 'legend-note';
+        note.textContent = 'Di chuột hoặc nhấp vào từng token ở hàng trên để xem 2 chuyên gia được bộ định tuyến Top-2 kích hoạt cùng trọng số cổng G(x).';
+        container.appendChild(note);
+
+        const gLinks = svg.append('g');
+        const gSharedLinks = svg.append('g');
+        const gTokens = svg.append('g');
+        const gRouter = svg.append('g');
+        const gExperts = svg.append('g');
+
+        let palette = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2'];
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const c = window.ColorPalettes.getColors('categorical', 4);
+              if (c && c.length >= 4) palette = c;
+            }
+          } catch (_) {}
+        };
+
+        const tokX = (i) => 52 + i * 84;
+        const tokY = 34;
+        const routerY = 126;
+        const expX = (i) => 46 + i * 74;
+        const expY = 230;
+        const sharedX = 656;
+
+        const render = () => {
+          readPalette();
+          const primary = palette[0];
+          const accent = palette[1];
+          const warn = palette[2];
+          const sharedCol = palette[3];
+
+          // Compute load per expert across the 8 tokens
+          const counts = new Array(8).fill(0);
+          const probSum = new Array(8).fill(0);
+          TOKENS.forEach((t) => {
+            const pairs = balanced ? t.balanced : t.collapsed;
+            pairs.forEach(([eid, w]) => {
+              counts[eid] += 1;
+              probSum[eid] += w;
+            });
+          });
+          // f_i = fraction of routing decisions (out of 16 top-2 slots), P_i = mean probability
+          const f = counts.map((c) => c / (TOKENS.length * 2));
+          const P = probSum.map((p) => p / TOKENS.length);
+          const auxLoss = 8 * d3.sum(f.map((fi, i) => fi * P[i]));
+
+          const statEl = toolbar.querySelector('#moe-aux-stat');
+          statEl.innerHTML = `Hàm mất mát cân bằng tải: <strong>L_aux = ${auxLoss.toFixed(2)}</strong> (tối ưu = 1.00)`;
+
+          // Router bar
+          gRouter.selectAll('*').remove();
+          gRouter.append('rect')
+            .attr('x', 30).attr('y', routerY - 16)
+            .attr('width', W - 60).attr('height', 32)
+            .attr('rx', 7)
+            .attr('fill', 'color-mix(in oklab, var(--text-color) 6%, var(--page-bg))')
+            .attr('stroke', 'var(--border-color)');
+          gRouter.append('text')
+            .attr('x', W / 2).attr('y', routerY + 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-weight', '700')
+            .attr('font-size', '12px')
+            .attr('fill', 'var(--text-color)')
+            .text('Bộ định tuyến G(x) = Top-2(Softmax(x · W_g))   +   1 Chuyên gia dùng chung (Shared Expert)');
+
+          // Background faint links for all tokens
+          gLinks.selectAll('*').remove();
+          gSharedLinks.selectAll('*').remove();
+
+          TOKENS.forEach((t, ti) => {
+            const tx = tokX(ti);
+            const pairs = balanced ? t.balanced : t.collapsed;
+            pairs.forEach(([eid, w]) => {
+              const ex = expX(eid);
+              const isFocus = ti === activeTok;
+              const p = d3.path();
+              p.moveTo(tx, tokY + 18);
+              p.bezierCurveTo(tx, routerY, ex, routerY, ex, expY - 22);
+              gLinks.append('path')
+                .attr('d', p.toString())
+                .attr('fill', 'none')
+                .attr('stroke', isFocus ? accent : 'var(--muted-color)')
+                .attr('stroke-width', isFocus ? 2.2 + w * 3 : 1.0)
+                .attr('opacity', isFocus ? 0.95 : 0.16);
+
+              if (isFocus) {
+                gLinks.append('text')
+                  .attr('x', (tx + ex) / 2)
+                  .attr('y', routerY + 42)
+                  .attr('text-anchor', 'middle')
+                  .attr('font-size', '11px')
+                  .attr('font-weight', '700')
+                  .attr('fill', accent)
+                  .text(`g=${w.toFixed(2)}`);
+              }
+            });
+
+            if (sharedEnabled && ti === activeTok) {
+              const pS = d3.path();
+              pS.moveTo(tx, tokY + 18);
+              pS.bezierCurveTo(tx, routerY, sharedX, routerY, sharedX, expY - 22);
+              gSharedLinks.append('path')
+                .attr('d', pS.toString())
+                .attr('fill', 'none')
+                .attr('stroke', sharedCol)
+                .attr('stroke-dasharray', '4,3')
+                .attr('stroke-width', 2.2)
+                .attr('opacity', 0.9);
+            }
+          });
+
+          // Tokens
+          gTokens.selectAll('*').remove();
+          TOKENS.forEach((t, ti) => {
+            const tx = tokX(ti);
+            const isFocus = ti === activeTok;
+            const grp = gTokens.append('g')
+              .attr('class', 'tok-box')
+              .on('mouseenter', () => { activeTok = ti; render(); })
+              .on('click', () => { activeTok = ti; render(); });
+
+            grp.append('rect')
+              .attr('x', tx - 35).attr('y', tokY - 16)
+              .attr('width', 70).attr('height', 32)
+              .attr('rx', 6)
+              .attr('fill', isFocus ? `color-mix(in oklab, ${accent} 22%, var(--surface-bg))` : 'var(--page-bg)')
+              .attr('stroke', isFocus ? accent : 'var(--border-color)')
+              .attr('stroke-width', isFocus ? 2 : 1);
+
+            grp.append('text')
+              .attr('x', tx).attr('y', tokY + 4)
+              .attr('text-anchor', 'middle')
+              .attr('font-family', 'monospace')
+              .attr('font-size', '12px')
+              .attr('font-weight', isFocus ? '700' : '500')
+              .attr('fill', 'var(--text-color)')
+              .text(t.text);
+          });
+
+          // Experts
+          gExperts.selectAll('*').remove();
+          const activeSet = new Map(balanced ? TOKENS[activeTok].balanced : TOKENS[activeTok].collapsed);
+
+          EXPERTS.forEach((e, ei) => {
+            const ex = expX(ei);
+            const isHit = activeSet.has(ei);
+            const load = counts[ei];
+            const overloaded = !balanced && load >= 6;
+            const boxCol = overloaded ? warn : (isHit ? accent : primary);
+
+            const eg = gExperts.append('g');
+            eg.append('rect')
+              .attr('x', ex - 33).attr('y', expY - 22)
+              .attr('width', 66).attr('height', 54)
+              .attr('rx', 7)
+              .attr('fill', isHit ? `color-mix(in oklab, ${boxCol} 20%, var(--surface-bg))` : 'var(--page-bg)')
+              .attr('stroke', isHit || overloaded ? boxCol : 'var(--border-color)')
+              .attr('stroke-width', isHit || overloaded ? 2 : 1);
+
+            eg.append('text')
+              .attr('x', ex).attr('y', expY - 4)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', '11px')
+              .attr('font-weight', '700')
+              .attr('fill', 'var(--text-color)')
+              .text(e.label.split(' · ')[0]);
+
+            eg.append('text')
+              .attr('x', ex).attr('y', expY + 11)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', '10px')
+              .attr('fill', 'var(--muted-color)')
+              .text(e.label.split(' · ')[1]);
+
+            // Load bar at bottom
+            const barMaxH = 34;
+            const h = (load / TOKENS.length) * barMaxH;
+            eg.append('rect')
+              .attr('x', ex - 22).attr('y', expY + 42)
+              .attr('width', 44).attr('height', 8)
+              .attr('rx', 4)
+              .attr('fill', 'color-mix(in oklab, var(--text-color) 10%, transparent)');
+            eg.append('rect')
+              .attr('x', ex - 22).attr('y', expY + 42)
+              .attr('width', Math.min(44, (load / TOKENS.length) * 44)).attr('height', 8)
+              .attr('rx', 4)
+              .attr('fill', overloaded ? warn : primary);
+            eg.append('text')
+              .attr('x', ex).attr('y', expY + 64)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', '10.5px')
+              .attr('fill', overloaded ? warn : 'var(--muted-color)')
+              .attr('font-weight', overloaded ? '700' : '500')
+              .text(`Tải: ${load}/8`);
+          });
+
+          // Shared expert box
+          const sg = gExperts.append('g')
+            .attr('opacity', sharedEnabled ? 1 : 0.35);
+          sg.append('rect')
+            .attr('x', sharedX - 42).attr('y', expY - 22)
+            .attr('width', 84).attr('height', 54)
+            .attr('rx', 7)
+            .attr('fill', sharedEnabled ? `color-mix(in oklab, ${sharedCol} 22%, var(--surface-bg))` : 'var(--page-bg)')
+            .attr('stroke', sharedCol)
+            .attr('stroke-width', sharedEnabled ? 2 : 1);
+          sg.append('text')
+            .attr('x', sharedX).attr('y', expY - 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '11px')
+            .attr('font-weight', '700')
+            .attr('fill', 'var(--text-color)')
+            .text('Shared E_s');
+          sg.append('text')
+            .attr('x', sharedX).attr('y', expY + 11)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '10px')
+            .attr('fill', 'var(--muted-color)')
+            .text('Luôn kích hoạt');
+          sg.append('text')
+            .attr('x', sharedX).attr('y', expY + 64)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '10.5px')
+            .attr('fill', 'var(--muted-color)')
+            .text(sharedEnabled ? 'Tải: 8/8 (100%)' : 'Đã tắt');
+        };
+
+        const btnBalanced = toolbar.querySelector('[data-mode="balanced"]');
+        const btnCollapsed = toolbar.querySelector('[data-mode="collapsed"]');
+        const btnShared = toolbar.querySelector('[data-shared="toggle"]');
+
+        btnBalanced.addEventListener('click', () => {
+          balanced = true;
+          btnBalanced.classList.add('active');
+          btnCollapsed.classList.remove('active');
+          render();
+        });
+        btnCollapsed.addEventListener('click', () => {
+          balanced = false;
+          btnCollapsed.classList.add('active');
+          btnBalanced.classList.remove('active');
+          render();
+        });
+        btnShared.addEventListener('click', () => {
+          sharedEnabled = !sharedEnabled;
+          btnShared.classList.toggle('active', sharedEnabled);
+          btnShared.textContent = `Chuyên gia dùng chung (Shared Expert): ${sharedEnabled ? 'BẬT' : 'TẮT'}`;
+          render();
+        });
+
+        document.addEventListener('palettes:updated', render);
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

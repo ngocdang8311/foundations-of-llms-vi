@@ -5,19 +5,19 @@ export const cells = 3;
 export const seconds = 359;
 
 ```python
-# The digits 0 to 9 are their own tokens. The decoder reads a start
-# token, 10, before it writes the first digit.
-# [Copied from the starter of 9.1]
+# Các chữ số từ 0 đến 9 là các token của chính chúng. Bộ giải mã
+# đọc một token bắt đầu (10) trước khi viết chữ số đầu tiên.
+# [Sao chép từ phần khởi đầu bài 9.1]
 START = 10
 
-# A batch of n random strings of digits of the same length, and
-# their "translations": the same digits in reverse order
-# [Copied from the starter of 9.1]
+# Một lô gồm n chuỗi chữ số ngẫu nhiên có cùng độ dài và các
+# "bản dịch" của chúng: chính các chữ số đó theo thứ tự đảo ngược
+# [Sao chép từ phần khởi đầu bài 9.1]
 import torch
 
 def make_batch(n, length):
     sources = torch.randint(0, 10, (n, length))
-    targets = sources.flip(1)   # reverse the order of the columns
+    targets = sources.flip(1)   # đảo ngược thứ tự các cột
     return sources, targets
 
 torch.manual_seed(0)
@@ -28,11 +28,11 @@ for source, target in zip(sources.tolist(), targets.tolist()):
     print(f"{source_text}  ->  {target_text}")
 
 
-# (1) The model. An encoder GRU reads the source digits, and its
-# last state is the first state of a decoder GRU. The decoder reads
-# the start token and the digits written so far, and gives the
-# scores of the next digit at each position.
-# [Copied from the solution of 9.1, step (1)]
+# (1) Mô hình. Một mạng GRU mã hóa đọc các chữ số nguồn, và trạng
+# thái cuối cùng của nó làm trạng thái đầu tiên của mạng GRU giải mã.
+# Bộ giải mã đọc token bắt đầu cùng các chữ số đã viết cho đến hiện
+# tại, rồi đưa ra điểm số cho chữ số tiếp theo ở mỗi vị trí.
+# [Sao chép từ lời giải bài 9.1, bước (1)]
 from torch import nn
 import torch.nn.functional as F
 
@@ -41,23 +41,23 @@ class EncoderDecoder(nn.Module):
         super().__init__()
         self.source_embedding = nn.Embedding(10, D)
         self.encoder = nn.GRU(D, H, batch_first=True)
-        self.target_embedding = nn.Embedding(11, D)  # with START
+        self.target_embedding = nn.Embedding(11, D)  # có thêm START
         self.decoder = nn.GRU(D, H, batch_first=True)
         self.output = nn.Linear(H, 10)
 
     def forward(self, sources, decoder_inputs):
         e = self.source_embedding(sources)          # (batch, L, D)
-        _, h = self.encoder(e)       # last state: (1, batch, H)
+        _, h = self.encoder(e)       # trạng thái cuối: (1, batch, H)
         d = self.target_embedding(decoder_inputs)   # (batch, N, D)
         states, _ = self.decoder(d, h)              # (batch, N, H)
         return self.output(states)                  # (batch, N, 10)
 
 
-# (2) Train with teacher forcing: the decoder reads the true target
-# digits, shifted by one position, after the start token. Each
-# batch has its own length, between 5 and 30, so there is no
-# padding. A function, since exercise 9.2 trains another model.
-# [Copied from the solution of 9.1, step (2)]
+# (2) Huấn luyện với cưỡng bức giáo viên (teacher forcing): bộ giải mã
+# đọc các chữ số đích thực sự, dịch sang phải một vị trí sau token
+# bắt đầu. Mỗi lô có độ dài riêng từ 5 đến 30 nên không cần đệm.
+# Viết thành hàm vì bài 9.2 sẽ huấn luyện thêm một mô hình nữa.
+# [Sao chép từ lời giải bài 9.1, bước (2)]
 import random
 
 def train(model, steps=20_000, batch_size=64):
@@ -76,7 +76,7 @@ def train(model, steps=20_000, batch_size=64):
         nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step()
         total_loss += loss.item()
-        if (step + 1) % 5000 == 0:   # the average of 5,000 batches
+        if (step + 1) % 5000 == 0:   # trung bình của 5.000 lô
             print(f"batches {step - 4998} to {step + 1}: "
                   f"loss {total_loss / 5000:.3f}")
             total_loss = 0
@@ -87,11 +87,11 @@ model = EncoderDecoder(D=32, H=128)
 train(model)
 
 
-# (3) Greedy decoding: start from the start token, and write the
-# digit with the highest score, one at a time. The model reads
-# again all the digits written so far at each step: wasteful, but
-# simple, and fast enough for 30 digits.
-# [Copied from the solution of 9.1, step (3)]
+# (3) Giải mã tham lam: bắt đầu từ token START và viết ra chữ số có
+# điểm số cao nhất, từng chữ số một. Ở mỗi bước, mô hình đọc lại
+# toàn bộ các chữ số đã viết: hơi lãng phí nhưng đơn giản và đủ
+# nhanh cho 30 chữ số.
+# [Sao chép từ lời giải bài 9.1, bước (3)]
 def translate(model, sources):
     decoder_inputs = torch.full((len(sources), 1), START)
     with torch.no_grad():
@@ -100,12 +100,12 @@ def translate(model, sources):
             next_digits = scores[:, -1].argmax(dim=1)
             decoder_inputs = torch.cat(
                 [decoder_inputs, next_digits[:, None]], dim=1)
-    return decoder_inputs[:, 1:]   # drop the start token
+    return decoder_inputs[:, 1:]   # bỏ token bắt đầu
 
 
-# (4) For each length, the fraction of strings without a mistake,
-# and the fraction of digits right, on 1,000 new strings
-# [Copied from the solution of 9.1, step (4)]
+# (4) Với mỗi độ dài, tính tỷ lệ chuỗi hoàn toàn không sai và tỷ lệ
+# chữ số đúng trên 1.000 chuỗi mới
+# [Sao chép từ lời giải bài 9.1, bước (4)]
 lengths = list(range(5, 31))
 
 def accuracy_by_length(model):
@@ -113,7 +113,7 @@ def accuracy_by_length(model):
     for length in lengths:
         sources, targets = make_batch(1000, length)
         correct = translate(model, sources) == targets  # (1000, L)
-        whole = correct.all(dim=1)   # one value per string
+        whole = correct.all(dim=1)   # một giá trị cho mỗi chuỗi
         string_accuracy.append(whole.float().mean().item())
         digit_accuracy.append(correct.float().mean().item())
     return string_accuracy, digit_accuracy
@@ -131,39 +131,39 @@ for length in [10, 15, 20, 25, 30]:
 <section className="code-output"><pre>{"49303973  ->  37930394\n73166986  ->  68966137\n68436914  ->  41963486\nbatches 1 to 5000: loss 0.709\nbatches 5001 to 10000: loss 0.293\nbatches 10001 to 15000: loss 0.182\nbatches 15001 to 20000: loss 0.119\n\n10 digits: 100.0% of the strings, 100.0% of the digits\n15 digits: 91.7% of the strings, 98.7% of the digits\n20 digits: 51.8% of the strings, 91.3% of the digits\n25 digits: 5.6% of the strings, 73.3% of the digits\n30 digits: 0.0% of the strings, 53.8% of the digits"}</pre></section>
 
 ```python
-# (1) The model of exercise 9.1 with attention. Its output layer
-# reads the state of the decoder and a context: the average of all
-# the states of the encoder, weighted by a softmax of their dot
-# products with the state of the decoder. Only the output layer and
-# forward() change.
+# (1) Mô hình ở bài 9.1 có thêm cơ chế chú ý (attention). Tầng đầu ra
+# đọc trạng thái của bộ giải mã cùng một vector ngữ cảnh: trung bình
+# của tất cả trạng thái bộ mã hóa, có trọng số là softmax của tích vô
+# hướng giữa chúng với trạng thái bộ giải mã. Chỉ thay đổi tầng đầu
+# ra và hàm forward().
 class AttentionEncoderDecoder(EncoderDecoder):
     def __init__(self, D, H):
         super().__init__(D, H)
-        self.output = nn.Linear(2 * H, 10)   # state and context
+        self.output = nn.Linear(2 * H, 10)   # trạng thái và ngữ cảnh
 
     def forward(self, sources, decoder_inputs):
         e = self.source_embedding(sources)          # (batch, L, D)
         encoder_states, h = self.encoder(e)         # (batch, L, H)
         d = self.target_embedding(decoder_inputs)   # (batch, N, D)
         states, _ = self.decoder(d, h)              # (batch, N, H)
-        # Each decoder state against each encoder state: (batch, N, L)
+        # Mỗi trạng thái giải mã nhân với mỗi trạng thái mã hóa: (batch, N, L)
         scores = states @ encoder_states.transpose(1, 2)
-        weights = torch.softmax(scores, dim=2)  # each row sums to 1
+        weights = torch.softmax(scores, dim=2)  # mỗi hàng có tổng bằng 1
         contexts = weights @ encoder_states         # (batch, N, H)
-        self.weights = weights   # kept to draw them in step (4)
+        self.weights = weights   # lưu lại để vẽ ở bước (4)
         both = torch.cat([states, contexts], dim=2)   # (batch, N, 2H)
         return self.output(both)                    # (batch, N, 10)
 
 
-# (2) Train it exactly as the model without attention
+# (2) Huấn luyện giống hệt như mô hình không có cơ chế chú ý
 torch.manual_seed(0)
 random.seed(0)
 attention_model = AttentionEncoderDecoder(D=32, H=128)
 train(attention_model)
 
 
-# (3) Its accuracies, on the same chart as the model without
-# attention (dashed)
+# (3) Độ chính xác của mô hình, vẽ trên cùng biểu đồ với mô hình
+# không có chú ý (đường nét đứt)
 torch.manual_seed(1)
 accuracies = accuracy_by_length(attention_model)
 attention_string_accuracy, attention_digit_accuracy = accuracies
@@ -201,25 +201,25 @@ plt.show()
 </section>
 
 ```python
-# (4) The weights of the attention for a string of 20 digits. The
-# last call to the model in translate() reads the 19 digits written
-# before the last one, so it keeps the weights of all 20 positions:
-# one row per digit written, one column per digit read.
+# (4) Trọng số chú ý cho một chuỗi 20 chữ số. Lần gọi mô hình cuối
+# cùng trong translate() đọc 19 chữ số đã viết trước chữ số cuối nên
+# lưu giữ trọng số của cả 20 vị trí: mỗi hàng ứng với một chữ số
+# được viết, mỗi cột ứng với một chữ số được đọc.
 torch.manual_seed(2)
 sources, targets = make_batch(1, 20)
 output = translate(attention_model, sources)
 weights = attention_model.weights[0]    # (20, 20)
 
-# The k-th digit written copies the k-th digit from the end of the
-# source: in row k, the digit to copy is in column 19 - k
+# Chữ số thứ k được viết sẽ sao chép chữ số thứ k tính từ cuối chuỗi
+# nguồn: ở hàng k, chữ số cần sao chép nằm tại cột 19 - k
 to_copy = torch.arange(19, -1, -1)
-peaks = weights.argmax(dim=1)   # the column of the largest weight
+peaks = weights.argmax(dim=1)   # cột có trọng số lớn nhất
 print(f"rows that peak on the digit to copy: "
       f"{(peaks == to_copy).sum().item()} of 20")
 print(f"rows that peak on the digit just after it: "
       f"{(peaks == to_copy + 1).sum().item()} of 20")
 
-# Draw the matrix, with a cross on the digit to copy in each row
+# Vẽ ma trận, đánh dấu nhân (x) vào chữ số cần sao chép ở mỗi hàng
 plt.figure(figsize=(4.5, 4.5))
 plt.imshow(weights, cmap="Blues")
 plt.scatter(to_copy, range(20), marker="x", color="C1", s=15)

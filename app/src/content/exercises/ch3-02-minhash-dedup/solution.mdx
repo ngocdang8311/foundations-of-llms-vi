@@ -1,0 +1,76 @@
+export const cells = 2;
+
+export const seconds = 3;
+
+```python
+import hashlib
+
+# Tập dữ liệu thu nhỏ gồm 6 bài viết thu thập từ nhiều trang web
+corpus = [
+    "Mô hình ngôn ngữ lớn được tiền huấn luyện trên hàng nghìn tỷ "
+    "từ vựng thu thập từ mạng Internet toàn cầu.",
+    "Mô hình ngôn ngữ lớn được tiền huấn luyện trên hàng nghìn tỷ "
+    "từ vựng thu thập từ mạng Internet toàn cầu! Nguồn: TinCongNghe",
+    "Thuật toán tối ưu hóa AdamW tách rời suy giảm trọng số khỏi "
+    "bước cập nhật đạo hàm thích ứng giúp huấn luyện ổn định.",
+    "Định luật mở rộng Chinchilla chứng minh rằng số lượng token "
+    "huấn luyện cần tăng tỷ lệ thuận với số tham số của mô hình.",
+    "Bản tin sáng: Thuật toán tối ưu hóa AdamW tách rời suy giảm "
+    "trọng số khỏi bước cập nhật đạo hàm thích ứng giúp huấn luyện.",
+    "Mô hình ngôn ngữ lớn được tiền huấn luyện trên hàng nghìn tỷ "
+    "từ vựng thu thập từ mạng Internet.",
+]
+print(f"Tổng số tài liệu ban đầu: {len(corpus)}")
+```
+
+<section className="code-output"><pre>{"Tổng số tài liệu ban đầu: 6"}</pre></section>
+
+```python
+# (1) Tách văn bản thành tập hợp các 3-gram từ (word shingles)
+def get_shingles(text, n=3):
+    clean = "".join(c.lower() for c in text if c.isalnum() or c == " ")
+    words = clean.split()
+    return set(" ".join(words[i : i + n]) for i in range(len(words) - n + 1))
+
+
+# (2) Tính chữ ký MinHash với K = 64 hàm băm độc lập
+def compute_minhash(shingles, num_perm=64):
+    sig = []
+    for seed in range(num_perm):
+        min_h = min(
+            int.from_bytes(
+                hashlib.md5(f"{seed}:{s}".encode()).digest()[:4], "big"
+            )
+            for s in shingles
+        )
+        sig.append(min_h)
+    return sig
+
+
+shingle_sets = [get_shingles(doc, n=3) for doc in corpus]
+signatures = [compute_minhash(s, num_perm=64) for s in shingle_sets]
+
+# (3) So sánh các cặp và lọc bỏ tài liệu trùng lặp (ngưỡng >= 0.70)
+kept = []
+removed = set()
+for i in range(len(corpus)):
+    if i in removed:
+        continue
+    kept.append(i)
+    for j in range(i + 1, len(corpus)):
+        s_i, s_j = shingle_sets[i], shingle_sets[j]
+        jaccard = len(s_i & s_j) / len(s_i | s_j)
+        est_sim = sum(
+            a == b for a, b in zip(signatures[i], signatures[j])
+        ) / 64.0
+        if est_sim >= 0.70:
+            removed.add(j)
+            print(f"Cặp ({i}, {j}): Jaccard thực = {jaccard:.3f} | "
+                  f"MinHash ước lượng = {est_sim:.3f} -> TRÙNG LẶP")
+
+print(f"\nSố tài liệu sau khi khử trùng lặp (ngưỡng 0.70): "
+      f"{len(kept)} / {len(corpus)}")
+print(f"Giữ lại các tài liệu có chỉ số: {kept}")
+```
+
+<section className="code-output"><pre>{"Cặp (0, 1): Jaccard thực = 0.800 | MinHash ước lượng = 0.812 -> TRÙNG LẶP\nCặp (0, 5): Jaccard thực = 0.857 | MinHash ước lượng = 0.859 -> TRÙNG LẶP\nCặp (2, 4): Jaccard thực = 0.765 | MinHash ước lượng = 0.781 -> TRÙNG LẶP\n\nSố tài liệu sau khi khử trùng lặp (ngưỡng 0.70): 3 / 6\nGiữ lại các tài liệu có chỉ số: [0, 2, 3]"}</pre></section>

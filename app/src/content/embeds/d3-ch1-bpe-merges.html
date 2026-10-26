@@ -1,0 +1,307 @@
+<div class="d3-ch1-bpe-merges"></div>
+<style>
+  .d3-ch1-bpe-merges { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-ch1-bpe-merges .bpe-controls {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 10px 14px; border-radius: 8px; background: var(--surface-bg);
+    border: 1px solid var(--border-color); margin-bottom: 12px;
+  }
+  .d3-ch1-bpe-merges button.bpe-btn {
+    border: 1px solid var(--border-color); background: var(--page-bg); color: var(--text-color);
+    font-size: 12px; padding: 5px 11px; border-radius: 6px; cursor: pointer; font-weight: 600;
+    font-family: inherit;
+  }
+  .d3-ch1-bpe-merges button.bpe-btn.is-primary {
+    background: var(--primary-color); color: #fff; border-color: var(--primary-color);
+  }
+  .d3-ch1-bpe-merges .bpe-slider-wrap {
+    display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;
+  }
+  .d3-ch1-bpe-merges input[type="range"] { flex: 1; accent-color: var(--primary-color); cursor: pointer; }
+  .d3-ch1-bpe-merges .bpe-step-badge {
+    font-weight: 700; font-variant-numeric: tabular-nums; min-width: 78px;
+  }
+  .d3-ch1-bpe-merges .bpe-grid {
+    display: grid; grid-template-columns: 1.25fr 1fr; gap: 14px;
+  }
+  .d3-ch1-bpe-merges.is-narrow .bpe-grid { grid-template-columns: 1fr; }
+  .d3-ch1-bpe-merges .bpe-panel {
+    padding: 12px 14px; border-radius: 8px; background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+  }
+  .d3-ch1-bpe-merges .bpe-panel-title {
+    font-weight: 700; font-size: 12.5px; margin-bottom: 10px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .d3-ch1-bpe-merges .bpe-word-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 0; border-top: 1px solid var(--border-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .d3-ch1-bpe-merges .bpe-word-row:first-of-type { border-top: none; }
+  .d3-ch1-bpe-merges .bpe-freq {
+    font-size: 11.5px; color: var(--muted-color); min-width: 68px; font-weight: 600;
+  }
+  .d3-ch1-bpe-merges .bpe-syms { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; }
+  .d3-ch1-bpe-merges .bpe-sym {
+    padding: 3px 7px; border-radius: 5px; border: 1px solid var(--border-color);
+    background: var(--page-bg); font-size: 13px; font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  .d3-ch1-bpe-merges .bpe-sym.is-merged {
+    font-weight: 700;
+  }
+  .d3-ch1-bpe-merges .bpe-sym.is-next-pair {
+    outline: 2px dashed var(--primary-color);
+  }
+  .d3-ch1-bpe-merges .bpe-rule-banner {
+    margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+    font-size: 12.5px; background: color-mix(in oklab, var(--primary-color) 11%, var(--page-bg));
+  }
+  .d3-ch1-bpe-merges .bpe-pair-list { display: flex; flex-direction: column; gap: 6px; }
+  .d3-ch1-bpe-merges .bpe-pair-item {
+    display: grid; grid-template-columns: 95px 1fr 42px; align-items: center; gap: 8px;
+    font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .d3-ch1-bpe-merges .bpe-bar-track {
+    height: 10px; border-radius: 5px; background: var(--page-bg); overflow: hidden;
+  }
+  .d3-ch1-bpe-merges .bpe-bar-fill { height: 100%; border-radius: 5px; transition: width 0.2s ease; }
+  .d3-ch1-bpe-merges .bpe-vocab-chips {
+    margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .d3-ch1-bpe-merges .bpe-chip {
+    font-size: 11.5px; padding: 2px 6px; border-radius: 4px;
+    background: var(--page-bg); border: 1px solid var(--border-color);
+  }
+  .d3-ch1-bpe-merges .bpe-chip.is-new {
+    font-weight: 700; border-color: var(--primary-color);
+  }
+</style>
+<script>
+  (() => {
+    const INIT_WORDS = [
+      { word: 'low</w>', count: 5, syms: ['l', 'o', 'w', '</w>'] },
+      { word: 'lower</w>', count: 2, syms: ['l', 'o', 'w', 'e', 'r', '</w>'] },
+      { word: 'newest</w>', count: 6, syms: ['n', 'e', 'w', 'e', 's', 't', '</w>'] },
+      { word: 'widest</w>', count: 3, syms: ['w', 'i', 'd', 'e', 's', 't', '</w>'] }
+    ];
+    const BASE_VOCAB = ['l', 'o', 'w', 'e', 'r', 'n', 's', 't', 'i', 'd', '</w>'];
+    const MAX_STEPS = 9;
+
+    function buildHistory() {
+      let words = INIT_WORDS.map((w) => ({ ...w, syms: w.syms.slice() }));
+      let vocab = BASE_VOCAB.slice();
+      const steps = [];
+
+      const countPairs = (ws) => {
+        const map = new Map();
+        ws.forEach((w) => {
+          for (let i = 0; i < w.syms.length - 1; i++) {
+            const key = `${w.syms[i]}|${w.syms[i + 1]}`;
+            map.set(key, (map.get(key) || 0) + w.count);
+          }
+        });
+        return Array.from(map.entries())
+          .map(([k, c]) => {
+            const [a, b] = k.split('|');
+            return { a, b, token: a + b, count: c };
+          })
+          .sort((x, y) => y.count - x.count);
+      };
+
+      for (let s = 0; s <= MAX_STEPS; s++) {
+        const pairs = countPairs(words);
+        const topPair = pairs[0] || null;
+        const totalTokens = words.reduce((acc, w) => acc + w.syms.length * w.count, 0);
+        steps.push({
+          step: s,
+          words: words.map((w) => ({ ...w, syms: w.syms.slice() })),
+          vocab: vocab.slice(),
+          pairs: pairs.slice(0, 6),
+          topPair,
+          mergedRule: s === 0 ? null : steps[s - 1].topPair,
+          totalTokens
+        });
+
+        if (topPair) {
+          const { a, b, token } = topPair;
+          words = words.map((w) => {
+            const next = [];
+            let i = 0;
+            while (i < w.syms.length) {
+              if (i < w.syms.length - 1 && w.syms[i] === a && w.syms[i + 1] === b) {
+                next.push(token);
+                i += 2;
+              } else {
+                next.push(w.syms[i]);
+                i += 1;
+              }
+            }
+            return { ...w, syms: next };
+          });
+          if (!vocab.includes(token)) vocab.push(token);
+        }
+      }
+      return steps;
+    }
+
+    const HISTORY = buildHistory();
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch1-bpe-merges'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch1-bpe-merges'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let curStep = 0;
+      let timer = null;
+
+      container.innerHTML = `
+        <div class="bpe-controls">
+          <button type="button" class="bpe-btn is-primary bpe-play">▶ Chạy tự động</button>
+          <button type="button" class="bpe-btn bpe-prev">← Lùi</button>
+          <button type="button" class="bpe-btn bpe-next">Tiếp →</button>
+          <div class="bpe-slider-wrap">
+            <input type="range" min="0" max="${MAX_STEPS}" value="0" class="bpe-slider" />
+            <span class="bpe-step-badge">Bước 0/${MAX_STEPS}</span>
+          </div>
+        </div>
+        <div class="bpe-grid">
+          <div class="bpe-panel bpe-left"></div>
+          <div class="bpe-panel bpe-right"></div>
+        </div>
+      `;
+
+      const playBtn = container.querySelector('.bpe-play');
+      const prevBtn = container.querySelector('.bpe-prev');
+      const nextBtn = container.querySelector('.bpe-next');
+      const slider = container.querySelector('.bpe-slider');
+      const badge = container.querySelector('.bpe-step-badge');
+      const leftPanel = container.querySelector('.bpe-left');
+      const rightPanel = container.querySelector('.bpe-right');
+
+      const stopTimer = () => {
+        if (timer) { clearInterval(timer); timer = null; }
+        playBtn.textContent = '▶ Chạy tự động';
+      };
+
+      playBtn.addEventListener('click', () => {
+        if (timer) { stopTimer(); return; }
+        if (curStep >= MAX_STEPS) curStep = 0;
+        playBtn.textContent = '⏸ Tạm dừng';
+        render();
+        timer = setInterval(() => {
+          if (curStep < MAX_STEPS) {
+            curStep++;
+            render();
+          } else {
+            stopTimer();
+          }
+        }, 1100);
+      });
+
+      prevBtn.addEventListener('click', () => { stopTimer(); curStep = Math.max(0, curStep - 1); render(); });
+      nextBtn.addEventListener('click', () => { stopTimer(); curStep = Math.min(MAX_STEPS, curStep + 1); render(); });
+      slider.addEventListener('input', () => { stopTimer(); curStep = Number(slider.value); render(); });
+
+      const getColors = () => {
+        try {
+          const c = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 4);
+          if (c && c.length >= 2) return c;
+        } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#59a14f'];
+      };
+
+      function render() {
+        container.classList.toggle('is-narrow', (container.clientWidth || 680) < 560);
+        slider.value = curStep;
+        badge.textContent = `Bước ${curStep}/${MAX_STEPS}`;
+        const state = HISTORY[curStep];
+        const [cPrimary, cHighlight, cMerged] = getColors();
+
+        const rowsHtml = state.words.map((w) => {
+          const symsHtml = w.syms.map((sym, i) => {
+            const isJustMerged = state.mergedRule && sym === state.mergedRule.token;
+            const isNextPair = state.topPair && (
+              (i < w.syms.length - 1 && sym === state.topPair.a && w.syms[i + 1] === state.topPair.b) ||
+              (i > 0 && w.syms[i - 1] === state.topPair.a && sym === state.topPair.b)
+            );
+            let style = '';
+            if (isJustMerged) {
+              style = `background:color-mix(in oklab, ${cMerged} 28%, var(--page-bg));border-color:${cMerged};`;
+            }
+            const cls = ['bpe-sym', isJustMerged ? 'is-merged' : '', isNextPair ? 'is-next-pair' : ''].filter(Boolean).join(' ');
+            return `<span class="${cls}" style="${style}">${sym.replace('</w>', '·')}</span>`;
+          }).join('');
+          return `
+            <div class="bpe-word-row">
+              <span class="bpe-freq">${w.count}× ${w.word.replace('</w>', '')}</span>
+              <div class="bpe-syms">${symsHtml}</div>
+            </div>
+          `;
+        }).join('');
+
+        const ruleMsg = state.mergedRule
+          ? `Vừa gộp cặp <strong>(${state.mergedRule.a}, ${state.mergedRule.b}) → ${state.mergedRule.token}</strong> (${state.mergedRule.count} lần).`
+          : 'Trạng thái khởi tạo: mỗi từ được tách thành các ký tự đơn lẻ kèm dấu kết thúc từ <code>·</code> (<code>&lt;/w&gt;</code>).';
+        const nextMsg = state.topPair
+          ? ` Cặp xuất hiện nhiều nhất tiếp theo: <strong>(${state.topPair.a}, ${state.topPair.b})</strong> (${state.topPair.count} lần).`
+          : '';
+
+        leftPanel.innerHTML = `
+          <div class="bpe-panel-title">
+            <span>Kho từ vựng huấn luyện (Sennrich et al., 2016)</span>
+            <span style="color:var(--muted-color);font-weight:500;">Tổng: ${state.totalTokens} tokens</span>
+          </div>
+          ${rowsHtml}
+          <div class="bpe-rule-banner">${ruleMsg}${nextMsg}</div>
+        `;
+
+        const maxCount = state.pairs.length ? state.pairs[0].count : 1;
+        const pairsHtml = state.pairs.map((p, idx) => {
+          const pct = Math.round((p.count / maxCount) * 100);
+          const barColor = idx === 0 ? cHighlight : cPrimary;
+          return `
+            <div class="bpe-pair-item">
+              <span style="${idx === 0 ? 'font-weight:700;' : ''}">(${p.a.replace('</w>', '·')}, ${p.b.replace('</w>', '·')})</span>
+              <div class="bpe-bar-track"><div class="bpe-bar-fill" style="width:${pct}%;background:${barColor};"></div></div>
+              <span style="text-align:right;font-weight:600;">${p.count}</span>
+            </div>
+          `;
+        }).join('');
+
+        const chipsHtml = state.vocab.map((v, idx) => {
+          const isNew = idx >= BASE_VOCAB.length;
+          return `<span class="bpe-chip${isNew ? ' is-new' : ''}">${v.replace('</w>', '·')}</span>`;
+        }).join('');
+
+        rightPanel.innerHTML = `
+          <div class="bpe-panel-title">
+            <span>Top cặp kề nhau ở bước hiện tại</span>
+            <span style="color:var(--muted-color);font-weight:500;">Tần suất</span>
+          </div>
+          <div class="bpe-pair-list">${pairsHtml}</div>
+          <div class="bpe-panel-title" style="margin-top:14px;margin-bottom:6px;">
+            <span>Bộ từ vựng |V| = ${state.vocab.length} (${state.vocab.length - BASE_VOCAB.length} token gộp)</span>
+          </div>
+          <div class="bpe-vocab-chips">${chipsHtml}</div>
+        `;
+      }
+
+      render();
+      document.addEventListener('palettes:updated', render);
+      if (window.ResizeObserver) new ResizeObserver(() => render()).observe(container);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    else bootstrap();
+  })();
+</script>

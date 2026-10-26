@@ -11,78 +11,78 @@ import Bonus from '../../components/post/Bonus.astro';
 import Optional from '../../components/post/Optional.astro';
 
 
-## 4. Dense word embeddings
+## 4. Biểu diễn nhúng từ đặc (Dense word embeddings)
 
-At the end of section 3, we saw **the first limit of the bag of words: each word has its own dimension**, so for the model, "superb" is as different from "excellent" as it is from "boring". Let's fix this.
+Ở cuối mục 3, chúng ta đã thấy **giới hạn đầu tiên của mô hình túi từ: mỗi từ chiếm một chiều không gian riêng biệt**, nên đối với mô hình, từ "superb" (siêu phàm) khác biệt với từ "excellent" (xuất sắc) chẳng kém gì so với từ "boring" (nhàm chán). Hãy cùng khắc phục nhược điểm này.
 
-### 4.1 The embedding matrix
+### 4.1 Ma trận nhúng (The embedding matrix)
 
-The idea is to represent each word by a *dense* vector of real numbers, in a space whose dimension D is much smaller than the size V of the vocabulary: a few hundred dimensions (for instance $D = 300$) for tens of thousands of words. This vector is called the *embedding* of the word.
+Ý tưởng cốt lõi ở đây là biểu diễn mỗi từ bằng một vector *đặc (dense vector)* gồm các số thực, nằm trong một không gian có số chiều $D$ nhỏ hơn rất nhiều so với kích thước $V$ của bộ từ vựng: chỉ vài trăm chiều (chẳng hạn $D = 300$) cho hàng chục nghìn từ. Vector này được gọi là *biểu diễn nhúng (embedding)* của từ đó.
 
-<PaperNote id="hinton1986" look="Figure 6: the weights from the 24 people to the 6 units. Unit 1 separates the English from the Italians, unit 2 encodes the generation, and unit 6 the branch of the family.">
+<PaperNote id="hinton1986" look="Hình 6: các trọng số kết nối từ 24 người tới 6 nút (units). Nút 1 phân tách người Anh với người Ý, nút 2 mã hóa thế hệ trong gia đình, và nút 6 mã hóa nhánh phả hệ.">
 
-Hinton calls such vectors *distributed representations*: a concept is spread over many units, instead of having its own unit, as in a one-hot vector. Here he trains a small neural network on two family trees with the same shape, one English and one Italian, with 24 people in total and 12 relationships (father, aunt, nephew...). Given a person and a relationship, the network must output the other person. Each person enters as a one-hot vector, and goes through a layer of only 6 units: the ancestor of our embeddings. Nobody told the network what to put there, yet one unit learned the nationality, one the generation, and one the branch of the family. Trained on 100 of the 104 facts, it got the 4 others right in one run, and 3 of them in another.
+Hinton gọi những vector như vậy là *biểu diễn phân tán (distributed representations)*: một khái niệm được trải đều trên nhiều nút mạng (*units*) thay vì mỗi khái niệm chiếm riêng một nút độc lập như trong vector one-hot. Trong công trình này, ông huấn luyện một mạng nơ-ron nhỏ trên hai cây phả hệ có cùng cấu trúc — một gia đình người Anh và một gia đình người Ý — với tổng cộng 24 người và 12 mối quan hệ (cha, cô/dì, cháu trai...). Khi nhận đầu vào là một người và một mối quan hệ, mạng phải dự đoán ra người tương ứng. Mỗi người đi vào mạng dưới dạng một vector one-hot, rồi đi qua một tầng ẩn chỉ có vỏn vẹn 6 nút: đây chính là tổ tiên của các biểu diễn nhúng ngày nay. Chẳng ai chỉ dạy cho mạng biết phải lưu trữ thông tin gì ở tầng đó, vậy mà một nút đã tự học cách phân biệt quốc tịch, một nút mã hóa thế hệ, và một nút khác mã hóa nhánh gia đình. Được huấn luyện trên 100 trong tổng số 104 sự kiện quan hệ, mạng đã suy luận đúng cả 4 sự kiện còn lại trong một lần chạy, và đúng 3 trên 4 ở một lần chạy khác.
 
 </PaperNote>
 
-The embeddings of all the words are stored in an *embedding matrix* $W$, with one column per word of the vocabulary:
+Biểu diễn nhúng của toàn bộ các từ trong từ vựng được lưu trữ chung trong một *ma trận nhúng (embedding matrix)* $W$, với mỗi cột tương ứng với một từ:
 
 $$
 W \in {\cal M}_{D \times V}(\mathbb{R})
 $$
 
-Looking up the embedding of a word is the same as multiplying $W$ by the one-hot vector of this word: the product selects the column of the word.
+Việc tra cứu vector nhúng của một từ về mặt toán học hoàn toàn tương đương với việc nhân ma trận $W$ với vector one-hot của từ đó: phép nhân ma trận này sẽ trích xuất ra đúng cột tương ứng với từ đang xét.
 
 <HtmlEmbed
   src="d3-embedding-matrix.html"
-  title="The embedding matrix"
-  desc="Pick a word: its one-hot vector has a single 1, at the position of the word, so multiplying W by this vector selects the column of the word, which is its embedding. The values are made up, but chosen so that similar words have similar columns, as we hope a trained matrix does. In practice, D is a few hundred and V tens of thousands."
+  title="Ma trận nhúng (The embedding matrix)"
+  desc="Hãy chọn một từ: vector one-hot của nó chỉ có duy nhất một số 1 tại vị trí ứng với từ đó, nên phép nhân ma trận W với vector này sẽ trích xuất ra đúng cột của từ đó — chính là vector nhúng (embedding) của nó. Các con số trong hình là giả lập, nhưng được thiết kế sao cho những từ tương đồng có các cột gần giống nhau, đúng như điều ta kỳ vọng ở một ma trận nhúng sau khi huấn luyện. Trong thực tế, D thường vào khoảng vài trăm và V lên tới hàng chục nghìn."
 />
 
-The benefit of dense embeddings over the sparse vectors of the bag of words is that we can compare them, and measure how similar two words are. The usual measure is the **cosine similarity**, the cosine of the angle between the two vectors, which does not depend on their lengths:
+Lợi thế to lớn của các biểu diễn nhúng đặc so với các vector thưa của túi từ là chúng ta có thể so sánh trực tiếp chúng với nhau và đo lường mức độ tương đồng giữa hai từ bất kỳ. Thước đo tiêu chuẩn thường dùng là **độ tương đồng cosine (cosine similarity)** — tức cosine của góc hợp bởi hai vector, một đại lượng chỉ phụ thuộc vào hướng chứ không phụ thuộc vào độ dài của chúng:
 
 $$
 \cos(u, v) = \frac{u \cdot v}{\|u\| \, \|v\|}
 $$
 
-It is 1 when the two vectors point in the same direction, 0 when they are orthogonal, and −1 when they point in opposite directions. Note that the one-hot vectors of two different words are always orthogonal: *in the bag of words, the similarity between two different words is always 0*.
+Độ tương đồng cosine bằng $1$ khi hai vector cùng hướng, bằng $0$ khi chúng trực giao (vuông góc), và bằng $-1$ khi chúng ngược hướng nhau hoàn toàn. Lưu ý rằng các vector one-hot của hai từ khác nhau thì luôn luôn vuông góc: *trong không gian túi từ, độ tương đồng giữa hai từ khác nhau bất kỳ luôn bằng 0*.
 
-Let's assume for now that we have a good embedding matrix (we will see how to get one, and as you might guess, we will learn it). We can hope that similar words get similar vectors: a high similarity between "excellent" and "superb", but a low one between "ball" and "crocodile". This is what makes a good embedding: **the similarity between the vectors reflects the similarity between the meanings of the words**. A model that has learned something about "excellent" then knows something about "superb" too.
+Tạm thời hãy giả sử rằng chúng ta đã có sẵn một ma trận nhúng tốt (chúng ta sẽ sớm thấy cách tạo ra nó, và như bạn có thể đoán được, ta sẽ để máy tự học ma trận này). Khi đó, ta có quyền kỳ vọng rằng những từ có nghĩa gần nhau sẽ nhận được các vector gần nhau: độ tương đồng rất cao giữa "excellent" (xuất sắc) và "superb" (siêu phàm), nhưng lại rất thấp giữa "ball" (quả bóng) và "crocodile" (cá sấu). Đó chính là phẩm chất làm nên một biểu diễn nhúng tốt: **độ tương đồng hình học giữa các vector phản ánh độ tương đồng ngữ nghĩa giữa các từ**. Nhờ vậy, một mô hình đã học được điều gì đó về từ "excellent" thì nghiễm nhiên cũng hiểu được phần nào về từ "superb".
 
-<Optional title="Latent Semantic Analysis" subtitle="another way to get dense vectors">
+<Optional title="Phân tích Ngữ nghĩa Tiềm ẩn (Latent Semantic Analysis)" subtitle="một con đường khác để thu được các vector đặc">
 
-There are other ways to get dense vectors than learning them with a neural network. For example, take the matrix of the counts of section 3, with one row per word and one column per document, and compress it with a truncated singular value decomposition (SVD): each word gets a dense vector, and the words that appear in the same documents get similar vectors. This is *Latent Semantic Analysis*.
+Có nhiều phương pháp khác để tạo ra các vector từ đặc mà không cần dùng đến mạng nơ-ron. Chẳng hạn, hãy lấy ma trận đếm ở mục 3 (với mỗi hàng là một từ và mỗi cột là một tài liệu), sau đó nén nó lại bằng phép phân rã giá trị kỳ dị rút gọn (*truncated Singular Value Decomposition — SVD*): mỗi từ sẽ nhận được một vector đặc, và những từ thường xuất hiện trong cùng các tài liệu sẽ có các vector gần giống nhau. Phương pháp này được gọi là *Phân tích Ngữ nghĩa Tiềm ẩn (Latent Semantic Analysis — LSA)*.
 
 </Optional>
 
-<PaperNote id="deerwester1990" look="Figure 1: nine titles of technical memos and twelve words, in two dimensions. The query “human computer interaction” ends up close to two titles that share no word with it.">
+<PaperNote id="deerwester1990" look="Hình 1: chín tiêu đề báo cáo kỹ thuật và mười hai từ vựng được biểu diễn trong không gian hai chiều. Câu truy vấn “human computer interaction” (tương tác người-máy) nằm rất gần hai tiêu đề tài liệu dù không có chung bất kỳ từ nào với chúng.">
 
-The problem of Deerwester and his colleagues is the one of Salton and Sparck Jones (section 3): find the documents that match a query. But as they put it, "there are usually many ways to express a given concept, so the literal terms in a user's query may not match those of a relevant document". Their solution: decompose the matrix of the word counts of the documents with an SVD, and keep about 100 dimensions. Words and documents become dense vectors, and a query can find a document without sharing a single word with it. The gain was clear on a collection of medical abstracts (13% better precision than plain word matching), but there was none on another collection.
+Bài toán mà Deerwester và các cộng sự giải quyết chính là bài toán truy xuất thông tin của Salton và Sparck Jones (mục 3): tìm các tài liệu khớp với câu truy vấn. Nhưng như nhóm tác giả chỉ ra, "thường có rất nhiều cách diễn đạt khác nhau cho cùng một khái niệm, nên các từ ngữ theo nghĩa đen trong câu truy vấn của người dùng có thể không khớp với các từ xuất hiện trong một tài liệu thực sự liên quan". Giải pháp của họ là: phân rã ma trận đếm từ-tài liệu bằng phép phân rã SVD và giữ lại khoảng 100 chiều quan trọng nhất. Khi đó, cả từ vựng lẫn tài liệu đều trở thành các vector đặc trong cùng một không gian, giúp câu truy vấn tìm thấy tài liệu liên quan ngay cả khi hai bên không chia sẻ một từ chung nào. Cải thiện đạt được rất rõ rệt trên bộ dữ liệu tóm tắt y khoa (độ chuẩn xác — *precision* — tăng 13% so với việc so khớp từ thuần túy), dù trên một bộ dữ liệu khác thì không ghi nhận mức tăng tương tự.
 
 </PaperNote>
 
-Now, **simply using word embeddings does not solve our problem of variable input size.** We replace the L words of a text with L vectors of size D: this is still not a representation of fixed size! So we need a way to *aggregate* these L vectors into a single vector, whose size does not depend on L. Here are three simple options:
-- **the average** of the L vectors, of size D;
-- **a weighted average**, to give more importance to some words, also of size D;
-- **the concatenation** of the vectors of the last n − 1 words only, of size (n − 1) × D, as the n-gram models of section 2 did with the words themselves.
+Tuy nhiên, **việc chỉ thay từng từ bằng vector nhúng vẫn chưa giải quyết được bài toán độ dài đầu vào biến thiên.** Khi thay thế $L$ từ của một văn bản bằng $L$ vector có kích thước $D$, thứ ta thu được vẫn chưa phải là một biểu diễn có kích thước cố định! Do đó, chúng ta cần một phép *tổng hợp (aggregation / pooling)* để gộp $L$ vector này lại thành một vector duy nhất có kích thước không phụ thuộc vào $L$. Dưới đây là ba lựa chọn đơn giản:
+- **lấy trung bình cộng (average)** của $L$ vector, thu được một vector kích thước $D$;
+- **lấy trung bình có trọng số (weighted average)** để ưu tiên một số từ quan trọng hơn, cũng cho ra kích thước $D$;
+- **ghép nối (concatenation)** các vector của $n - 1$ từ cuối cùng lại với nhau, thu được một vector có kích thước $(n - 1) \times D$, tương tự như cách mô hình n-gram ở mục 2 chỉ giữ lại $n - 1$ từ cuối.
 
 <HtmlEmbed
   src="d3-embedding-aggregation.html"
-  title="From L embeddings to one vector: 3 methods"
-  desc="An encoder in two steps: each word becomes its embedding, then an aggregation turns the L embeddings into one vector of fixed size. Switch between the three options. (Values are made up for illustration)"
+  title="Từ L vector nhúng thành một vector duy nhất: 3 phương pháp"
+  desc="Một bộ mã hóa gồm hai bước: mỗi từ được ánh xạ thành vector nhúng của nó, sau đó bước tổng hợp sẽ gộp L vector nhúng này thành một vector duy nhất có kích thước cố định. Hãy chuyển đổi qua lại giữa ba tùy chọn để quan sát. (Các giá trị số được giả lập để minh họa)"
 />
 
-The concatenation keeps the order of the last words, but forgets everything before them. This suits language modeling, where the next word depends mostly on the last ones, so this is where we start.
+Phép ghép nối giữ nguyên được trật tự của những từ cuối cùng, nhưng lại bỏ quên toàn bộ phần văn bản đứng trước đó. Đặc điểm này rất phù hợp với bài toán mô hình hóa ngôn ngữ — nơi từ tiếp theo phụ thuộc chủ yếu vào vài từ ngay trước nó — vì vậy chúng ta sẽ bắt đầu từ phương pháp này.
 
-### 4.2 Concatenation → Bengio's neural language model
+### 4.2 Ghép nối (Concatenation) → Mô hình ngôn ngữ nơ-ron của Bengio
 
-Let's go back to language modeling for a moment. With the n-gram models of section 2, we assumed that the probability of the next word depends only on the n − 1 previous words. We can keep this assumption, but replace the table of counts with **a neural network, whose input is the concatenation of the embeddings** of the n − 1 previous words: a vector of fixed size (n − 1) × D.
+Hãy quay lại với bài toán mô hình hóa ngôn ngữ một lát. Ở các mô hình n-gram trong mục 2, chúng ta đã giả định rằng xác suất của từ tiếp theo chỉ phụ thuộc vào $n - 1$ từ đứng ngay trước nó. Bây giờ, ta vẫn giữ nguyên giả định Markov này, nhưng thay thế bảng đếm tần số bằng **một mạng nơ-ron nhận đầu vào là vector ghép nối của các biểu diễn nhúng** của $n - 1$ từ đứng trước: một vector có kích thước cố định bằng $(n - 1) \times D$.
 
-This is the idea of the influential paper of *Bengio et al.* from 2003, which can be considered as **the first neural language model**. Its architecture is simple: look up the embeddings $e_{L-n+2}, \dots, e_L$ of the last n − 1 words in the matrix $W$, concatenate them into a vector $c$, then feed $c$ into a feedforward network with one hidden layer:
+Đây chính là ý tưởng cốt lõi trong bài báo có tầm ảnh hưởng sâu rộng của *Bengio và cộng sự* năm 2003, công trình được xem là **mô hình ngôn ngữ nơ-ron đầu tiên trong lịch sử**. Kiến trúc của nó rất sáng sủa: tra cứu các vector nhúng $e_{L-n+2}, \dots, e_L$ của $n - 1$ từ cuối cùng trong ma trận $W$, ghép nối chúng lại thành một vector ngữ cảnh duy nhất $c$, rồi đưa $c$ đi qua một mạng truyền thẳng (*feedforward network*) có một tầng ẩn:
 
-<PaperNote id="bengio2003" look="Figure 1, the architecture: the table C (our W), shared by all the positions, then the tanh layer and the softmax, with the mention “most computation here”. And Table 1 for the results on the Brown corpus.">
+<PaperNote id="bengio2003" look="Hình 1, sơ đồ kiến trúc: bảng tra cứu C (chính là ma trận W của chúng ta) được chia sẻ chung cho mọi vị trí trong ngữ cảnh, tiếp nối bởi tầng kích hoạt tanh và tầng softmax với dòng ghi chú “phần lớn khối lượng tính toán nằm ở đây”. Và xem Bảng 1 về kết quả thực nghiệm trên kho ngữ liệu Brown.">
 
-The paper that started neural language modeling. It presents itself as a fight against the curse of dimensionality of section 2.3, using a learned vector for each word: *"having seen the sentence 'The cat is walking in the bedroom' in the training corpus should help us generalize to make the sentence 'A dog was running in a room' almost as likely"*. On the Brown corpus (about a million words), a neural model gets a test perplexity of 268, against 321 for Kneser-Ney smoothing, and 252 when it is mixed half and half with a trigram model. But it was slow: 5 epochs on the 14 million words of AP News took 3 weeks on 40 processors, mostly to compute the softmax over the whole vocabulary.
+Bài báo đặt nền móng cho lĩnh vực mô hình hóa ngôn ngữ bằng mạng nơ-ron. Công trình này tự giới thiệu mình như một vũ khí chống lại lời nguyền số chiều ở mục 2.3 thông qua việc học một vector đặc cho mỗi từ: *"khi đã nhìn thấy câu 'The cat is walking in the bedroom' trong kho ngữ liệu huấn luyện, mô hình phải có khả năng khái quát hóa để đánh giá câu 'A dog was running in a room' cũng có xác suất hợp lý tương đương"*. Trên kho ngữ liệu Brown (khoảng một triệu từ), mô hình nơ-ron đạt perplexity trên tập kiểm tra là 268, vượt xa mức 321 của phương pháp làm mượt Kneser-Ney, và giảm xuống còn 252 khi pha trộn 50/50 với một mô hình trigram. Tuy nhiên, quá trình huấn luyện thời bấy giờ cực kỳ chậm: chạy 5 epoch trên 14 triệu từ của tập AP News đã ngốn mất 3 tuần ròng rã trên 40 bộ vi xử lý, chủ yếu do chi phí tính hàm softmax trên toàn bộ từ vựng.
 
 </PaperNote>
 
@@ -90,51 +90,51 @@ $$
 q(x_{L+1} = v \mid x_1 \dots x_L) = \text{softmax}\big(U \tanh(A c + b) + d\big)_v,
 $$
 
-where $A$ and $b$ are the weights and the biases of the hidden layer, and $U$ and $d$ those of the output layer. The output layer gives one score $z_v$ per word $v$ of the vocabulary, and the softmax, $\text{softmax}(z)_v = e^{z_v} / \sum_{w} e^{z_w}$, turns these V scores into probabilities, positive and summing to 1, as the sigmoid of section 3.2 did for two classes.
+trong đó $A$ và $b$ là ma trận trọng số và vector độ chệch (*bias*) của tầng ẩn, còn $U$ và $d$ là trọng số và độ chệch của tầng đầu ra. Tầng đầu ra tính một điểm số (*logit*) $z_v$ cho mỗi từ $v$ trong bộ từ vựng, và hàm softmax, $\text{softmax}(z)_v = e^{z_v} / \sum_{w} e^{z_w}$, chuyển đổi $V$ điểm số này thành một phân phối xác suất hợp lệ (các giá trị đều dương và có tổng bằng 1), đóng vai trò tương tự như hàm sigmoid ở mục 3.2 nhưng mở rộng cho $V$ lớp thay vì hai lớp.
 
-The embedding matrix $W$ is a parameter of the model, like $A$, $b$, $U$ and $d$: **the embeddings and the weights of the network are learned jointly**, by minimizing the cross-entropy loss of section 2.2 on the training text. At each step, the gradient of the loss flows back through the network to the columns of $W$ of the words of the context, and moves them.
+Ma trận nhúng $W$ cũng là một tham số của mô hình giống hệt như $A$, $b$, $U$ và $d$: **các biểu diễn nhúng từ và các trọng số của mạng nơ-ron được học đồng thời cùng nhau (jointly learned)** bằng cách cực tiểu hóa hàm mất mát entropy chéo ở mục 2.2 trên văn bản huấn luyện. Ở mỗi bước cập nhật, đạo hàm (gradient) của hàm mất mát được lan truyền ngược (*backpropagation*) xuyên qua mạng nơ-ron về tới tận các cột của ma trận $W$ ứng với các từ trong ngữ cảnh, qua đó dịch chuyển dần vị trí của các vector nhúng này trong không gian.
 
-I'll assume here that you know how to train a neural network with PyTorch. If not, [the course of Andrej Karpathy](https://karpathy.ai/zero-to-hero.html) is a great place to start, and its third lecture builds a model of this kind, on characters.
+Ở đây tôi giả định rằng bạn đã biết cách huấn luyện một mạng nơ-ron cơ bản với thư viện PyTorch. Nếu chưa quen, [khóa học của Andrej Karpathy](https://karpathy.ai/zero-to-hero.html) là một điểm khởi đầu tuyệt vời — bài giảng thứ ba trong chuỗi đó xây dựng chính xác một mô hình kiểu này ở cấp độ ký tự.
 
-<Optional title="PyTorch" subtitle="what we use from it in this post">
+<Optional title="PyTorch" subtitle="những thành phần chúng ta sử dụng trong bài viết này">
 
-From here on, the exercises train neural networks with PyTorch. They use only a small part of it, and mostly the same part:
-- **Tensors.** `torch.tensor` turns lists of word indices into tensors. `.to(device)` moves them to the GPU when there is one, and the code runs on the CPU otherwise.
-- **Layers.** A model is a stack of layers in `nn.Sequential`: `nn.Embedding`, which holds the embedding matrix of section 4.1; `nn.Flatten`, which concatenates the embeddings of the context; `nn.Linear`; and the activations `nn.Tanh` and `nn.ReLU`.
-- **Losses.** `F.cross_entropy` takes the V scores of the output layer and the index of the right word, applies the softmax, and computes the cross-entropy of section 2.2. `nn.BCEWithLogitsLoss` does the same for two classes, with the sigmoid of section 3.2.
+Từ phần này trở đi, các bài tập thực hành sẽ huấn luyện mạng nơ-ron bằng PyTorch. Chúng chỉ sử dụng một tập con rất nhỏ và nhất quán của thư viện:
+- **Tensor.** Hàm `torch.tensor` chuyển đổi danh sách các chỉ số từ (*word indices*) thành các tensor. Phương thức `.to(device)` đưa chúng lên GPU nếu máy có trang bị, hoặc chạy mặc định trên CPU.
+- **Các tầng mạng (Layers).** Một mô hình được ghép từ chuỗi các tầng đặt trong `nn.Sequential`: `nn.Embedding` lưu trữ ma trận nhúng ở mục 4.1; `nn.Flatten` ghép nối các vector nhúng trong ngữ cảnh lại thành một vector dài; `nn.Linear` thực hiện phép biến đổi tuyến tính; cùng các hàm kích hoạt phi tuyến `nn.Tanh` và `nn.ReLU`.
+- **Hàm mất mát (Losses).** Hàm `F.cross_entropy` nhận đầu vào là $V$ điểm số chưa chuẩn hóa (*logits*) từ tầng đầu ra cùng chỉ số của từ đúng thực tế, sau đó tự động áp dụng hàm softmax và tính hàm mất mát entropy chéo ở mục 2.2. Lớp `nn.BCEWithLogitsLoss` thực hiện điều tương tự cho bài toán phân loại nhị phân hai lớp với hàm sigmoid ở mục 3.2.
 
-The training loop is written by hand, and it is the same in every exercise:
+Vòng lặp huấn luyện được viết tường minh hoàn toàn bằng tay và giữ nguyên cấu trúc ở mọi bài tập:
 
 ```python
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 for epoch in range(n_epochs):
-    order = torch.randperm(len(targets))  # shuffle the examples
+    order = torch.randperm(len(targets))  # xáo trộn thứ tự các mẫu huấn luyện
     for start in range(0, len(order), batch_size):
         batch = order[start:start + batch_size]
         scores = model(inputs[batch])
         loss = F.cross_entropy(scores, targets[batch])
         optimizer.zero_grad()
-        loss.backward()   # compute the gradients
-        optimizer.step()  # update the parameters
+        loss.backward()   # tính đạo hàm ngược (gradients)
+        optimizer.step()  # cập nhật các tham số mô hình
 ```
 
-To measure a model on the validation set, put the computation inside `with torch.no_grad():`, which skips the gradients. To keep the model of the best epoch, save a copy of it with `copy.deepcopy`. We don't use `Dataset` or `DataLoader`: the data of each exercise fits in memory as a few tensors, and we draw the batches ourselves.
+Khi đánh giá mô hình trên tập xác thực, hãy đặt khối lệnh tính toán bên trong ngữ cảnh `with torch.no_grad():` để bỏ qua việc lưu đồ thị tính đạo hàm. Để lưu lại mô hình ở epoch tốt nhất, hãy tạo một bản sao sâu bằng `copy.deepcopy`. Chúng ta không cần dùng đến `Dataset` hay `DataLoader`: toàn bộ dữ liệu của mỗi bài tập đều nằm gọn trong bộ nhớ dưới dạng vài tensor, và ta tự cắt các lô dữ liệu (*batches*) trực tiếp bằng chỉ số mảng.
 
-Later sections add a few pieces: `requires_grad_(False)`, to keep pre-trained embeddings fixed during the training (section 5); the recurrent layers `nn.LSTM` and `nn.GRU`, and gradient clipping with `nn.utils.clip_grad_norm_` (section 7); and models written as a subclass of `nn.Module`, with their own `forward` method, when they are not a simple stack of layers, like the LSTM of section 7 and the encoder–decoder of section 9.
+Các mục sau sẽ bổ sung thêm một vài công cụ nhỏ: `requires_grad_(False)` để đóng băng các biểu diễn nhúng tiền huấn luyện trong quá trình học (mục 5); các tầng hồi quy `nn.LSTM` và `nn.GRU`, cùng kỹ thuật cắt xén đạo hàm (*gradient clipping*) bằng `nn.utils.clip_grad_norm_` (mục 7); và cách viết mô hình dưới dạng lớp con kế thừa từ `nn.Module` với phương thức `forward` tùy chỉnh khi kiến trúc không còn là một chuỗi tầng nối tiếp đơn giản — chẳng hạn như mạng LSTM ở mục 7 và kiến trúc bộ mã hóa–bộ giải mã (*encoder–decoder*) ở mục 9.
 
 </Optional>
 
-Why would this work better than counts? Remember the curse of dimensionality of section 2.3: most contexts of 3 or 4 words never appear in the training text, and for the counts, an unseen context is a dead end. The neural model is not stuck: if it has seen "the cat is walking", and if "dog" has an embedding close to the one of "cat", then it already knows something about "the dog is walking". And similar words do get similar embeddings, because they appear in similar contexts and must lead to similar predictions. **The model generalizes from the contexts it has seen to the contexts it has never seen.**
+Tại sao kiến trúc này lại hoạt động hiệu quả hơn phương pháp đếm? Hãy nhớ lại lời nguyền số chiều ở mục 2.3: hầu hết các ngữ cảnh dài 3 hoặc 4 từ chưa từng xuất hiện trong văn bản huấn luyện, và đối với phương pháp đếm, gặp một ngữ cảnh mới đồng nghĩa với việc đi vào ngõ cụt. Ngược lại, mô hình nơ-ron không hề bị bó tay: nếu nó từng nhìn thấy cụm "the cat is walking", và nếu từ "dog" có vector nhúng nằm gần vector nhúng của từ "cat", thì mạng nơ-ron nghiễm nhiên đã biết cách xử lý cụm "the dog is walking". Và quả thực, những từ tương tự nhau sẽ tự động hội tụ về các vector nhúng gần nhau, bởi chúng thường xuất hiện trong các ngữ cảnh giống nhau và đòi hỏi mô hình đưa ra các phân phối dự đoán tương tự nhau. **Mô hình có khả năng khái quát hóa từ những ngữ cảnh đã từng gặp sang những ngữ cảnh hoàn toàn mới chưa từng thấy bao giờ.**
 
 
 
-Let's train it on WikiText-2, and compare it with the n-gram models of section 2. The model has many more parameters than the logistic regression of section 3, and it overfits after a few epochs, so we choose the number of epochs on the validation set.
+Hãy huấn luyện mô hình này trên tập dữ liệu WikiText-2 và so sánh trực tiếp với các mô hình n-gram ở mục 2. Vì mạng nơ-ron này có số lượng tham số lớn hơn rất nhiều so với mô hình hồi quy logistic ở mục 3 và bắt đầu bị quá khớp (*overfit*) chỉ sau vài epoch, chúng ta sẽ theo dõi và chọn số epoch tối ưu dựa trên tập xác thực.
 
-<Exercise number="4.2" star title="Train Bengio's neural language model" data="WikiText-2" nb="04-2-neural-language-model">
+<Exercise number="4.2" star title="Huấn luyện mô hình ngôn ngữ nơ-ron của Bengio" data="WikiText-2" nb="04-2-neural-language-model">
 
-Train Bengio's neural language model on WikiText-2: look up the embeddings of the 3 words before each word (D = 100), concatenate them, then a hidden layer of 200 units (tanh) and a softmax over the vocabulary. Train for 4 epochs, measure the validation perplexity after each epoch, and compute the test perplexity of the best model. Compare with the smoothed n-gram models of exercise 2.3b. Then print the 5 nearest neighbors of "three", "he", "city", "film", "excellent" and "terrible" in the learned embedding matrix, according to the cosine similarity.
+Hãy huấn luyện mô hình ngôn ngữ nơ-ron của Bengio trên bộ dữ liệu WikiText-2: tra cứu vector nhúng của 3 từ đứng ngay trước mỗi từ cần dự đoán ($D = 100$), ghép nối chúng lại, đưa qua một tầng ẩn gồm 200 nút (hàm kích hoạt tanh) rồi tới tầng softmax trên toàn bộ từ vựng. Huấn luyện trong 4 epoch, đo perplexity trên tập xác thực sau mỗi epoch, và tính perplexity trên tập kiểm tra của mô hình tốt nhất. Hãy so sánh kết quả với các mô hình n-gram đã làm mượt ở bài tập 2.3b. Sau đó, hãy in ra 5 từ láng giềng gần nhất (*nearest neighbors*) của các từ "three", "he", "city", "film", "excellent" và "terrible" trong ma trận nhúng vừa học được, tính theo độ tương đồng cosine.
 
-The starter code builds the three sequences, as in exercises 2.1 and 2.2. Then it gives each word of the vocabulary an index, and turns each sequence into pairs: the indices of 3 consecutive words, and the index of the word that follows them.
+Đoạn mã khởi đầu xây dựng ba chuỗi văn bản như ở bài tập 2.1 và 2.2, tiếp đó gán cho mỗi từ trong từ vựng một chỉ số nguyên (*index*), rồi biến đổi mỗi chuỗi văn bản thành các cặp mẫu dữ liệu: chỉ số của 3 từ liên tiếp làm đầu vào, và chỉ số của từ đứng ngay sau chúng làm nhãn mục tiêu.
 
 <Starter nb="04-2-neural-language-model" />
 
@@ -142,25 +142,25 @@ The starter code builds the three sequences, as in exercises 2.1 and 2.2. Then i
 
 <Hint>
 
-`nn.Embedding(V, D)` holds the embedding matrix: given a tensor of word indices of shape (batch, 3), it returns their embeddings, of shape (batch, 3, D). `nn.Flatten()` then concatenates the 3 embeddings of each row. Start from small embeddings, with `nn.init.normal_(embedding.weight, std=0.1)`: with the default standard deviation of 1, the rare words would barely move from their random starting point in 4 epochs.
+Lớp `nn.Embedding(V, D)` lưu trữ ma trận nhúng: khi nhận một tensor chứa chỉ số từ có kích thước `(batch, 3)`, nó sẽ trả về các vector nhúng tương ứng có kích thước `(batch, 3, D)`. Tiếp theo, `nn.Flatten()` sẽ ghép nối 3 vector nhúng trên mỗi hàng lại thành một vector dài kích thước `3 * D`. Hãy khởi tạo các vector nhúng với giá trị nhỏ bằng `nn.init.normal_(embedding.weight, std=0.1)`: nếu để độ lệch chuẩn mặc định bằng 1, các từ hiếm sẽ hầu như không kịp dịch chuyển khỏi vị trí ngẫu nhiên ban đầu sau 4 epoch.
 
 </Hint>
 
 <Hint>
 
-The output layer gives V scores. `F.cross_entropy(scores, targets)` applies the softmax and computes the cross-entropy loss in one go. The perplexity is the exponential of the average loss over the validation pairs.
+Tầng đầu ra trả về $V$ điểm số. Hàm `F.cross_entropy(scores, targets)` sẽ tự động áp dụng softmax và tính luôn hàm mất mát entropy chéo chỉ trong một bước. Độ hỗn loạn (perplexity) chính là hàm mũ ($\exp$) của giá trị mất mát trung bình trên toàn bộ các mẫu của tập xác thực.
 
 </Hint>
 
 <Hint>
 
-Train with `torch.optim.Adam` (learning rate 0.001) on batches of 512 pairs: an epoch is 4,000 batches. On a laptop CPU, an epoch takes about a minute and a half, and a GPU is much faster. Keep a copy of the model (`copy.deepcopy`) at the epoch with the best validation perplexity.
+Hãy huấn luyện bằng thuật toán tối ưu `torch.optim.Adam` (tốc độ học `lr=0.001`) với kích thước lô (*batch size*) là 512 cặp: mỗi epoch sẽ gồm khoảng 4.000 batch. Trên CPU của máy tính xách tay, mỗi epoch mất khoảng một phút rưỡi, còn trên GPU sẽ nhanh hơn rất nhiều. Hãy lưu lại một bản sao của mô hình (`copy.deepcopy`) tại epoch đạt perplexity xác thực thấp nhất.
 
 </Hint>
 
 <Hint>
 
-`nn.Embedding` stores $W$ transposed: row i of its weight is the embedding of word i. Divide each row by its length: the cosine similarities between a word and all the others are then a single product of a matrix by a vector.
+Lưu ý rằng `nn.Embedding` lưu trữ ma trận $W$ ở dạng chuyển vị: hàng thứ $i$ của `embedding.weight` chính là vector nhúng của từ thứ $i$. Hãy chuẩn hóa từng hàng bằng cách chia cho độ dài Euclid của nó: khi đó, độ tương đồng cosine giữa một từ với tất cả các từ còn lại có thể tính cực nhanh chỉ bằng một phép nhân ma trận với vector.
 
 </Hint>
 
@@ -168,7 +168,7 @@ Train with `torch.optim.Adam` (learning rate 0.001) on batches of 512 pairs: an 
 
 <Checkpoint nb="04-2-neural-language-model">
 
-The validation perplexity goes down from 260.1 after the first epoch to 223.9 after the third, then goes back up to 228.5: the model starts to overfit. The test perplexity of the model of epoch 3 is 208.5. The nearest neighbors of "three" are other numbers, and those of "film" include "book", "novel" and "album". On a GPU, your numbers and your neighbors can differ a little.
+Perplexity trên tập xác thực giảm từ 260,1 sau epoch đầu tiên xuống 223,9 sau epoch thứ ba, rồi tăng ngược lên 228,5 ở epoch thứ tư: mô hình bắt đầu bị quá khớp. Perplexity trên tập kiểm tra của mô hình ở epoch 3 đạt 208,5. Các láng giềng gần nhất của từ "three" đều là các con số khác, còn láng giềng của "film" bao gồm "book", "novel" và "album". Nếu chạy trên GPU, các con số và danh sách từ láng giềng của bạn có thể xê dịch đôi chút.
 
 </Checkpoint>
 
@@ -176,47 +176,47 @@ The validation perplexity goes down from 260.1 after the first epoch to 223.9 af
 
 <WhatToNotice>
 
-With 3 words of context, the neural model reaches a test perplexity of 208.5, against 277.7 for the interpolated 5-gram model of section 2.3, which sees one more word. It even beats the Kneser-Ney 5-gram (219.3), the best of the counting models! And look at the embeddings: the neighbors of "three" are other numbers, "he" is closest to "she", and "film" to "book", "novel" and "album". Nobody told the model that these words are alike: it found out because they appear in similar contexts. But the neighbors of "excellent" and "terrible" are noise. These words are rare in Wikipedia: "excellent" appears 28 times in the training text and "terrible" 24 times, against 1,253 times for "film". **A language model gives close embeddings to the words that play the same role, as long as it sees them often enough.**
+Chỉ với 3 từ ngữ cảnh, mô hình mạng nơ-ron đã đạt perplexity trên tập kiểm tra là 208,5 — bỏ xa mức 277,7 của mô hình 5-gram nội suy ở mục 2.3 (vốn được nhìn nhiều hơn một từ ngữ cảnh). Nó thậm chí còn đánh bại cả mô hình 5-gram Kneser-Ney (219,3) — đỉnh cao của kỷ nguyên đếm từ! Và hãy nhìn vào các biểu diễn nhúng mà mô hình tự học được: láng giềng của "three" toàn là các con số, "he" nằm gần nhất với "she", còn "film" nằm cạnh "book", "novel" và "album". Chẳng ai dạy cho mô hình biết rằng những từ này có liên hệ với nhau: nó tự khám phá ra điều đó bởi chúng thường xuất hiện trong những ngữ cảnh giống nhau. Tuy nhiên, láng giềng của hai từ "excellent" và "terrible" lại hoàn toàn là nhiễu loạn. Lý do là vì những tính từ biểu cảm này rất hiếm gặp trên bách khoa toàn thư Wikipedia: "excellent" chỉ xuất hiện 28 lần trong văn bản huấn luyện và "terrible" xuất hiện 24 lần, so với 1.253 lần của từ "film". **Một mô hình ngôn ngữ sẽ gán các vector nhúng gần nhau cho những từ đóng cùng vai trò trong câu, miễn là nó được gặp những từ đó đủ nhiều lần.**
 
 </WhatToNotice>
 
 </Exercise>
 
-<Optional title="The cost of the softmax" subtitle="where the training time goes">
+<Optional title="Chi phí tính toán của tầng Softmax" subtitle="thời gian huấn luyện thực sự tiêu tốn vào đâu">
 
-Notice how long the training takes, compared with the counts of section 2. Almost all of this time goes into the output layer, which computes a score for each of the 33,277 words of the vocabulary, at every position of the text: 200 × 33,277 multiplications per word, against 300 × 200 for the hidden layer. This cost of the softmax over the whole vocabulary will come back in section 5.2.
+Hãy để ý xem quá trình huấn luyện mạng nơ-ron mất nhiều thời gian hơn hẳn so với việc đếm từ ở mục 2. Gần như toàn bộ thời gian này đều tiêu tốn ở tầng tuyến tính đầu ra — nơi mô hình phải tính điểm số cho từng từ trong tổng số 33.277 từ của bộ từ vựng tại mỗi vị trí trong văn bản: $200 \times 33{,}277$ phép nhân cho mỗi từ, so với chỉ $300 \times 200$ phép nhân ở tầng ẩn. Gánh nặng tính toán của hàm softmax trên toàn bộ từ vựng sẽ còn quay trở lại ở mục 5.2.
 
 </Optional>
 
-### 4.3 Ways to aggregate the word vectors of a text
+### 4.3 Các phương pháp tổng hợp vector từ của một văn bản
 
-Concatenation works for language modeling, because we can assume that only the last n − 1 words matter. But as we said in section 3.1, it does not work at all for classification: the sentiment of a review can be anywhere in it. How can we aggregate the L embeddings of a review?
+Phép ghép nối (*concatenation*) hoạt động tốt cho bài toán mô hình hóa ngôn ngữ, bởi ta có thể giả định một cách hợp lý rằng chỉ có $n - 1$ từ gần nhất là quan trọng nhất. Thế nhưng như đã phân tích ở mục 3.1, cách này hoàn toàn vô dụng đối với bài toán phân loại văn bản: sắc thái cảm xúc của một bài đánh giá phim có thể nằm ở bất kỳ câu nào từ đầu đến cuối bài. Vậy làm thế nào để tổng hợp $L$ vector nhúng của cả bài đánh giá lại thành một vector duy nhất?
 
-The simplest option is to average them. And there is a neat way to write this average. Adding up the embeddings of the words of a review is the same as multiplying $W$ by the bag-of-words vector $C$ of section 3.2, since the column of each word is added as many times as the word appears. So
+Lựa chọn đơn giản nhất là lấy trung bình cộng của chúng. Và có một cách viết biểu thức trung bình này cực kỳ gọn đẹp. Việc cộng dồn tất cả các vector nhúng của các từ xuất hiện trong bài đánh giá thực chất chính là phép nhân ma trận nhúng $W$ với vector đếm túi từ $C$ ở mục 3.2, bởi cột vector của mỗi từ được cộng lặp lại đúng bằng số lần từ đó xuất hiện trong bài. Do đó:
 
 $$
 \frac{1}{L} \sum_{i=1}^{L} e_i = \frac{1}{L} \, W C = W f,
 $$
 
-where $f = C / L$ is the vector of the *frequencies* of the words in the review. **The average of the embeddings is a bag of words, compressed by $W$ from V to D dimensions.** Like the bag of words, it forgets the order of the words. And it gives the same importance to all the words, "the" included: to avoid diluting the average with uninformative words, we can weight it with the IDF of section 3.3.
+trong đó $f = C / L$ là vector *tần suất tương đối (frequencies)* của các từ trong bài đánh giá. **Trung bình cộng của các vector nhúng thực chất chính là một túi từ đã được nén tuyến tính bởi ma trận $W$ từ $V$ chiều xuống còn $D$ chiều.** Giống hệt như túi từ, phép lấy trung bình này quên sạch trật tự của các từ. Đồng thời, nó cũng coi mọi từ đều quan trọng ngang nhau, kể cả hư từ "the": để tránh làm loãng vector trung bình bởi những từ ít mang thông tin, ta có thể lấy trung bình có trọng số bằng cách nhân với hệ số IDF ở mục 3.3.
 
-What do we gain with this compression? Consider the simplest head, a logistic regression on the average: $p(\text{positive}) = \sigma(b + h \cdot W f)$, where $h$ is the vector of the weights of the head. Expanding the dot product gives
+Vậy chúng ta thu được lợi ích gì từ phép nén số chiều này? Hãy xét đầu phân loại đơn giản nhất — một mô hình hồi quy logistic đặt ngay trên vector trung bình: $p(\text{positive}) = \sigma(b + h \cdot W f)$, trong đó $h$ là vector trọng số của đầu phân loại. Khai triển tích vô hướng này, ta thấy:
 
 $$
 h \cdot W f = \sum_{v=1}^{V} (h \cdot w_v) \, f_v,
 $$
 
-where $w_v$ is the column of $W$ for the word $v$. This is a logistic regression on the frequencies of the words, where the weight of the word $v$ is $h \cdot w_v$. So if $W$ is learned along with $h$, nothing is gained over section 3! The gains can come from two places:
-- add hidden layers after the average, so that the head is not linear anymore;
-- start from an embedding matrix $W$ that is already good, and keep it fixed. Then the weight $h \cdot w_v$ of a word depends on its embedding, so similar words get similar weights, even the words that never appear in the labeled reviews. This is the topic of section 5.
+với $w_v$ là cột thứ $v$ của ma trận $W$ (ứng với từ $v$). Biểu thức này chẳng khác gì một mô hình hồi quy logistic đánh trực tiếp trên tần suất của các từ, trong đó trọng số dành cho từ $v$ chính là tích vô hướng $h \cdot w_v$. Vì vậy, nếu ma trận $W$ được học đồng thời từ đầu cùng với $h$, chúng ta sẽ chẳng thu được bất kỳ lợi thế toán học nào so với mô hình túi từ ở mục 3! Sự cải thiện chỉ có thể đến từ một trong hai hướng sau:
+- bổ sung thêm các tầng ẩn phi tuyến tính phía sau bước lấy trung bình, để đầu phân loại không còn là một hàm tuyến tính đơn thuần nữa;
+- khởi tạo từ một ma trận nhúng $W$ đã có chất lượng tốt sẵn từ trước, và giữ cố định nó. Khi đó, trọng số phân loại $h \cdot w_v$ của một từ sẽ phụ thuộc trực tiếp vào vị trí vector nhúng của nó: những từ đồng nghĩa có vector gần nhau sẽ tự động nhận được trọng số gần bằng nhau, ngay cả với những từ chưa từng xuất hiện trong tập bài đánh giá có nhãn! Đây chính là chủ đề trọng tâm của mục 5.
 
-The first option is the *deep averaging network* (DAN) [@iyyer2015]: average the embeddings, pass the average through a few hidden layers, then classify. In 2015, it rivaled the models that followed the syntax of the sentences, while training in a few minutes on a laptop. Let's train one on IMDB.
+Hướng tiếp cận thứ nhất đưa ta đến kiến trúc *Mạng lấy trung bình sâu (Deep Averaging Network — DAN)* [@iyyer2015]: lấy trung bình cộng các vector nhúng, đưa vector trung bình này đi qua một vài tầng ẩn phi tuyến, rồi mới đưa vào tầng phân loại cuối cùng. Vào năm 2015, kiến trúc đơn giản này đã đạt độ chính xác ngang ngửa với các mô hình phức tạp phân tích cú pháp câu, trong khi chỉ mất vài phút để huấn luyện trên một chiếc máy tính xách tay. Hãy cùng huấn luyện một mạng DAN trên bộ dữ liệu IMDB.
 
-<Exercise number="4.3" title="Train a deep averaging network on IMDB" data="IMDB" nb="04-3-deep-averaging">
+<Exercise number="4.3" title="Huấn luyện mạng lấy trung bình sâu (DAN) trên IMDB" data="IMDB" nb="04-3-deep-averaging">
 
-Train a deep averaging network on IMDB, with the vocabulary of exercise 3.2: the average of the embeddings of the words of the review (D = 100), then two hidden layers of 100 units and one output, all trained together from scratch. Choose the number of epochs on the validation set, measure the test accuracy, and compare it with the bag of words of section 3. Then run the model on the hard reviews of exercise 3.4.
+Hãy huấn luyện một mạng lấy trung bình sâu (*deep averaging network*) trên bộ dữ liệu IMDB với bộ từ vựng 10.000 từ của bài tập 3.2: lấy trung bình các vector nhúng của các từ trong bài đánh giá ($D = 100$), tiếp nối bằng hai tầng ẩn (mỗi tầng 100 nút) và một đầu ra duy nhất, tất cả đều được huấn luyện đồng thời từ đầu (*from scratch*). Hãy chọn số epoch tối ưu trên tập xác thực, đo độ chính xác trên tập kiểm tra và so sánh với mô hình túi từ ở mục 3. Sau đó, hãy chạy thử mô hình trên tập các câu đánh giá khó của bài tập 3.4.
 
-The starter code repeats steps (1) and (2) of the solution of exercise 3.2, which split the reviews and count their words, and lists the hard reviews of exercise 3.4.
+Đoạn mã khởi đầu lặp lại bước (1) và (2) trong lời giải bài tập 3.2 (chia tập dữ liệu và đếm từ), đồng thời liệt kê sẵn danh sách các câu đánh giá khó của bài tập 3.4.
 
 <Starter nb="04-3-deep-averaging" />
 
@@ -224,19 +224,19 @@ The starter code repeats steps (1) and (2) of the solution of exercise 3.2, whic
 
 <Hint>
 
-By the formula above, the average of the embeddings is $W$ times the frequency vector of the review. So the first layer of the network can be `nn.Linear(V, D, bias=False)`, applied to the count vectors of exercise 3.2 divided by their sum: its weight, of size D × V, is $W$. Turn the sparse count vectors into tensors a batch at a time, with `torch.tensor(X[batch].toarray())`: all of them at once would take several gigabytes.
+Theo công thức chứng minh ở trên, trung bình cộng các vector nhúng của một bài đánh giá chính bằng ma trận $W$ nhân với vector tần suất từ của bài đó. Vì vậy, tầng đầu tiên của mạng có thể viết gọn thành `nn.Linear(V, D, bias=False)` áp dụng trực tiếp lên các vector đếm của bài tập 3.2 đã chia cho tổng số từ của từng bài: ma trận trọng số của tầng này (kích thước $D \times V$) chính là ma trận nhúng $W$. Hãy chuyển đổi các vector đếm dạng ma trận thưa sang tensor theo từng batch một bằng lệnh `torch.tensor(X[batch].toarray())`: nếu chuyển đổi toàn bộ tập dữ liệu cùng lúc sẽ ngốn mất hàng gigabyte bộ nhớ.
 
 </Hint>
 
 <Hint>
 
-After the average, use `nn.Linear` and `nn.ReLU` layers, and end with a single output, the score of the review. `nn.BCEWithLogitsLoss()` applies the sigmoid to the score and computes the cross-entropy loss for two classes.
+Phía sau tầng lấy trung bình, hãy xếp nối tiếp các tầng `nn.Linear` và `nn.ReLU`, rồi kết thúc bằng một đầu ra duy nhất biểu thị điểm số (*logit*) của bài đánh giá. Hàm mất mát `nn.BCEWithLogitsLoss()` sẽ tự động áp dụng hàm sigmoid lên điểm số này và tính entropy chéo cho hai lớp.
 
 </Hint>
 
 <Hint>
 
-Train with Adam (learning rate 0.001) on batches of 64 reviews: an epoch takes about a second. The model overfits after a couple of epochs: keep a copy of the model (`copy.deepcopy`) at the epoch with the best validation accuracy.
+Hãy huấn luyện bằng thuật toán Adam (tốc độ học `lr=0.001`) với các batch gồm 64 bài đánh giá: mỗi epoch chỉ mất khoảng một giây. Mô hình sẽ bắt đầu quá khớp chỉ sau một vài epoch: hãy lưu lại bản sao của mô hình (`copy.deepcopy`) tại epoch có độ chính xác xác thực cao nhất.
 
 </Hint>
 
@@ -244,7 +244,7 @@ Train with Adam (learning rate 0.001) on batches of 64 reviews: an epoch takes a
 
 <Checkpoint nb="04-3-deep-averaging">
 
-The best validation accuracy, 89.4%, is at epoch 2, and the test accuracy is 88.1%. The model gets 6 of the 13 hard reviews right, with probabilities very close to 0 or 1. The two reviews with the same words get exactly the same probability, 0.043.
+Độ chính xác cao nhất trên tập xác thực đạt 89,4% ở epoch 2, và độ chính xác tương ứng trên tập kiểm tra là 88,1%. Mô hình đoán đúng 6 trên 13 câu đánh giá khó, với các xác suất dự đoán cực kỳ sát 0 hoặc 1. Hai câu đánh giá có cùng tập từ vựng vẫn nhận xác suất giống hệt nhau: 0,043.
 
 </Checkpoint>
 
@@ -252,27 +252,27 @@ The best validation accuracy, 89.4%, is at epoch 2, and the test accuracy is 88.
 
 <WhatToNotice>
 
-88.1%: the deep averaging network does no better than the bag of words (87.6% with the counts, 88.4% with TF-IDF). Iyyer et al. found the same on IMDB with random embeddings at the start: 88.8% for the DAN, and 88.9% without the hidden layers. With 20,000 labeled reviews, the logistic regression of section 3 already had enough data to learn a weight for each word, and the hidden layers have little to add. On the hard reviews, the model makes the same kinds of mistakes as the bag of words, since it also ignores the order of the words. But it is much more sure of itself: "Not bad at all, actually." gets a probability of 0.000 instead of 0.335. In this review of 5 words, "bad" makes up a fifth of the average, while a word of a typical IMDB review, with its 178 words, weighs about 0.6%. **Averaging embeddings learned from scratch is a bag of words in disguise.**
+88,1%: mạng lấy trung bình sâu hoàn toàn không vượt qua được mô hình túi từ cổ điển (87,6% với số đếm thuần túy, 88,4% với TF-IDF). Nhóm tác giả Iyyer và cộng sự cũng ghi nhận kết quả tương tự trên IMDB khi khởi tạo biểu diễn nhúng ngẫu nhiên từ đầu: 88,8% cho mạng DAN, và 88,9% nếu bỏ luôn các tầng ẩn. Với 20.000 bài đánh giá có nhãn, mô hình hồi quy logistic ở mục 3 đã có đủ dữ liệu để học trực tiếp một trọng số cho từng từ, nên các tầng ẩn phi tuyến hầu như không đóng góp thêm được gì. Trên tập câu đánh giá khó, mạng DAN mắc lại đúng những sai lầm của túi từ vì nó cũng bỏ qua hoàn toàn trật tự từ. Điểm khác biệt là nó tỏ ra tự tin thái quá vào các dự đoán sai của mình: câu "Not bad at all, actually." nhận xác suất tích cực là 0,000 thay vì 0,335. Trong câu ngắn chỉ có 5 từ này, chữ "bad" chiếm tới một phần năm (20%) trọng lượng của vector trung bình, trong khi ở một bài đánh giá IMDB điển hình dài 178 từ, mỗi từ chỉ đóng góp khoảng 0,6%. **Lấy trung bình các vector nhúng được học từ đầu thực chất chỉ là một mô hình túi từ trá hình.**
 
 </WhatToNotice>
 
 </Exercise>
 
-<PaperNote id="joulin2017" look="Tables 1 and 2: the accuracy of fastText against convolutional networks on 8 datasets, and the time of one epoch: 10 seconds against 7 hours for VDCNN, on Amazon reviews.">
+<PaperNote id="joulin2017" look="Bảng 1 và 2: độ chính xác của fastText so với các mạng tích chập (CNN) trên 8 bộ dữ liệu, cùng thời gian chạy một epoch: 10 giây so với 7 giờ của mạng VDCNN trên tập đánh giá Amazon.">
 
-This is fastText, by a team that includes Tomas Mikolov, the creator of word2vec (section 5). Its classifier is the simplest model of this section: average the embeddings of the words, and feed the average to a linear classifier. To bring back a little of the word order, it adds the pairs of consecutive words to the vocabulary, as Wang and Manning did in section 3.3. On Yelp reviews, it is as accurate as a deep convolutional network (95.7%), and on Amazon reviews it is about one point behind. But it trains on a CPU in seconds instead of hours on a GPU: "We can train fastText on more than one billion words in less than ten minutes using a standard multicore CPU".
+Đây là bài báo giới thiệu **fastText**, được phát triển bởi nhóm tác giả có sự góp mặt của Tomas Mikolov — cha đẻ của word2vec (mục 5). Bộ phân loại của fastText chính là mô hình đơn giản nhất trong mục này: lấy trung bình cộng các vector nhúng của các từ trong văn bản, rồi đưa thẳng vào một bộ phân loại tuyến tính. Để khôi phục một phần thông tin về trật tự từ, họ bổ sung thêm các cặp từ liên tiếp (bigram) vào bộ từ vựng, giống hệt cách Wang và Manning đã làm ở mục 3.3. Trên tập đánh giá Yelp, mô hình đơn giản này đạt độ chính xác ngang ngửa với một mạng tích chập sâu (95,7%), và trên tập đánh giá Amazon nó chỉ kém khoảng 1 điểm phần trăm. Thế nhưng thời gian huấn luyện trên CPU của nó chỉ tính bằng giây thay vì hàng giờ đồng hồ trên GPU: *"Chúng tôi có thể huấn luyện fastText trên hơn một tỷ từ trong chưa đầy mười phút bằng một CPU đa nhân tiêu chuẩn"*.
 
 </PaperNote>
 
-### 4.4 Embeddings are embeddings
+### 4.4 Biểu diễn nhúng suy cho cùng vẫn là biểu diễn của từ
 
-We have now learned two embedding matrices, for two tasks. Yet the words are the same in both: "superb" means the same in a Wikipedia article and in a movie review, so we could expect its embedding to be similar whatever the task. Let's compare the two matrices.
+Tính đến lúc này, chúng ta đã huấn luyện được hai ma trận nhúng trên hai tác vụ khác nhau. Thế nhưng bản thân các từ vựng ở hai bài toán vẫn là một: chữ "superb" trong một bài viết Wikipedia hay trong một bài đánh giá phim thì đều mang cùng một ý nghĩa như nhau, nên lẽ tự nhiên ta có thể kỳ vọng vector nhúng của nó ở hai mô hình phải có nét tương đồng. Hãy thử đem hai ma trận nhúng này ra đối chiếu.
 
-<Exercise number="4.4" title="Compare the embeddings learned on the two tasks" data="IMDB" nb="04-4-neighbors">
+<Exercise number="4.4" title="So sánh các biểu diễn nhúng học được từ hai tác vụ" data="IMDB" nb="04-4-neighbors">
 
-Print the 5 nearest neighbors of the six words of exercise 4.2 ("three", "he", "city", "film", "excellent" and "terrible") in the embedding matrix $W$ of the deep averaging network of exercise 4.3, according to the cosine similarity. Compare them with their neighbors in the embeddings of the language model of exercise 4.2.
+Hãy in ra 5 từ láng giềng gần nhất của sáu từ ở bài tập 4.2 ("three", "he", "city", "film", "excellent" và "terrible") trong ma trận nhúng $W$ của mạng lấy trung bình sâu ở bài tập 4.3, tính theo độ tương đồng cosine. Hãy so sánh chúng với các từ láng giềng tìm được từ mô hình ngôn ngữ ở bài tập 4.2.
 
-The starter code trains the network of exercise 4.3 again, with steps (1) and (2) of the solution of exercise 3.2 and steps (1) to (3) of the solution of exercise 4.3: the network of the best epoch is `best_model`. It does not train the language model of exercise 4.2: take its neighbors from your results of exercise 4.2, or from the output of its solution.
+Đoạn mã khởi đầu huấn luyện lại mạng DAN của bài tập 4.3 (kết hợp bước 1–2 của lời giải bài 3.2 và bước 1–3 của lời giải bài 4.3): mô hình ở epoch tốt nhất được lưu trong biến `best_model`. Mã khởi đầu không chạy lại mô hình ngôn ngữ của bài tập 4.2: bạn hãy lấy danh sách láng giềng từ kết quả bạn đã làm ở bài tập 4.2, hoặc xem trong phần lời giải của bài đó.
 
 <Starter nb="04-4-neighbors" />
 
@@ -280,13 +280,13 @@ The starter code trains the network of exercise 4.3 again, with steps (1) and (2
 
 <Hint>
 
-The first layer of the network of exercise 4.3 stores $W$ as it is, with one column per word: `best_model[0].weight` has size D × V. `vectorizer.vocabulary_` gives the index of a word, and `vectorizer.get_feature_names_out()` the word at each index.
+Tầng đầu tiên của mạng ở bài tập 4.3 lưu trữ trực tiếp ma trận $W$ với mỗi cột là một từ: `best_model[0].weight` có kích thước $D \times V$. Thuộc tính `vectorizer.vocabulary_` cho biết chỉ số cột của một từ, và `vectorizer.get_feature_names_out()` trả về từ tương ứng với mỗi chỉ số.
 
 </Hint>
 
 <Hint>
 
-Divide each column of $W$ by its length: the cosine similarities between a word and all the others are then a single product of a vector by a matrix, as in exercise 4.2.
+Hãy chia mỗi cột của ma trận $W$ cho độ dài Euclid của chính cột đó: khi ấy, độ tương đồng cosine giữa một từ với toàn bộ các từ còn lại sẽ thu được chỉ qua một phép nhân vector với ma trận, tương tự như ở bài tập 4.2.
 
 </Hint>
 
@@ -294,7 +294,7 @@ Divide each column of $W$ by its length: the cosine similarities between a word 
 
 <Checkpoint nb="04-4-neighbors">
 
-The neighbors of "excellent" are words of praise ("wonderfully", "perfectly", "refreshing", and the grade "7"), and those of "terrible" words of blame ("poorly", "worst", "awful"). The neighbors of "three", "he", "city" and "film" look random.
+Các láng giềng gần nhất của "excellent" toàn là những từ khen ngợi ("wonderfully", "perfectly", "refreshing", cùng điểm số "7"), còn láng giềng của "terrible" toàn là những từ chê bai ("poorly", "worst", "awful"). Ngược lại, các láng giềng của bốn từ trung tính "three", "he", "city" và "film" trông hoàn toàn ngẫu nhiên.
 
 </Checkpoint>
 
@@ -302,56 +302,56 @@ The neighbors of "excellent" are words of praise ("wonderfully", "perfectly", "r
 
 <WhatToNotice>
 
-The two matrices are the mirror image of each other. The averaging network only learned what the sentiment needs: whether a word is positive or negative. It knows that "excellent" is like "wonderfully" and "terrible" like "awful", which the language model did not learn. But "three", "he", "city" and "film" say nothing about the sentiment, so the training had no consistent reason to move their embeddings, and their neighbors look random. The language model did the opposite: it organized the frequent words of Wikipedia, and left the rare words of praise and blame in the noise. **An embedding learned for a task only captures what this task needs, from the data of this task.**
+Hai ma trận nhúng giống như hai bức ảnh âm bản đối lập nhau hoàn toàn! Mạng lấy trung bình sâu trên IMDB chỉ học duy nhất thứ mà bài toán phân tích cảm xúc cần đến: một từ mang sắc thái tích cực hay tiêu cực. Nó biết rất rõ rằng "excellent" giống với "wonderfully" và "terrible" giống với "awful" — điều mà mô hình ngôn ngữ trên Wikipedia trước đó đã bỏ lỡ. Thế nhưng những từ như "three", "he", "city" và "film" vốn chẳng tiết lộ điều gì về khen hay chê, nên quá trình huấn luyện không có bất kỳ động lực nhất quán nào để sắp xếp các vector nhúng của chúng, khiến các từ láng giềng của chúng trở nên hỗn độn ngẫu nhiên. Mô hình ngôn ngữ ở bài 4.2 thì làm điều ngược lại hoàn toàn: nó sắp xếp rất ngăn nắp các từ phổ biến của Wikipedia theo ngữ pháp và chủ đề, nhưng lại bỏ mặc các tính từ khen chê hiếm gặp chìm trong nhiễu loạn. **Một biểu diễn nhúng được học trực tiếp từ một tác vụ cụ thể sẽ chỉ nắm bắt những khía cạnh mà tác vụ đó cần, giới hạn trong phạm vi dữ liệu của tác vụ đó.**
 
 </WhatToNotice>
 
 </Exercise>
 
-This is the limit of learning the embeddings along with the task. A labeled dataset is small, and it only teaches what the task needs: 20,000 reviews are enough to learn which words are positive, but not that "film" is like "book". Yet the meanings of the words do not depend on the task. Learning embeddings that reflect the structure of the language again for every task, from a few labeled examples, looks like a waste.
+Đây chính là giới hạn cốt tử của việc học biểu diễn nhúng từ đầu đi kèm với từng tác vụ riêng lẻ. Một tập dữ liệu có gán nhãn thường có quy mô nhỏ, và nó chỉ dạy cho mô hình đúng những gì tác vụ nhãn đó đòi hỏi: 20.000 bài đánh giá phim là đủ để phân biệt từ khen với từ chê, nhưng hoàn toàn không đủ để dạy cho máy biết rằng "film" (bộ phim) có họ hàng gần với "book" (cuốn sách). Trong khi đó, ý nghĩa thực sự của từ ngữ trong ngôn ngữ vốn dĩ đâu có phụ thuộc vào tác vụ! Việc cứ phải học lại từ đầu các biểu diễn nhúng phản ánh cấu trúc ngôn ngữ cho mỗi bài toán mới, chỉ từ một nhúm dữ liệu gán nhãn ít ỏi, rõ ràng là một sự lãng phí lớn.
 
-**What if we could learn the embeddings once and for all, on a task where data is abundant, and then reuse them for many tasks?** Exercise 4.2 gives a hint of where to find such a task: predicting a word from its context only needs raw text, which is free, and it taught our language model that "three" is like "four" and "film" like "book". This is the idea of *pre-training* and *transfer learning*, and the topic of the next section.
+**Sẽ ra sao nếu chúng ta có thể học các biểu diễn nhúng một lần dùng mãi mãi trên một tác vụ có nguồn dữ liệu dồi dào miễn phí, rồi sau đó tái sử dụng chúng cho vô số tác vụ khác nhau?** Bài tập 4.2 đã gợi mở cho chúng ta nơi để tìm kiếm một tác vụ như vậy: bài toán dự đoán một từ dựa vào ngữ cảnh xung quanh nó chỉ cần văn bản thô chưa gán nhãn — thứ có sẵn ngập tràn trên mạng — và chính bài toán đó đã tự khắc dạy cho mô hình ngôn ngữ của chúng ta biết rằng "three" đi cùng nhóm với "four", còn "film" gần gũi với "book". Đó chính là tư tưởng cốt lõi của *tiền huấn luyện (pre-training)* và *học chuyển giao (transfer learning)*, cũng là chủ đề của mục tiếp theo.
 
-If you want to dig deeper, below are a few bonus exercises.
+Nếu bạn muốn đào sâu hơn, dưới đây là một số bài tập mở rộng.
 
 <Bonus>
 
-**The size of the context.** Train the neural language model of exercise 4.2 with 1, 2 and 5 words of context, and plot its validation perplexity against n, next to the curve of the interpolated n-gram models of exercise 2.3b. Does the neural model make better use of long contexts?
+**Kích thước ngữ cảnh.** Hãy huấn luyện mô hình ngôn ngữ nơ-ron ở bài tập 4.2 với ngữ cảnh gồm 1, 2 và 5 từ đứng trước, rồi vẽ biểu đồ perplexity trên tập xác thực theo $n$, đặt cạnh đường cong của các mô hình n-gram nội suy ở bài tập 2.3b. Liệu mô hình mạng nơ-ron có tận dụng các ngữ cảnh dài hiệu quả hơn không?
 
 </Bonus>
 
 <Bonus>
 
-**Unseen contexts.** Measure the perplexity of the neural language model and of the interpolated 4-gram model only on the words of the validation set whose 3 previous words never appear together in the training text. Which model suffers more?
+**Các ngữ cảnh chưa từng gặp.** Hãy đo perplexity của mô hình ngôn ngữ nơ-ron và của mô hình 4-gram nội suy, nhưng chỉ tính riêng trên những vị trí từ trong tập xác thực mà cụm 3 từ đứng ngay trước nó chưa từng xuất hiện cùng nhau trong văn bản huấn luyện. Mô hình nào bị ảnh hưởng nặng nề hơn?
 
 </Bonus>
 
 <Bonus>
 
-**Mixing the two models.** As Bengio et al. did, average the probabilities given by the neural language model and by the interpolated 5-gram model, with a weight of 0.5 each. How much does the perplexity improve? Why do the two models help each other?
+**Pha trộn hai mô hình.** Giống như cách Bengio và cộng sự đã làm trong bài báo gốc, hãy lấy trung bình cộng hai phân phối xác suất dự đoán bởi mô hình ngôn ngữ nơ-ron và mô hình 5-gram nội suy (mỗi mô hình trọng số 0,5). Độ hỗn loạn (perplexity) cải thiện được bao nhiêu? Tại sao hai mô hình này lại bổ trợ tốt cho nhau?
 
 </Bonus>
 
 <Bonus>
 
-**Generation.** Generate a text with the neural language model, as you did with the n-gram models in exercise 2.3a. Does it copy the training text, like the 5-gram model?
+**Sinh văn bản.** Hãy dùng mô hình ngôn ngữ nơ-ron vừa huấn luyện để sinh ra một đoạn văn bản mới, giống như bạn đã làm với các mô hình n-gram ở bài tập 2.3a. Liệu nó có sao chép nguyên văn các câu trong tập huấn luyện như mô hình 5-gram không?
 
 </Bonus>
 
 <Bonus>
 
-**No hidden layers.** Remove the hidden layers of the deep averaging network of exercise 4.3. By section 4.3, the model is then a logistic regression on the frequencies of the words. Check that it does as well as the bag of words of section 3.
+**Bỏ các tầng ẩn.** Hãy loại bỏ các tầng ẩn khỏi mạng lấy trung bình sâu ở bài tập 4.3. Theo chứng minh ở mục 4.3, mô hình khi đó thu gọn về đúng bài toán hồi quy logistic trên tần suất từ. Hãy kiểm tra thực nghiệm xem nó có đạt độ chính xác tương đương với mô hình túi từ ở mục 3 hay không.
 
 </Bonus>
 
 <Bonus>
 
-**A weighted average.** Weight the average of exercise 4.3 by the IDF of the words (section 3.3). Does the accuracy change? And the predictions on the hard reviews?
+**Trung bình có trọng số.** Hãy nhân trọng số IDF của từng từ (mục 3.3) khi tính trung bình cộng các vector nhúng ở bài tập 4.3. Độ chính xác trên tập kiểm tra có thay đổi không? Còn kết quả dự đoán trên tập câu đánh giá khó thì sao?
 
 </Bonus>
 
 <Bonus>
 
-**Negation in a bag of words.** For six adjectives, three positive and three negative, compare the probabilities that the bag of words of exercise 3.2 gives to "The movie was X." and to "The movie was not X.". Check that "not" moves the score of every sentence by the same amount. Does the deep averaging network of exercise 4.3 do better?
+**Cấu trúc phủ định trong túi từ.** Với sáu tính từ (ba tính từ tích cực và ba tính từ tiêu cực), hãy so sánh xác suất mà mô hình túi từ ở bài tập 3.2 gán cho hai câu "The movie was X." và "The movie was not X.". Hãy kiểm tra xem có đúng là từ "not" luôn làm dịch chuyển điểm số logit của mọi câu đi cùng một lượng không đổi hay không. Liệu mạng lấy trung bình sâu ở bài tập 4.3 có làm tốt hơn chút nào không?
 
 </Bonus>

@@ -1,0 +1,24 @@
+export const cells = 1;
+
+```python
+import re
+import torch
+
+gold_answer = "5"
+# Nhóm G=6 phản hồi được lấy mẫu từ pi_old cho cùng một câu hỏi toán
+rollouts = [
+    "<think> 3x = 20 - 5 = 15, suy ra x = 15 / 3 = 5. </think><answer>5</answer>",
+    "<think> 3x = 15 nên x = 5. </think><answer>5</answer>",
+    "<think> 3x = 20 + 5 = 25, x = 25/3. </think><answer>8.33</answer>",
+    "Đáp số của phương trình là <answer>5</answer>",
+    "<think> Thử x = 4 thì 3*4 + 5 = 17. </think><answer>4</answer>",
+    "Tôi nghĩ x bằng 6.",
+]
+
+# Log-prob trung bình mỗi token dưới pi_old và pi_ref
+old_logp = torch.tensor([-0.85, -0.92, -1.10, -0.78, -1.05, -1.30])
+ref_logp = torch.tensor([-0.90, -0.95, -1.08, -0.80, -1.02, -1.25])
+print(f"Số mẫu trong nhóm G = {len(rollouts)} | Đáp án chuẩn: {gold_answer}")
+```
+
+<section className="code-output"><pre>{"Số mẫu trong nhóm G = 6 | Đáp án chuẩn: 5"}</pre></section>

@@ -1,0 +1,15 @@
+export const cells = 1;
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+cfg = dict(d_model=64, n_heads=4, d_ff=172)
+x = torch.randn(2, 12, cfg["d_model"])
+print("Cấu hình khối Mini-Llama:", cfg)
+```
+
+<section className="code-output"><pre>{"Cấu hình khối Mini-Llama: {'d_model': 64, 'n_heads': 4, 'd_ff': 172}"}</pre></section>

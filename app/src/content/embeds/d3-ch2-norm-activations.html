@@ -1,0 +1,353 @@
+<div class="d3-ch2-norm-act"></div>
+<style>
+  .d3-ch2-norm-act {
+    margin: 1.2rem 0;
+    padding: 16px 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 13px;
+  }
+  .d3-ch2-norm-act .na-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .d3-ch2-norm-act .na-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-ch2-norm-act .na-tab {
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch2-norm-act .na-tab.active {
+    border-color: var(--na-accent, var(--primary-color));
+    background: color-mix(in oklab, var(--na-accent, var(--primary-color)) 18%, var(--page-bg));
+  }
+  .d3-ch2-norm-act .na-subcontrols {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .d3-ch2-norm-act svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch2-norm-act .na-caption {
+    margin-top: 10px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    border: 1px solid var(--border-color);
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch2-norm-act'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch2-norm-act'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let currentTab = 'act'; // 'act' | 'norm'
+        let showDerivative = false;
+        let numLayers = 24;
+
+        let colors = ['#4e79a7', '#f28e2b', '#e15759', '#59a14f'];
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) colors = cat;
+            }
+          } catch (_) {}
+          container.style.setProperty('--na-accent', colors[0]);
+        };
+        readPalette();
+
+        const topBar = document.createElement('div');
+        topBar.className = 'na-top';
+        const tabsEl = document.createElement('div');
+        tabsEl.className = 'na-tabs';
+
+        const tabAct = document.createElement('button');
+        tabAct.type = 'button';
+        tabAct.className = 'na-tab active';
+        tabAct.textContent = 'Tab 1: Hàm kích hoạt (ReLU, GELU, SiLU, SwiGLU)';
+
+        const tabNorm = document.createElement('button');
+        tabNorm.type = 'button';
+        tabNorm.className = 'na-tab';
+        tabNorm.textContent = 'Tab 2: Luồng Đạo hàm (Pre-RMSNorm vs Post-LN)';
+
+        tabsEl.append(tabAct, tabNorm);
+        const subControls = document.createElement('div');
+        subControls.className = 'na-subcontrols';
+        topBar.append(tabsEl, subControls);
+        container.appendChild(topBar);
+
+        const W = 760, H = 265;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img')
+          .attr('aria-label', 'Biểu đồ so sánh hàm kích hoạt và luồng đạo hàm qua các tầng chuẩn hóa');
+
+        const caption = document.createElement('div');
+        caption.className = 'na-caption';
+        container.appendChild(caption);
+
+        // Math helpers
+        const sigmoid = (x) => 1 / (1 + Math.exp(-x));
+        const gelu = (x) => 0.5 * x * (1 + Math.tanh(Math.sqrt(2 / Math.PI) * (x + 0.044715 * x * x * x)));
+        const silu = (x) => x * sigmoid(x);
+        const swigluSlice = (x) => silu(x) * (0.85 * x + 0.35); // 1D slice where up-projection is a linear function of x
+
+        const deriv = (fn, x) => {
+          const eps = 1e-4;
+          return (fn(x + eps) - fn(x - eps)) / (2 * eps);
+        };
+
+        const updateSubControls = () => {
+          subControls.innerHTML = '';
+          if (currentTab === 'act') {
+            const btnFn = document.createElement('button');
+            btnFn.type = 'button';
+            btnFn.className = `na-tab${!showDerivative ? ' active' : ''}`;
+            btnFn.textContent = 'Giá trị hàm f(x)';
+            const btnDf = document.createElement('button');
+            btnDf.type = 'button';
+            btnDf.className = `na-tab${showDerivative ? ' active' : ''}`;
+            btnDf.textContent = 'Đạo hàm f′(x)';
+            btnFn.addEventListener('click', () => { showDerivative = false; updateSubControls(); render(); });
+            btnDf.addEventListener('click', () => { showDerivative = true; updateSubControls(); render(); });
+            subControls.append(btnFn, btnDf);
+          } else {
+            const lbl = document.createElement('span');
+            lbl.textContent = `Số tầng sâu L = ${numLayers}:`;
+            const rng = document.createElement('input');
+            rng.type = 'range';
+            rng.min = '8';
+            rng.max = '48';
+            rng.step = '4';
+            rng.value = String(numLayers);
+            rng.style.accentColor = colors[0];
+            rng.addEventListener('input', () => {
+              numLayers = Number(rng.value);
+              lbl.textContent = `Số tầng sâu L = ${numLayers}:`;
+              render();
+            });
+            subControls.append(lbl, rng);
+          }
+        };
+
+        tabAct.addEventListener('click', () => {
+          currentTab = 'act';
+          tabAct.classList.add('active');
+          tabNorm.classList.remove('active');
+          updateSubControls();
+          render();
+        });
+        tabNorm.addEventListener('click', () => {
+          currentTab = 'norm';
+          tabNorm.classList.add('active');
+          tabAct.classList.remove('active');
+          updateSubControls();
+          render();
+        });
+
+        const render = () => {
+          svg.selectAll('*').remove();
+          const margin = { top: 24, right: 150, bottom: 36, left: 54 };
+          const pw = W - margin.left - margin.right;
+          const ph = H - margin.top - margin.bottom;
+          const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+          if (currentTab === 'act') {
+            const xs = d3.range(-3.5, 3.55, 0.07);
+            const series = [
+              { name: 'ReLU(x) = max(0, x)', col: colors[2], fn: (x) => Math.max(0, x) },
+              { name: 'GELU(x)', col: colors[0], fn: gelu },
+              { name: 'SiLU(x) = x · σ(x)', col: colors[1], fn: silu },
+              { name: 'SwiGLU (lắt cắt 1D)', col: colors[3], fn: swigluSlice },
+            ];
+
+            const xScale = d3.scaleLinear().domain([-3.5, 3.5]).range([0, pw]);
+            const yDomain = showDerivative ? [-0.4, 2.2] : [-0.6, 3.6];
+            const yScale = d3.scaleLinear().domain(yDomain).range([ph, 0]);
+
+            // Axes
+            g.append('line')
+              .attr('x1', 0).attr('y1', yScale(0))
+              .attr('x2', pw).attr('y2', yScale(0))
+              .attr('stroke', 'var(--border-color)').attr('stroke-width', 1.2);
+            g.append('line')
+              .attr('x1', xScale(0)).attr('y1', 0)
+              .attr('x2', xScale(0)).attr('y2', ph)
+              .attr('stroke', 'var(--border-color)').attr('stroke-width', 1.2);
+
+            g.append('g')
+              .attr('transform', `translate(0,${ph})`)
+              .call(d3.axisBottom(xScale).ticks(7))
+              .attr('color', 'var(--muted-color)');
+            g.append('g')
+              .call(d3.axisLeft(yScale).ticks(6))
+              .attr('color', 'var(--muted-color)');
+
+            const lineGen = d3.line()
+              .x((d) => xScale(d.x))
+              .y((d) => yScale(d.y));
+
+            series.forEach((s, i) => {
+              const pts = xs.map((x) => ({
+                x,
+                y: showDerivative ? deriv(s.fn, x) : s.fn(x),
+              }));
+              g.append('path')
+                .datum(pts)
+                .attr('fill', 'none')
+                .attr('stroke', s.col)
+                .attr('stroke-width', 2.3)
+                .attr('d', lineGen);
+
+              // Legend on the right
+              const ly = 24 + i * 26;
+              g.append('line')
+                .attr('x1', pw + 14).attr('y1', ly)
+                .attr('x2', pw + 34).attr('y2', ly)
+                .attr('stroke', s.col).attr('stroke-width', 2.5);
+              g.append('text')
+                .attr('x', pw + 40).attr('y', ly + 4)
+                .attr('fill', 'var(--text-color)')
+                .attr('font-size', 11.5)
+                .text(s.name);
+            });
+
+            caption.innerHTML = showDerivative
+              ? '<strong>Quan sát đạo hàm f′(x):</strong> Với <code>x < 0</code>, đạo hàm của ReLU bằng 0 tuyệt đối (gây hiện tượng <em>nơ-ron chết — dead ReLU</em>). Ngược lại, GELU và SiLU có vùng đạo hàm âm mượt gần <code>x ≈ −1.2</code>, cho phép tinh chỉnh trọng số ngay cả khi đầu vào âm.'
+              : '<strong>Quan sát hình dạng hàm kích hoạt:</strong> SiLU (Swish) và GELU cho phép một lượng nhỏ tín hiệu âm đi qua (vùng lõm nhẹ dưới trục hoành), còn <strong>SwiGLU</strong> nhân điểm-theo-điểm giữa cổng <code>SiLU(x W_gate)</code> và nhánh tuyến tính <code>x W_up</code>, tạo ra hàm đa thức bậc hai mượt có sức biểu diễn vượt trội.';
+          } else {
+            // Tab 2: Gradient norm across layers l = 1..L for Pre-RMSNorm vs Post-LayerNorm
+            const layers = d3.range(1, numLayers + 1);
+            const xScale = d3.scaleLinear().domain([1, numLayers]).range([0, pw]);
+            const yScale = d3.scaleLinear().domain([0, 1.35]).range([ph, 0]);
+
+            g.append('g')
+              .attr('transform', `translate(0,${ph})`)
+              .call(d3.axisBottom(xScale).ticks(Math.min(12, numLayers)).tickFormat((d) => `Tầng ${d}`))
+              .attr('color', 'var(--muted-color)');
+            g.append('g')
+              .call(d3.axisLeft(yScale).ticks(5))
+              .attr('color', 'var(--muted-color)');
+
+            // Post-LN: at initialization without warmup, gradient decays as (1 / sqrt(1 + sigma^2))^(L - l)
+            // Pre-RMSNorm: direct identity path keeps gradient norm nearly constant across depth
+            const postPts = layers.map((l) => ({
+              l,
+              g: 1.15 * Math.pow(0.87, numLayers - l),
+            }));
+            const prePts = layers.map((l) => ({
+              l,
+              g: 1.0 + 0.08 * ((numLayers - l) / numLayers),
+            }));
+
+            const lineGen = d3.line()
+              .x((d) => xScale(d.l))
+              .y((d) => yScale(d.g));
+
+            g.append('path')
+              .datum(prePts)
+              .attr('fill', 'none')
+              .attr('stroke', colors[0])
+              .attr('stroke-width', 2.6)
+              .attr('d', lineGen);
+
+            g.append('path')
+              .datum(postPts)
+              .attr('fill', 'none')
+              .attr('stroke', colors[2])
+              .attr('stroke-width', 2.6)
+              .attr('stroke-dasharray', '6,4')
+              .attr('d', lineGen);
+
+            [
+              { name: 'Pre-RMSNorm (Cao tốc thặng dư)', col: colors[0], dash: '' },
+              { name: 'Post-LN (Suy giảm ở tầng đầu)', col: colors[2], dash: '5,3' },
+            ].forEach((s, i) => {
+              const ly = 36 + i * 30;
+              g.append('line')
+                .attr('x1', pw + 12).attr('y1', ly)
+                .attr('x2', pw + 32).attr('y2', ly)
+                .attr('stroke', s.col).attr('stroke-width', 2.5)
+                .attr('stroke-dasharray', s.dash);
+              g.append('text')
+                .attr('x', pw + 38).attr('y', ly + 4)
+                .attr('fill', 'var(--text-color)')
+                .attr('font-size', 11.5)
+                .text(s.name);
+            });
+
+            caption.innerHTML = `<strong>Định lý Xiong et al. (2020):</strong> Ở kiến trúc <strong>Post-LN</strong> (Vaswani 2017), phép chuẩn hóa nằm ngay trên đường chính nên đạo hàm phải đi qua hệ số thu phóng ở mỗi tầng, khiến đạo hàm tại tầng 1 suy giảm còn <code>${(postPts[0].g * 100).toFixed(1)}%</code> so với tầng cuối khi <code>L = ${numLayers}</code>. Với <strong>Pre-RMSNorm</strong>, đường cao tốc <code>x_L = x_0 + ∑ f_l(x_{l-1})</code> truyền đạo hàm bậc <code>O(1)</code> trực tiếp về mọi tầng!`;
+          }
+        };
+
+        updateSubControls();
+        render();
+        document.addEventListener('palettes:updated', () => {
+          readPalette();
+          render();
+        });
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

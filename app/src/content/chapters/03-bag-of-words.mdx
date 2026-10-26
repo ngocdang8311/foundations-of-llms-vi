@@ -11,36 +11,37 @@ import Bonus from '../../components/post/Bonus.astro';
 import PairTable from '../../components/post/PairTable.astro';
 import Optional from '../../components/post/Optional.astro';
 
-## 3. Classification with bag of words
+## 3. Phân loại văn bản với Túi từ (Bag of Words)
 
-Let's now leave language modeling for a while, and turn to the other task of this post: classifying movie reviews as positive or negative.
+Bây giờ, chúng ta hãy tạm gác lại bài toán mô hình hóa ngôn ngữ để chuyển sang tác vụ trọng tâm thứ hai của bài viết: phân loại các bài đánh giá phim thành tích cực (*positive*) hoặc tiêu cực (*negative*).
 
-### 3.1 The pattern: encoder → fixed-size representation → head
+### 3.1 Khuôn mẫu chung: Bộ mã hóa (Encoder) → Biểu diễn kích thước cố định → Đầu phân loại (Head)
 
-In a classification task, such as the *sentiment analysis of movie reviews*, the input text has a variable length. And we can't rely on the trick we used for the Markov language model, which is to keep only the last $n$ words. Indeed there is no reason to assume that the important information will be in the last $n$ words, especially if $n$ is less than 3 or 4!
+Trong một bài toán phân loại, chẳng hạn như *phân tích cảm xúc của các bài đánh giá phim*, văn bản đầu vào luôn có độ dài biến thiên. Và chúng ta không thể dùng lại mẹo đã áp dụng cho mô hình ngôn ngữ Markov — tức là chỉ giữ lại $n$ từ cuối cùng. Thật vậy, chẳng có lý do gì để giả định rằng thông tin quan trọng nhất của cả bài đánh giá lại luôn nằm ở $n$ từ cuối cùng, nhất là khi $n$ chỉ nhỏ hơn 3 hoặc 4!
 
-Since all classical machine learning methods (logistic regression, feedforward networks, tree-based methods...) require an input of fixed size, **we need a way to go from a variable-length piece of text to a fixed-size representation** of the content of this text.
+Vì tất cả các phương pháp học máy cổ điển (hồi quy logistic, mạng nơ-ron truyền thẳng, các phương pháp dựa trên cây quyết định...) đều đòi hỏi đầu vào có kích thước cố định, **chúng ta cần một cơ chế để chuyển đổi một đoạn văn bản có độ dài bất kỳ thành một biểu diễn có kích thước cố định (fixed-size representation)** tóm lược nội dung của văn bản đó.
 
-In general, a classification model in NLP can be split into two steps: the *encoder*, which produces a fixed-size representation of the text (sometimes called a *latent representation*), and the *classification head*, which takes this representation and produces the probabilities of the classes.
+Nhìn chung, một mô hình phân loại trong NLP luôn có thể tách thành hai bước: *bộ mã hóa (encoder)* — làm nhiệm vụ tạo ra một biểu diễn có kích thước cố định cho văn bản (đôi khi được gọi là *biểu diễn tiềm ẩn — latent representation*), và *đầu phân loại (classification head)* — nhận biểu diễn này làm đầu vào để tính ra xác suất của từng lớp.
 
-This is illustrated below.
+Khuôn mẫu này được minh họa trực quan ở hình dưới đây.
 <HtmlEmbed
   src="d3-encoder-head.html"
-  title="Encoder, representation, head"
-  desc="The pattern of every classifier in this post: an encoder turns a text of any length into a vector of fixed size, and a head turns this vector into the probabilities of the classes. Most of what follows is about the box marked “?”."
+  title="Bộ mã hóa (Encoder), biểu diễn (Representation) và đầu dự đoán (Head)"
+  desc="Khuôn mẫu chung của mọi bộ phân loại trong bài viết này: bộ mã hóa biến đổi một văn bản có độ dài bất kỳ thành một vector có kích thước cố định, và đầu phân loại biến vector đó thành xác suất của các lớp. Phần lớn nội dung tiếp theo của chúng ta xoay quanh chiếc hộp được đánh dấu “?”."
 />
 
-Note that the n-gram models of section 2 already follow this pattern, for language modeling: the encoder keeps the last n − 1 words of the text, a representation of fixed size, and the head is the table of counts, which gives the probabilities of the next word.
+Lưu ý rằng các mô hình n-gram ở mục 2 thực chất cũng tuân theo khuôn mẫu này cho bài toán mô hình hóa ngôn ngữ: bộ mã hóa giữ lại $n - 1$ từ cuối cùng của văn bản (một biểu diễn có kích thước cố định), còn đầu dự đoán chính là bảng đếm tần số dùng để tra cứu xác suất của từ tiếp theo.
 
-So **what are our options to build a fixed-size representation of a review?** Let's start with the simplest one.
+Vậy **chúng ta có những lựa chọn nào để xây dựng một biểu diễn có kích thước cố định cho một bài đánh giá phim?** Hãy bắt đầu với phương pháp đơn giản nhất.
 
-### 3.2 Bag of words
+### 3.2 Túi từ (Bag of words)
 
-Consider this review:
+Hãy xét câu đánh giá phim sau đây:
 
 *Great acting, great lighting, and a flabbergasting soundtrack, but not even Zendaya could save this boring, boring plot.*
+*(Diễn xuất tuyệt vời, ánh sáng tuyệt vời và nhạc phim xuất sắc đến kinh ngạc, nhưng ngay cả Zendaya cũng không cứu nổi cốt truyện nhàm chán, vô cùng nhàm chán này.)*
 
-We can simply count the occurrences of each word.
+Chúng ta có thể đơn giản đếm số lần xuất hiện của từng từ trong câu.
 
 <PairTable>
 
@@ -53,49 +54,49 @@ We can simply count the occurrences of each word.
 
 </PairTable>
 
-We can't use this table directly as a representation, because its size (and the words in it) changes from one review to the next. The solution is to **choose a vocabulary of V words beforehand**, for instance the V most frequent words of the training reviews. Each review then becomes a vector of size V, whose entry number $v$ is the count $C_v$ of the $v$-th word of the vocabulary in the review.
+Ta chưa thể dùng trực tiếp bảng này làm biểu diễn đầu vào cho mô hình được, bởi kích thước của bảng (cũng như các từ bên trong nó) sẽ thay đổi tùy theo từng bài đánh giá. Giải pháp là **chọn trước một bộ từ vựng gồm $V$ từ**, chẳng hạn như $V$ từ xuất hiện phổ biến nhất trong tập các bài đánh giá huấn luyện. Khi đó, mỗi bài đánh giá sẽ trở thành một vector có kích thước $V$, trong đó phần tử thứ $v$ chính là số lần xuất hiện $C_v$ của từ thứ $v$ (trong bộ từ vựng) ở bài đánh giá đang xét.
 
-Almost all the entries of this vector are zeros: the median IMDB review has 178 words, while the vocabulary has thousands of them. It is a *sparse* vector. You can also see it as the sum of the one-hot vectors of the words of the review, which has the same size V whatever the length of the review. **We have our fixed-size representation**, and we can feed it to any classical classifier.
+Hầu hết các phần tử của vector này đều bằng 0: một bài đánh giá IMDB trung vị chỉ dài khoảng 178 từ, trong khi bộ từ vựng chứa tới hàng nghìn từ. Đây là một vector *thưa (sparse vector)*. Bạn cũng có thể hiểu vector này như tổng của các vector one-hot của từng từ xuất hiện trong bài đánh giá — tổng này luôn có cùng kích thước $V$ bất kể bài đánh giá dài hay ngắn. **Vậy là chúng ta đã có được biểu diễn kích thước cố định**, sẵn sàng đưa vào bất kỳ bộ phân loại cổ điển nào.
 
-This representation is called a *bag of words*: it is as if we had cut the review into words and thrown them into a bag. We know how many times each word appears, but we have lost the order in which they appear (keep that in mind, it will come back).
+Cách biểu diễn này được gọi là *túi từ (bag of words — BoW)*: cứ như thể chúng ta cắt rời bài đánh giá thành từng từ lẻ rồi trút tất cả vào chung một chiếc túi. Chúng ta biết chính xác mỗi từ xuất hiện bao nhiêu lần, nhưng đã đánh mất hoàn toàn trật tự xuất hiện của chúng (hãy ghi nhớ chi tiết này, chúng ta sẽ sớm quay lại với nó).
 
-<PaperNote id="salton1975" look="Table III: the words that best and worst tell apart 425 articles of Time magazine from 1963. The best are “Buddhist”, “Diem”, “Lao”, “Arab”, “Viet”, “Kurd”; the worst include “Work”, “Lead”, “Red” and “Minister”.">
+<PaperNote id="salton1975" look="Bảng III: những từ giúp phân biệt tốt nhất và kém nhất 425 bài báo của tạp chí Time năm 1963. Các từ tốt nhất là “Buddhist”, “Diem”, “Lao”, “Arab”, “Viet”, “Kurd”; các từ kém nhất gồm “Work”, “Lead”, “Red” và “Minister”.">
 
-Gerard Salton built SMART, a system that searches collections of documents automatically, in the 1960s. In this paper, he and his colleagues represent each document as a vector with one weight per word, and measure the similarity of two documents by the angle between their vectors. Their idea is that good weights spread the documents apart in this "document space", so that a query finds the right ones more easily. The weights they recommend are those of section 3.3: the count of the word times its inverse document frequency!
+Gerard Salton đã xây dựng SMART — một hệ thống tìm kiếm tài liệu tự động — từ thập niên 1960. Trong bài báo này, ông cùng các cộng sự biểu diễn mỗi tài liệu thành một vector với một trọng số cho mỗi từ, và đo độ tương đồng giữa hai tài liệu bằng góc tạo bởi hai vector của chúng. Ý tưởng cốt lõi của nhóm tác giả là: một bộ trọng số tốt sẽ giúp kéo giãn các tài liệu ra xa nhau trong "không gian tài liệu" (*document space*), nhờ đó một câu truy vấn có thể tìm thấy đúng tài liệu liên quan dễ dàng hơn. Bộ trọng số mà họ khuyến nghị chính là công thức ở mục 3.3: số lần xuất hiện của từ nhân với nghịch đảo tần suất tài liệu của nó!
 
 </PaperNote>
 
-Of course, some words will not be in the vocabulary, like "Zendaya" in our example. They are simply ignored. With V = 10,000, "flabbergasting" is most likely ignored too: it appears in only 2 of the 25,000 training reviews of IMDB.
+Tất nhiên, sẽ có những từ không nằm trong bộ từ vựng đã chọn, chẳng hạn như tên riêng "Zendaya" trong ví dụ của chúng ta. Những từ này đơn giản sẽ bị bỏ qua. Với $V = 10{,}000$, từ "flabbergasting" (kinh ngạc) nhiều khả năng cũng sẽ bị bỏ qua: nó chỉ xuất hiện trong đúng 2 trên tổng số 25.000 bài đánh giá huấn luyện của IMDB.
 
-For the head, the simplest choice is a *logistic regression*. It gives a weight $w_v$ to each word of the vocabulary, and computes the probability that the review is positive as
+Về phần đầu phân loại (*head*), lựa chọn đơn giản nhất là *hồi quy logistic (logistic regression)*. Mô hình này gán một trọng số $w_v$ cho mỗi từ trong bộ từ vựng, rồi tính xác suất bài đánh giá mang sắc thái tích cực theo công thức:
 
 $$
-p(\text{positive} \mid x_1 \dots x_L) = \sigma\Big(b + \sum_{v=1}^{V} w_v \, C_v\Big), \qquad \text{with } \sigma(z) = \frac{1}{1 + e^{-z}},
+p(\text{positive} \mid x_1 \dots x_L) = \sigma\Big(b + \sum_{v=1}^{V} w_v \, C_v\Big), \qquad \text{với } \sigma(z) = \frac{1}{1 + e^{-z}},
 $$
 
-where $b$ is a bias, and the sigmoid function $\sigma$ turns the score into a probability between 0 and 1. In other words, each occurrence of a word pushes the score up or down by the weight of this word, and the model says "positive" when the total is above zero. The weights are learned on labeled reviews, by minimizing the cross-entropy loss of section 2.2 (with two classes, instead of a whole vocabulary of next words).
+trong đó $b$ là độ chệch (*bias*), và hàm sigmoid $\sigma$ nén tổng điểm thành một giá trị xác suất nằm trong khoảng từ 0 đến 1. Nói cách khác, mỗi lần một từ xuất hiện sẽ đẩy tổng điểm tăng lên hoặc giảm xuống một lượng bằng đúng trọng số của từ đó, và mô hình sẽ kết luận là "tích cực" khi tổng điểm lớn hơn 0. Các trọng số này được học từ các bài đánh giá đã gán nhãn bằng cách cực tiểu hóa hàm mất mát entropy chéo ở mục 2.2 (với hai lớp thay vì toàn bộ từ vựng các từ tiếp theo).
 
-You can play with such a model below: it is the one you will train in exercise 3.2. Edit the review and watch its count vector change. To show the limits of this approach, **try to write a very negative review that gets classified as positive**, for instance using sarcasm.
+Bạn có thể tương tác trực tiếp với mô hình này ở hình bên dưới: đây chính là mô hình bạn sẽ tự tay huấn luyện trong bài tập 3.2. Hãy thử chỉnh sửa nội dung bài đánh giá và quan sát vector đếm thay đổi. Để thấy rõ giới hạn của phương pháp này, **hãy thử viết một câu chê bai thậm tệ nhưng vẫn bị mô hình phân loại nhầm thành tích cực**, chẳng hạn bằng cách dùng giọng điệu mỉa mai.
 <HtmlEmbed
   src="d3-bag-of-words.html"
   data="bow-weights.json"
-  title="A review as a bag of words"
-  desc="The bag-of-word vector has one entry per word of the vocabulary, in alphabetical order, and only the words of the review have a non-zero entry (the dashed boxes count the zeros between them.) Each entry is colored by the weight of its word in the logistic regression of exercise 3.2 (hover over an entry to see it). Try to shuffle the words of your review: nothing changes."
+  title="Biểu diễn một bài đánh giá dưới dạng túi từ"
+  desc="Vector túi từ có một phần tử cho mỗi từ trong bộ từ vựng (sắp xếp theo thứ tự bảng chữ cái), và chỉ những từ xuất hiện trong bài đánh giá mới có giá trị khác 0 (các ô nét đứt thống kê số lượng số 0 nằm giữa chúng). Mỗi phần tử được tô màu theo trọng số của từ đó trong mô hình hồi quy logistic ở bài tập 3.2 (di chuột qua từng ô để xem chi tiết). Hãy thử xáo trộn thứ tự các từ trong câu đánh giá của bạn: kết quả dự đoán hoàn toàn không đổi."
 />
 
-Let's train such a model on IMDB.
-<PaperNote id="pang2002" look="Figure 3 (in fact a table): the accuracy of the three classifiers for each set of features. And section 4 for the word lists chosen by hand.">
+Hãy cùng huấn luyện một mô hình như vậy trên bộ dữ liệu IMDB.
+<PaperNote id="pang2002" look="Hình 3 (thực chất là một bảng): độ chính xác (accuracy) của ba bộ phân loại trên từng tập đặc trưng. Và xem mục 4 về danh sách các từ được chọn thủ công bằng tay.">
 
-One of the first papers to classify sentiment with ML, on movie reviews from the IMDb archive. To set a baseline, the authors asked two graduate students in computer science to list the words that signal a positive or a negative review, and classified 700 positive and 700 negative reviews by counting these words: 58% and 64% of correct answers! Naive Bayes, maximum entropy and SVM classifiers trained on the words did much better, up to 82.9% for an SVM. They found that the presence of a word works better than its count.
+Một trong những công trình đầu tiên ứng dụng học máy để phân loại cảm xúc trên các bài đánh giá phim lấy từ kho lưu trữ IMDb. Để thiết lập mốc cơ sở (*baseline*), nhóm tác giả đã nhờ hai nghiên cứu sinh ngành khoa học máy tính tự liệt kê danh sách những từ báo hiệu một bài đánh giá tích cực hoặc tiêu cực, rồi phân loại 700 bài tích cực và 700 bài tiêu cực bằng cách đếm các từ đó: kết quả chỉ đạt 58% và 64% câu trả lời đúng! Trong khi đó, các bộ phân loại Naive Bayes, Maximum Entropy và SVM được huấn luyện trực tiếp từ dữ liệu lại làm tốt hơn hẳn, đạt tới 82,9% với SVM. Họ cũng phát hiện ra rằng chỉ xét sự hiện diện (có/không) của một từ thậm chí còn hiệu quả hơn là đếm số lần từ đó xuất hiện.
 </PaperNote>
 
-<Optional title="Don't forget overfitting">
-Remember that with 10,000 weights for 20,000 reviews, the model can *overfit*: it can find weights that fit the training reviews perfectly, noise included, and generalize badly. This is why logistic regression is usually *regularized*: a penalty proportional to the sum of the squared weights is added to the loss, to keep the weights small. In scikit-learn, the parameter `C` is the inverse of the strength of this penalty: the smaller `C`, the smaller the weights. As we did for the weights of the interpolation in section 2.3, we choose `C` on a validation set, here 5,000 reviews taken out of the training set.
+<Optional title="Đừng quên hiện tượng quá khớp (overfitting)">
+Hãy nhớ rằng với 10.000 trọng số được học trên 20.000 bài đánh giá, mô hình rất dễ bị *quá khớp (overfit)*: nó có thể tìm ra bộ trọng số khớp hoàn hảo với các bài đánh giá huấn luyện — bao gồm cả nhiễu ngẫu nhiên — và dẫn đến khả năng khái quát hóa kém trên dữ liệu mới. Đó là lý do vì sao hồi quy logistic thường đi kèm với *điều chuẩn (regularization)*: một lượng phạt tỷ lệ thuận với tổng bình phương các trọng số (điều chuẩn $L_2$) được cộng thêm vào hàm mất mát nhằm giữ cho các trọng số không phình quá lớn. Trong thư viện scikit-learn, tham số `C` là nghịch đảo của cường độ điều chuẩn: `C` càng nhỏ thì lực phạt càng mạnh và các trọng số càng bị ép nhỏ lại. Giống như cách ta đã làm với trọng số nội suy ở mục 2.3, chúng ta sẽ chọn giá trị `C` dựa trên một tập xác thực, ở đây là 5.000 bài đánh giá được tách ra từ tập huấn luyện.
 </Optional>
 
-<Exercise number="3.2" title="Classify the IMDB reviews with a bag of words" data="IMDB" nb="03-2-bag-of-words">
+<Exercise number="3.2" title="Phân loại đánh giá phim IMDB bằng túi từ" data="IMDB" nb="03-2-bag-of-words">
 
-Represent each review by its counts over the 10,000 most frequent words of the training reviews, and train a logistic regression on these vectors. Keep 5,000 training reviews aside as a validation set, and use it to choose the parameter `C` of the regularization. Then measure the test accuracy, and print the 10 words with the largest positive weights and the 10 words with the largest negative weights.
+Hãy biểu diễn mỗi bài đánh giá bằng vector đếm trên 10.000 từ phổ biến nhất của tập huấn luyện, và huấn luyện một mô hình hồi quy logistic trên các vector này. Giữ riêng 5.000 bài đánh giá huấn luyện làm tập xác thực và dùng nó để chọn tham số điều chuẩn `C`. Sau đó, hãy đo độ chính xác trên tập kiểm tra (*test accuracy*), đồng thời in ra 10 từ có trọng số dương lớn nhất và 10 từ có trọng số âm lớn nhất.
 
 <Starter nb="03-2-bag-of-words" />
 
@@ -103,19 +104,19 @@ Represent each review by its counts over the 10,000 most frequent words of the t
 
 <Hint>
 
-The reviews contain HTML line breaks, `<br />`: replace them with spaces. To make the validation set, use the method `train_test_split(test_size=5000, seed=0)` of the training split. Don't just take the last 5,000 reviews: the training reviews are sorted by label!
+Các bài đánh giá có chứa thẻ ngắt dòng HTML `<br />`: hãy thay thế chúng bằng khoảng trắng. Để tạo tập xác thực, hãy sử dụng phương thức `train_test_split(test_size=5000, seed=0)` trên tập huấn luyện. Đừng chỉ cắt lấy 5.000 bài đánh giá cuối cùng: các bài đánh giá trong tập huấn luyện gốc được sắp xếp theo nhãn!
 
 </Hint>
 
 <Hint>
 
-`CountVectorizer(max_features=10000)` from scikit-learn builds the vocabulary of the most frequent words of the texts you give to its method `fit_transform`, and returns their count vectors. Its method `transform` then counts the words of any other text. By default, it skips the words of a single letter, like "a": pass `token_pattern=r"\b\w+\b"` to keep them. The vectors are stored as *sparse matrices*, which keep only the non-zero entries.
+Lớp `CountVectorizer(max_features=10000)` của scikit-learn sẽ xây dựng bộ từ vựng gồm các từ phổ biến nhất từ những văn bản bạn truyền vào phương thức `fit_transform`, đồng thời trả về các vector đếm tương ứng. Sau đó, phương thức `transform` sẽ dùng bộ từ vựng cố định này để đếm từ cho bất kỳ văn bản nào khác. Mặc định, công cụ này bỏ qua các từ chỉ có một chữ cái (như chữ "a"): hãy truyền tham số `token_pattern=r"\b\w+\b"` để giữ lại chúng. Các vector được lưu trữ dưới dạng *ma trận thưa (sparse matrices)*, chỉ lưu các phần tử khác 0 nhằm tiết kiệm bộ nhớ.
 
 </Hint>
 
 <Hint>
 
-Use `LogisticRegression(C=C, max_iter=1000)` from scikit-learn, and try `C` = 0.01, 0.03, 0.1, 0.3, 1, 3 and 10. Once a model is trained, `model.coef_[0]` holds its weights, in the order of the words of `vectorizer.get_feature_names_out()`.
+Hãy sử dụng `LogisticRegression(C=C, max_iter=1000)` từ scikit-learn, và thử các giá trị `C` = 0.01, 0.03, 0.1, 0.3, 1, 3 và 10. Sau khi mô hình được huấn luyện xong, thuộc tính `model.coef_[0]` sẽ chứa mảng trọng số của các từ, theo đúng thứ tự từ vựng trả về bởi `vectorizer.get_feature_names_out()`.
 
 </Hint>
 
@@ -123,7 +124,7 @@ Use `LogisticRegression(C=C, max_iter=1000)` from scikit-learn, and try `C` = 0.
 
 <Checkpoint nb="03-2-bag-of-words">
 
-The best value is `C` = 0.1, with a validation accuracy of 88.9%, and the test accuracy is 87.6%. The most negative words include "worst", "waste" and "awful", the most positive ones "perfect", "excellent" and "superb". If you cut the reviews into words differently, your numbers and your lists can differ a little.
+Giá trị tốt nhất là `C` = 0.1 với độ chính xác trên tập xác thực đạt 88,9%, và độ chính xác trên tập kiểm tra đạt 87,6%. Những từ mang trọng số tiêu cực mạnh nhất bao gồm "worst", "waste" và "awful"; còn những từ tích cực nhất gồm có "perfect", "excellent" và "superb". Nếu bạn tách từ theo quy tắc hơi khác một chút, các con số và danh sách từ của bạn có thể xê dịch đôi chút.
 
 </Checkpoint>
 
@@ -131,39 +132,39 @@ The best value is `C` = 0.1, with a validation accuracy of 88.9%, and the test a
 
 <WhatToNotice>
 
-Without knowing anything about the order of the words, a bag of words gets 87.6% of the test reviews right! And its weights are easy to read: the model has built its own lists of positive and negative words from the data. But look at the two most positive words: "7" and "8". They are not sentiments, they are grades: many reviewers end with "7/10" or "8/10", and the model has found this shortcut on its own. **The model does not understand the reviews: it counts the words that tend to come with each label.**
+Dù hoàn toàn mù tịt về trật tự từ trong câu, mô hình túi từ vẫn phân loại đúng tới 87,6% các bài đánh giá trong tập kiểm tra! Hơn nữa, các trọng số của nó cực kỳ dễ diễn giải: mô hình đã tự động trích xuất từ dữ liệu một danh sách các từ khen và chê của riêng mình. Nhưng hãy nhìn kỹ vào hai "từ" mang trọng số tích cực lớn nhất: con số "7" và "8". Chúng chẳng phải là từ chỉ cảm xúc, mà là điểm số chấm phim: rất nhiều người viết kết thúc bài đánh giá bằng cụm "7/10" hoặc "8/10", và mô hình đã tự tìm ra lối tắt (*shortcut*) này. **Mô hình không hề hiểu nội dung bài đánh giá: nó chỉ đơn thuần đếm những từ thường hay đi kèm với từng nhãn.**
 
 </WhatToNotice>
 
 </Exercise>
 
-Learning the words from the data works much better than choosing them by hand, and this was one of the first lessons of sentiment classification by machine learning.
+Việc để máy tự học trọng số của các từ từ dữ liệu hiệu quả hơn gấp bội so với việc con người tự chọn từ thủ công, và đây chính là một trong những bài học đầu tiên của bài toán phân loại cảm xúc bằng học máy.
 
-### 3.3 TF-IDF weighting
+### 3.3 Đánh trọng số TF-IDF (TF-IDF weighting)
 
-In the previous example, words like "a" and "and" are certainly not very informative, because they are very common: "the" appears in 99% of the training reviews of IMDB, "a" and "and" in 97% of them. On the contrary, "boring" appears in only 6% of the reviews, and certainly carries useful information.
+Trong ví dụ vừa rồi, những từ như "a" hay "and" chắc chắn không mang lại nhiều thông tin phân loại, bởi chúng xuất hiện ở khắp mọi nơi: từ "the" có mặt trong 99% số bài đánh giá huấn luyện của IMDB, còn "a" và "and" xuất hiện trong 97% số bài. Ngược lại, từ "boring" chỉ xuất hiện trong 6% số bài đánh giá và chắc chắn mang thông tin rất có giá trị.
 
-A solution to improve the bag-of-words representation is to down-weight the words that appear in most documents, and up-weight the rare ones. This is what the **inverse document frequency** does: multiply the count of each word by $-\log$ of the fraction of documents that contain it,
+Một giải pháp để cải thiện biểu diễn túi từ là giảm trọng số của những từ xuất hiện ở hầu hết mọi tài liệu, đồng thời tăng trọng số cho những từ hiếm gặp hơn. Đó chính là vai trò của **nghịch đảo tần suất tài liệu (inverse document frequency — IDF)**: nhân số lần xuất hiện của mỗi từ với $-\log$ của tỷ lệ các tài liệu có chứa từ đó:
 
 $$
 \text{idf}(v) = -\log \frac{N_v}{N} = \log \frac{N}{N_v},
 $$
 
-where $N$ is the number of documents and $N_v$ the number of documents that contain the word $v$. The entry $v$ of the vector of a document becomes $C_v \times \text{idf}(v)$, hence the name *TF-IDF*, for "term frequency times inverse document frequency". With a base-2 logarithm, "the" gets a weight of 0.01, almost nothing, "boring" a weight of 4, and "flabbergasting", in 2 reviews out of 25,000, would get 13.6.
+trong đó $N$ là tổng số tài liệu và $N_v$ là số lượng tài liệu có chứa từ $v$. Khi đó, phần tử thứ $v$ trong vector biểu diễn của một tài liệu sẽ trở thành $C_v \times \text{idf}(v)$ — đó là nguồn gốc của cái tên *TF-IDF*, viết tắt của "term frequency times inverse document frequency" (tần suất từ nhân với nghịch đảo tần suất tài liệu). Nếu dùng logarit cơ số 2, từ "the" sẽ nhận trọng số IDF là 0,01 (gần như bằng 0), từ "boring" nhận trọng số là 4, còn từ "flabbergasting" (chỉ xuất hiện trong 2 trên 25.000 bài đánh giá) sẽ nhận trọng số lên tới 13,6.
 
-<PaperNote id="sparckjones1972" look="The section “Experimental results”, where she comments on the gain: “insofar as anything can be called a solid result in information retrieval research, this is one.”">
+<PaperNote id="sparckjones1972" look="Mục “Experimental results” (Kết quả thực nghiệm), nơi bà bình luận về mức cải thiện đạt được: “nếu có điều gì xứng đáng được gọi là một kết quả vững chắc trong nghiên cứu truy xuất thông tin, thì chính là kết quả này.”">
 
-Karen Sparck Jones worked on a very practical problem: a search system that scores each document by the words it shares with the query. Her remark is that a word shared by many documents does a poor job of telling them apart, so a match on a rare word should count more. She gave each word a weight that grows like the logarithm of the inverse of the number of documents that contain it, and tested it on three collections of a few hundred documents: a clear gain on all three. She never wrote "inverse document frequency" (she spoke of the *specificity* of a word): the name came later, and the idea is still used by search engines today.
+Karen Sparck Jones đã nghiên cứu một bài toán rất thiết thực: hệ thống tìm kiếm chấm điểm từng tài liệu dựa trên những từ chung giữa tài liệu đó và câu truy vấn. Nhận xét sắc sảo của bà là: một từ xuất hiện ở quá nhiều tài liệu sẽ rất kém hiệu quả trong việc phân biệt các tài liệu với nhau, vì vậy việc khớp trúng một từ hiếm phải được tính điểm cao hơn. Bà đã gán cho mỗi từ một trọng số tăng theo hàm logarit của nghịch đảo số lượng tài liệu chứa từ đó, và thử nghiệm trên ba bộ sưu tập gồm vài trăm tài liệu: kết quả cho thấy sự cải thiện rõ rệt trên cả ba bộ dữ liệu. Bà chưa từng viết ra cụm từ "inverse document frequency" (bà gọi đó là *độ đặc hiệu — specificity* của một từ): tên gọi IDF chỉ xuất hiện về sau, và ý tưởng cốt lõi này vẫn được các công cụ tìm kiếm sử dụng cho đến tận ngày nay.
 
 </PaperNote>
 
-Another simple variant keeps only the *presence* of each word: 1 if the word is in the review, 0 if not. This is what worked best for Pang et al. (see the margin note of section 3.2). Let's compare these weightings on IMDB.
+Một biến thể đơn giản khác là chỉ giữ lại thông tin về *sự hiện diện (presence)* của mỗi từ: gán bằng 1 nếu từ đó có mặt trong bài đánh giá, và bằng 0 nếu không. Đây chính là cách biểu diễn cho kết quả tốt nhất trong nghiên cứu của Pang và cộng sự (xem ghi chú bên lề ở mục 3.2). Hãy cùng so sánh ba phương pháp đánh trọng số này trên tập dữ liệu IMDB.
 
-<Exercise number="3.3" title="Weight the words of the bag of words" data="IMDB" nb="03-3-tf-idf">
+<Exercise number="3.3" title="Đánh trọng số cho các từ trong túi từ" data="IMDB" nb="03-3-tf-idf">
 
-Redo exercise 3.2 with two other weightings of the words: their presence, and TF-IDF. For each weighting, choose `C` on the validation set, then compare the test accuracies of the three weightings.
+Hãy làm lại bài tập 3.2 với hai cách đánh trọng số khác cho các từ: sự hiện diện nhị phân (có/không) và TF-IDF. Với mỗi cách đánh trọng số, hãy chọn tham số `C` tối ưu trên tập xác thực, sau đó so sánh độ chính xác trên tập kiểm tra của cả ba phương pháp.
 
-The starter code repeats step (1) of the solution of exercise 3.2, so the training, validation and test reviews are the same as in exercise 3.2.
+Đoạn mã khởi đầu lặp lại bước (1) trong lời giải của bài tập 3.2, đảm bảo các tập huấn luyện, xác thực và kiểm tra giống hệt như ở bài tập 3.2.
 
 <Starter nb="03-3-tf-idf" />
 
@@ -171,19 +172,19 @@ The starter code repeats step (1) of the solution of exercise 3.2, so the traini
 
 <Hint>
 
-`CountVectorizer(binary=True)` gives the presence of the words, and `TfidfVectorizer` gives TF-IDF. Both take the same arguments as in exercise 3.2.
+`CountVectorizer(binary=True)` trả về vector biểu diễn sự hiện diện của từ, còn `TfidfVectorizer` trả về trọng số TF-IDF. Cả hai lớp này đều nhận các tham số giống hệt như ở bài tập 3.2.
 
 </Hint>
 
 <Hint>
 
-`TfidfVectorizer` differs from the formula above in two ways. It uses the natural logarithm and adds 1 to the idf, so that a word present in every review is not removed completely. And it divides each vector by its length, so that all the reviews get vectors of length 1, whatever their number of words.
+`TfidfVectorizer` trong scikit-learn có hai điểm khác biệt nhỏ so với công thức lý thuyết ở trên. Thứ nhất, nó dùng logarit tự nhiên và cộng thêm 1 vào giá trị idf để những từ xuất hiện trong mọi bài đánh giá không bị triệt tiêu hoàn toàn về 0. Thứ hai, nó chuẩn hóa mỗi vector bằng cách chia cho độ dài Euclid ($L_2$) của chính vector đó, sao cho mọi bài đánh giá đều có vector độ dài bằng 1 bất kể bài viết dài hay ngắn.
 
 </Hint>
 
 <Hint>
 
-The best `C` is not the same for the three weightings: their vectors have values of very different sizes.
+Giá trị `C` tốt nhất sẽ không giống nhau giữa ba phương pháp đánh trọng số, bởi các phần tử trong vector của chúng có độ lớn chênh lệch nhau rất nhiều.
 
 </Hint>
 
@@ -191,7 +192,7 @@ The best `C` is not the same for the three weightings: their vectors have values
 
 <Checkpoint nb="03-3-tf-idf">
 
-The test accuracy is 87.6% with the counts (`C` = 0.1), 88.2% with the presence (`C` = 0.03), and 88.4% with TF-IDF (`C` = 3).
+Độ chính xác trên tập kiểm tra đạt 87,6% khi dùng số đếm tần số (`C` = 0.1), 88,2% khi dùng sự hiện diện nhị phân (`C` = 0.03), và 88,4% khi dùng TF-IDF (`C` = 3).
 
 </Checkpoint>
 
@@ -199,46 +200,46 @@ The test accuracy is 87.6% with the counts (`C` = 0.1), 88.2% with the presence 
 
 <WhatToNotice>
 
-TF-IDF wins, but by less than one point. Why so little? Because the logistic regression learns its own weight for each word. Multiplying the count of a word by a fixed number, like its idf, can be compensated by dividing the weight of the word by the same number: the model can learn the same thing with or without idf, and only the regularization (and the normalization of the vectors) makes a small difference. TF-IDF matters much more when no weight is learned, for instance to measure the similarity between two documents, which was the problem of Sparck Jones and Salton. **Whatever the weighting, our bag of words stays below 89%.**
+TF-IDF giành chiến thắng, nhưng cách biệt chưa tới 1 điểm phần trăm. Tại sao mức cải thiện lại ít ỏi đến vậy? Bởi vì bản thân mô hình hồi quy logistic đã tự học một trọng số riêng cho từng từ rồi! Việc nhân số đếm của một từ với một hằng số cố định (như giá trị IDF của nó) hoàn toàn có thể được bù trừ bằng cách chia trọng số học được của từ đó cho chính hằng số ấy: về mặt lý thuyết, mô hình có thể học ra cùng một hàm quyết định dù có hay không có IDF; chỉ có thành phần điều chuẩn (và bước chuẩn hóa độ dài vector) mới tạo ra một chút khác biệt nhỏ. TF-IDF sẽ phát huy vai trò lớn hơn rất nhiều khi không có trọng số nào được học cả — chẳng hạn khi đo trực tiếp độ tương đồng cosine giữa hai tài liệu, vốn chính là bài toán truy xuất thông tin của Sparck Jones và Salton. **Dù đánh trọng số theo cách nào đi nữa, mô hình túi từ của chúng ta vẫn dậm chân ở dưới ngưỡng 89%.**
 
 </WhatToNotice>
 
 </Exercise>
 
-These numbers are typical of the bag of words on IMDB: the paper that introduced the dataset reports 87.8% with the presence of the words [@maas2011]. A strong bag-of-words baseline by Wang and Manning reaches 91.2% [@wang2012]. It adds the pairs of consecutive words to the vocabulary, so that "not good" becomes a word of its own, and mixes a Naive Bayes classifier with an SVM. Pairs of words bring back a little of the word order, and this order is precisely what the bag of words is missing.
+Những con số này rất điển hình đối với mô hình túi từ trên tập dữ liệu IMDB: bài báo gốc giới thiệu bộ dữ liệu này cũng báo cáo mức 87,8% khi sử dụng đặc trưng hiện diện của từ [@maas2011]. Một mô hình cơ sở (*baseline*) rất mạnh dựa trên túi từ của Wang và Manning từng đạt tới 91,2% [@wang2012]. Mô hình đó bổ sung thêm cả các cặp từ liên tiếp (bigram) vào bộ từ vựng — nhờ vậy cụm "not good" trở thành một mục từ độc lập — đồng thời kết hợp bộ phân loại Naive Bayes với SVM. Việc đưa thêm các cặp từ giúp khôi phục lại một phần nhỏ thông tin về trật tự từ, và trật tự từ chính là mảnh ghép quan trọng mà mô hình túi từ đang đánh mất.
 
-### 3.4 The limit
+### 3.4 Giới hạn của phương pháp
 
-Consider these two reviews:
+Hãy xét hai câu đánh giá ngắn sau đây:
 
-*A: Excellent movie, awesome soundtrack.*
+*A: Excellent movie, awesome soundtrack.* *(Phim xuất sắc, nhạc phim tuyệt đỉnh.)*
 
-*B: Superb film, wonderful score.*
+*B: Superb film, wonderful score.* *(Tác phẩm điện ảnh siêu phàm, phần âm nhạc tuyệt diệu.)*
 
-They say essentially the same thing, but with completely different words. So they get completely orthogonal representations in the bag of words: no entry is non-zero in both vectors.
+Cả hai câu về cơ bản đều diễn đạt cùng một ý khen ngợi, nhưng lại sử dụng những từ hoàn toàn khác nhau. Do đó, trong không gian túi từ, chúng nhận hai vector biểu diễn hoàn toàn trực giao (vuông góc) với nhau: không có bất kỳ vị trí nào cùng khác 0 ở cả hai vector.
 
 | | excellent | movie | awesome | soundtrack | superb | film | wonderful | score |
 |---|---|---|---|---|---|---|---|---|
 | **A** | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 |
 | **B** | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 |
 
-For the bag of words, "superb" is as different from "excellent" as it is from "boring". The representation does not help the head: the head must learn the weight of each word separately, from the labeled reviews that contain this word. For a frequent word like "excellent", found in 1,780 training reviews, this works fine. But a rare word like "mesmerizing" (62 reviews) gets a weight learned from a handful of examples, and a word outside the vocabulary, like "flabbergasting", gets no weight at all.
+Đối với mô hình túi từ, từ "superb" (siêu phàm) khác biệt với từ "excellent" (xuất sắc) chẳng kém gì sự khác biệt giữa nó với từ "boring" (nhàm chán). Biểu diễn túi từ không hề hỗ trợ gì cho đầu phân loại: đầu phân loại buộc phải tự học trọng số của từng từ một cách hoàn toàn tách biệt, chỉ dựa vào những bài đánh giá đã gán nhãn có chứa chính từ đó. Với một từ phổ biến như "excellent" (xuất hiện trong 1.780 bài đánh giá huấn luyện), cách này hoạt động ổn thỏa. Thế nhưng một từ hiếm hơn như "mesmerizing" (mê hoặc — chỉ có trong 62 bài đánh giá) sẽ phải học trọng số từ vỏn vẹn vài chục ví dụ ít ỏi, còn một từ nằm ngoài bộ từ vựng như "flabbergasting" thì thậm chí chẳng có lấy một trọng số nào.
 
-The second limit is in the name: **a bag of words forgets the order of the words**. These two reviews have exactly the same words, hence exactly the same vector, so the model must give them the same probability:
+Giới hạn thứ hai nằm ngay ở tên gọi của phương pháp: **túi từ quên sạch trật tự của các từ**. Hai câu đánh giá dưới đây chứa các từ giống hệt nhau, dẫn đến hai vector biểu diễn giống hệt nhau, và vì thế mô hình buộc phải gán cho chúng cùng một xác suất như nhau:
 
-*A: I expected it to be terrible, but it was great.*
+*A: I expected it to be terrible, but it was great.* *(Tôi cứ tưởng phim sẽ dở tệ, nhưng hóa ra lại rất hay.)*
 
-*B: I expected it to be great, but it was terrible.*
+*B: I expected it to be great, but it was terrible.* *(Tôi cứ tưởng phim sẽ rất hay, nhưng hóa ra lại dở tệ.)*
 
-The same goes for negation. In "not bad at all", the model sees "not", "bad", "at" and "all" separately, and "bad" has a strong negative weight. And sarcasm is even worse, since it uses positive words to say something negative.
+Điều tương tự cũng xảy ra với cấu trúc phủ định. Trong cụm "not bad at all" (không tệ chút nào), mô hình chỉ nhìn thấy các từ rời rạc "not", "bad", "at" và "all", trong đó từ "bad" mang trọng số âm rất nặng. Còn sự mỉa mai (*sarcasm*) lại càng đánh lừa mô hình thê thảm hơn, bởi người viết cố tình dùng toàn những từ tích cực để diễn đạt một ý chê bai.
 
-To follow these limits through the post, I wrote a small set of *hard reviews*. They are short, and their sentiment is obvious to any human reader. They are grouped by kind of difficulty: negation, contrast, sarcasm, word order, synonyms and rare words. We will run every IMDB model of the post on them, starting with our bag of words.
+Để theo dõi xem các mô hình tiếp theo vượt qua những giới hạn này như thế nào xuyên suốt bài viết, tôi đã biên soạn một tập nhỏ gồm *các bài đánh giá khó (hard reviews)*. Chúng đều là những câu ngắn gọn mà bất kỳ độc giả con người nào cũng nhận ra ngay sắc thái khen chê. Các câu này được nhóm theo từng loại thử thách: phủ định (*negation*), tương phản (*contrast*), mỉa mai (*sarcasm*), trật tự từ (*word order*), từ đồng nghĩa (*synonyms*) và từ hiếm (*rare words*). Chúng ta sẽ cho mọi mô hình phân loại IMDB trong bài viết chạy thử trên tập câu khó này, bắt đầu ngay với mô hình túi từ vừa xây dựng.
 
-<Exercise number="3.4" title="Test the bag of words on the hard reviews" data="IMDB" nb="03-4-hard-reviews">
+<Exercise number="3.4" title="Thử nghiệm mô hình túi từ trên tập đánh giá khó" data="IMDB" nb="03-4-hard-reviews">
 
-Run the model of exercise 3.2 on the 13 hard reviews of the starter code. For each review, print its label and the probability of being positive that the model gives it. Which reviews does the model get wrong, and why?
+Hãy chạy mô hình ở bài tập 3.2 trên 13 câu đánh giá khó có sẵn trong đoạn mã khởi đầu. Với mỗi câu đánh giá, hãy in ra nhãn thực tế và xác suất tích cực mà mô hình dự đoán. Mô hình đoán sai những câu nào, và tại sao?
 
-The starter code trains this model again, with steps (1) and (2) of the solution of exercise 3.2 and the value of `C` chosen there, 0.1. Then it lists the hard reviews.
+Đoạn mã khởi đầu huấn luyện lại mô hình này theo bước (1) và (2) trong lời giải bài tập 3.2 với giá trị `C` = 0.1 đã chọn ở đó, sau đó liệt kê danh sách các câu đánh giá khó.
 
 <Starter nb="03-4-hard-reviews" />
 
@@ -246,13 +247,13 @@ The starter code trains this model again, with steps (1) and (2) of the solution
 
 <Hint>
 
-`model.predict_proba` returns one row per review, with the probabilities of the two classes: negative in column 0, positive in column 1.
+Phương thức `model.predict_proba` trả về một hàng cho mỗi câu đánh giá, chứa xác suất của hai lớp: lớp tiêu cực ở cột 0 và lớp tích cực ở cột 1.
 
 </Hint>
 
 <Hint>
 
-To understand a prediction, look at the weights of the words of the review: paste it into the figure "A review as a bag of words" of section 3.2, which shows the same model.
+Để hiểu lý do đằng sau một dự đoán cụ thể, hãy quan sát trọng số của từng từ trong câu đánh giá đó: bạn có thể dán câu đánh giá vào hình minh họa tương tác "Biểu diễn một bài đánh giá dưới dạng túi từ" ở mục 3.2 (hình này sử dụng chính xác cùng một mô hình).
 
 </Hint>
 
@@ -260,7 +261,7 @@ To understand a prediction, look at the weights of the words of the review: past
 
 <Checkpoint nb="03-4-hard-reviews">
 
-The model gets 7 of the 13 reviews right. The two reviews with the same words get exactly the same probability, 0.495.
+Mô hình chỉ đoán đúng 7 trên tổng số 13 câu đánh giá khó. Hai câu đánh giá có cùng tập từ vựng nhận xác suất dự đoán giống hệt nhau đến từng chữ số thập phân: 0,495.
 
 </Checkpoint>
 
@@ -268,42 +269,42 @@ The model gets 7 of the 13 reviews right. The two reviews with the same words ge
 
 <WhatToNotice>
 
-The bag of words fails where we expected it to. Sarcasm fools it: "perfect" and "masterpiece" make the review about naps 76% positive, and "Brilliant" makes the sequel review 60% positive. Negation too: "Not bad at all, actually" is only 34% positive, because of "bad". The two reviews with the same words get the same probability, so one of them is necessarily wrong. On the other hand, the two synonymous reviews are both right: each of their words appears in hundreds of labeled reviews, so the model has learned its weight. **A bag of words knows which words are positive, but not what the review says.**
+Mô hình túi từ thất bại ở đúng những chỗ chúng ta đã dự đoán. Sự mỉa mai dễ dàng đánh lừa nó: hai từ "perfect" và "masterpiece" khiến câu châm biếm về việc ngủ gật trong rạp được chấm tới 76% tích cực, còn từ "Brilliant" khiến câu chê phần tiếp theo đạt 60% tích cực. Cấu trúc phủ định cũng chịu chung số phận: câu "Not bad at all, actually" chỉ được chấm 34% tích cực vì bị từ "bad" kéo tụt điểm. Hai câu có cùng tập từ vựng nhưng ngược nghĩa nhận cùng một mức xác suất, nên chắc chắn ít nhất một trong hai câu phải sai. Ở chiều ngược lại, hai câu dùng các từ đồng nghĩa lại đều được phân loại đúng: mỗi từ trong hai câu đó đều xuất hiện ở hàng trăm bài đánh giá có nhãn, nên mô hình đã học tốt trọng số riêng của từng từ. **Mô hình túi từ biết từ nào là tích cực, nhưng hoàn toàn không biết bài đánh giá thực sự đang nói điều gì.**
 
 </WhatToNotice>
 
 </Exercise>
 
-How can we do better? For the first limit, we need a representation where similar words get similar vectors, so that what the model learns about "excellent" also helps with "superb", and even with words it has rarely seen. This is the topic of the next section. For the word order, we will have to wait until section 7.
+Làm sao chúng ta có thể làm tốt hơn? Để giải quyết giới hạn đầu tiên, ta cần một cách biểu diễn sao cho những từ có nghĩa tương tự nhau sẽ nhận được các vector gần giống nhau — nhờ đó những gì mô hình học được từ chữ "excellent" cũng sẽ tự động giúp ích khi nó gặp chữ "superb", và thậm chí giúp ích cho cả những từ hiếm khi xuất hiện. Đó chính là chủ đề của mục tiếp theo. Còn đối với bài toán trật tự từ, chúng ta sẽ phải đợi đến mục 7.
 
-If you want to dig deeper, below are a few bonus exercises.
+Nếu bạn muốn đào sâu hơn, dưới đây là một số bài tập mở rộng.
 
 <Bonus>
 
-**A small neural network.** Replace the logistic regression with a perceptron with one hidden layer (`MLPClassifier` in scikit-learn). Does it beat the logistic regression? Does it get more hard reviews right?
+**Một mạng nơ-ron nhỏ.** Hãy thay thế hồi quy logistic bằng một mạng perceptron có một tầng ẩn (`MLPClassifier` trong scikit-learn). Liệu nó có vượt qua được hồi quy logistic không? Nó có đoán đúng thêm câu nào trong tập đánh giá khó không?
 
 </Bonus>
 
 <Bonus>
 
-**Naive Bayes.** Train a Naive Bayes classifier on the counts (`MultinomialNB` in scikit-learn), one of the three classifiers of Pang et al. [@pang2002]. How does it compare with the logistic regression?
+**Naive Bayes.** Hãy huấn luyện bộ phân loại Naive Bayes trên các vector đếm (`MultinomialNB` trong scikit-learn) — một trong ba bộ phân loại được sử dụng bởi Pang và cộng sự [@pang2002]. Kết quả của nó so với hồi quy logistic như thế nào?
 
 </Bonus>
 
 <Bonus>
 
-**Pairs of words.** Add the pairs of consecutive words to the vocabulary (`ngram_range=(1, 2)`), as in Wang and Manning [@wang2012]. How much does the accuracy improve? Which hard reviews does it fix?
+**Các cặp từ (Bigrams).** Hãy thêm các cặp từ liên tiếp vào bộ từ vựng (`ngram_range=(1, 2)`), giống như cách làm của Wang và Manning [@wang2012]. Độ chính xác cải thiện được bao nhiêu? Nó khắc phục được những câu nào trong tập đánh giá khó?
 
 </Bonus>
 
 <Bonus>
 
-**The size of the vocabulary.** How does the test accuracy change with V, from 1,000 words to the whole vocabulary of the training reviews (about 75,000 words)?
+**Kích thước bộ từ vựng.** Độ chính xác trên tập kiểm tra thay đổi như thế nào khi $V$ tăng dần từ 1.000 từ cho đến toàn bộ từ vựng của tập huấn luyện (khoảng 75.000 từ)?
 
 </Bonus>
 
 <Bonus>
 
-**Shortcuts.** Remove the digits from the reviews before counting the words. How much accuracy does the model lose without the grades "7/10" or "8/10"?
+**Loại bỏ các lối tắt (Shortcuts).** Hãy xóa toàn bộ các chữ số khỏi các bài đánh giá trước khi đếm từ. Mô hình bị giảm bao nhiêu độ chính xác khi không còn dựa dẫm được vào các điểm số "7/10" hay "8/10"?
 
 </Bonus>

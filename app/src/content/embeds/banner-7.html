@@ -1,0 +1,545 @@
+<div class="d3-banner-7"></div>
+<style>
+  .d3-banner-7 {
+    padding: 20px 22px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    color: var(--text-color);
+    font-size: 13px;
+  }
+  .d3-banner-7 .b7-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 14px;
+  }
+  .d3-banner-7 .b7-kicker {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted-color);
+  }
+  .d3-banner-7 .b7-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .d3-banner-7 select,
+  .d3-banner-7 button {
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .d3-banner-7 button:hover,
+  .d3-banner-7 select:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-banner-7 button.primary {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+    font-weight: 600;
+  }
+  .d3-banner-7 .b7-query {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-align: left;
+  }
+  .d3-banner-7 .b7-query-tag {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--primary-color);
+    flex-shrink: 0;
+  }
+  .d3-banner-7 .b7-query-text {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .d3-banner-7 svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 780px;
+    margin: 0 auto 12px;
+    overflow: visible;
+  }
+  .d3-banner-7 .b7-trace {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+  }
+  .d3-banner-7 .b7-step {
+    padding: 9px 13px;
+    border-radius: 8px;
+    border-left: 3.5px solid var(--border-color);
+    background: var(--surface-bg);
+    border-top: 1px solid var(--border-color);
+    border-right: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
+    opacity: 0.32;
+    transform: translateY(2px);
+    transition: opacity 0.22s ease, transform 0.22s ease, box-shadow 0.22s ease;
+    cursor: pointer;
+  }
+  .d3-banner-7 .b7-step.visible {
+    opacity: 0.85;
+    transform: translateY(0);
+  }
+  .d3-banner-7 .b7-step.active {
+    opacity: 1;
+    box-shadow: 0 2px 10px color-mix(in oklab, var(--text-color) 10%, transparent);
+  }
+  .d3-banner-7 .b7-step-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+  .d3-banner-7 .b7-badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 7px;
+    border-radius: 4px;
+  }
+  .d3-banner-7 .b7-tokens {
+    font-size: 11px;
+    color: var(--muted-color);
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-banner-7 .b7-step-body {
+    font-size: 12.8px;
+    line-height: 1.45;
+    font-family: inherit;
+  }
+  .d3-banner-7 .b7-step-body.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: color-mix(in oklab, var(--text-color) 4%, transparent);
+    padding: 5px 8px;
+    border-radius: 5px;
+    margin-top: 4px;
+  }
+</style>
+<script>
+  (() => {
+    const SCENARIOS = [
+      {
+        id: 'finance',
+        name: 'Kịch bản 1: Tra cứu RAG & Tính toán thông số mô hình',
+        query: 'So sánh dung lượng KV Cache (FP16) cho chuỗi 32,768 token giữa Llama-3 8B và Llama-2 7B.',
+        steps: [
+          {
+            type: 'thought',
+            label: 'Thought 1 · Suy luận kế hoạch',
+            tokens: '+42 tokens (LLM sinh)',
+            mono: false,
+            text: 'Ta cần thông số kiến trúc chính xác (số lớp L, số đầu KV n_kv, chiều d_head) của Llama-3 8B và Llama-2 7B trước khi tính toán. Gọi công cụ tra cứu tài liệu kỹ thuật.',
+          },
+          {
+            type: 'action',
+            label: 'Action 1 · Gọi công cụ (Constrained JSON)',
+            tokens: '+28 tokens (FSM ép cú pháp)',
+            mono: true,
+            text: '{"tool": "hybrid_search", "args": {"query": "Llama-3 8B vs Llama-2 7B GQA num_key_value_heads layers", "top_k": 2}}',
+          },
+          {
+            type: 'observation',
+            label: 'Observation 1 · Kết quả từ môi trường ngoài',
+            tokens: '+68 tokens (Nối vào Context)',
+            mono: true,
+            text: '[Doc #14] Llama-2 7B dùng MHA: L=32 lớp, n_kv=32 đầu, d_head=128.\n[Doc #29] Llama-3 8B dùng GQA: L=32 lớp, n_kv=8 đầu, d_head=128.',
+          },
+          {
+            type: 'thought',
+            label: 'Thought 2 · Lập công thức kiểm chứng',
+            tokens: '+36 tokens (LLM sinh)',
+            mono: false,
+            text: 'Đã có thông số. Công thức KV Cache mỗi token ở FP16 (2 bytes) là 2 * 2 * L * n_kv * d_head. Gọi trình thông dịch Python để tính chính xác đến từng MB.',
+          },
+          {
+            type: 'action',
+            label: 'Action 2 · Gọi máy tính Python',
+            tokens: '+34 tokens (FSM ép cú pháp)',
+            mono: true,
+            text: '{"tool": "python_calc", "args": {"expr": "seq=32768; kv_l2 = 2*2*32*32*128*seq / (1024**3); kv_l3 = 2*2*32*8*128*seq / (1024**3); (kv_l2, kv_l3)"}}',
+          },
+          {
+            type: 'observation',
+            label: 'Observation 2 · Đầu ra thực thi mã',
+            tokens: '+19 tokens (Nối vào Context)',
+            mono: true,
+            text: '{"status": "ok", "result": "(16.0 GiB, 4.0 GiB)"}',
+          },
+          {
+            type: 'answer',
+            label: 'Final Answer · Câu trả lời có căn cứ',
+            tokens: '+54 tokens (LLM hoàn tất)',
+            mono: false,
+            text: 'Ở độ dài chuỗi 32,768 token (FP16), Llama-2 7B (MHA, 32 đầu KV) tốn 16.0 GiB cho KV Cache, trong khi Llama-3 8B nhờ cơ chế Grouped-Query Attention (8 đầu KV) chỉ tốn 4.0 GiB — tiết kiệm đúng 4 lần bộ nhớ VRAM.',
+          },
+        ],
+      },
+      {
+        id: 'debug',
+        name: 'Kịch bản 2: Tự động gỡ lỗi & phản chiếu (ReAct + Reflexion)',
+        query: 'Tính tốc độ tăng tốc lý thuyết của Speculative Decoding với γ = 4 bước nháp và tỷ lệ chấp nhận α = 0.8.',
+        steps: [
+          {
+            type: 'thought',
+            label: 'Thought 1 · Nhớ công thức',
+            tokens: '+35 tokens (LLM sinh)',
+            mono: false,
+            text: 'Số token kỳ vọng sinh ra mỗi bước của Speculative Decoding là (1 - α^(γ+1)) / (1 - α). Hãy chạy biểu thức trong công cụ tính toán.',
+          },
+          {
+            type: 'action',
+            label: 'Action 1 · Gọi công cụ (Lần thử 1)',
+            tokens: '+26 tokens (FSM ép cú pháp)',
+            mono: true,
+            text: '{"tool": "python_calc", "args": {"expr": "(1 - 0.8^(4+1)) / (1 - 0.8)"}}',
+          },
+          {
+            type: 'observation',
+            label: 'Observation 1 · Ngoại lệ từ môi trường',
+            tokens: '+24 tokens (Báo lỗi thực thi)',
+            mono: true,
+            text: 'TypeError: unsupported operand type(s) for ^: "float" and "int" (Trong Python, ^ là phép XOR bit, lũy thừa phải dùng **).',
+          },
+          {
+            type: 'thought',
+            label: 'Thought 2 · Tự phản chiếu & Sửa lỗi (Reflexion)',
+            tokens: '+38 tokens (LLM tự sửa)',
+            mono: false,
+            text: 'Quan sát báo lỗi TypeError vì dùng toán tử `^` thay vì `**` cho số thực trong Python. Tôi sẽ sửa lại biểu thức thành `0.8**(4+1)` và gọi lại công cụ.',
+          },
+          {
+            type: 'action',
+            label: 'Action 2 · Gọi lại công cụ đã sửa',
+            tokens: '+27 tokens (FSM ép cú pháp)',
+            mono: true,
+            text: '{"tool": "python_calc", "args": {"expr": "round((1 - 0.8**(4+1)) / (1 - 0.8), 3)"}}',
+          },
+          {
+            type: 'observation',
+            label: 'Observation 2 · Kết quả hợp lệ',
+            tokens: '+16 tokens (Nối vào Context)',
+            mono: true,
+            text: '{"status": "ok", "result": "3.362"}',
+          },
+          {
+            type: 'answer',
+            label: 'Final Answer · Câu trả lời cuối cùng',
+            tokens: '+46 tokens (LLM hoàn tất)',
+            mono: false,
+            text: 'Với γ = 4 token nháp và tỷ lệ chấp nhận α = 0.8, mỗi lượt gọi mô hình đích tạo ra trung bình (1 − 0.8⁵) / (1 − 0.8) ≈ 3.362 token, mang lại mức tăng tốc lý thuyết khoảng 3.36 lần nếu chi phí mô hình nháp không đáng kể.',
+          },
+        ],
+      },
+    ];
+
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-banner-7'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-banner-7'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let scenarioIdx = 0;
+        let currentStep = 6; // show full trace initially, user can step through
+
+        let colors = {
+          thought: '#4e79a7',
+          action: '#f28e2b',
+          observation: '#59a14f',
+          answer: '#e15759',
+        };
+
+        const updatePalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) {
+                colors = { thought: cat[0], action: cat[1], observation: cat[2], answer: cat[3] };
+              }
+            }
+          } catch (_) {}
+        };
+        updatePalette();
+
+        const header = document.createElement('div');
+        header.className = 'b7-header';
+        const kicker = document.createElement('span');
+        kicker.className = 'b7-kicker';
+        kicker.textContent = 'Trình mô phỏng Vết thực thi Tác tử (ReAct Execution Trace)';
+
+        const controls = document.createElement('div');
+        controls.className = 'b7-controls';
+
+        const select = document.createElement('select');
+        select.setAttribute('aria-label', 'Chọn kịch bản tác tử');
+        SCENARIOS.forEach((sc, idx) => {
+          const opt = document.createElement('option');
+          opt.value = String(idx);
+          opt.textContent = sc.name;
+          select.appendChild(opt);
+        });
+
+        const btnPrev = document.createElement('button');
+        btnPrev.type = 'button';
+        btnPrev.textContent = '← Bước trước';
+
+        const btnNext = document.createElement('button');
+        btnNext.type = 'button';
+        btnNext.className = 'primary';
+        btnNext.textContent = 'Bước tiếp →';
+
+        const btnReset = document.createElement('button');
+        btnReset.type = 'button';
+        btnReset.textContent = 'Chạy lại từ đầu';
+
+        controls.append(select, btnReset, btnPrev, btnNext);
+        header.append(kicker, controls);
+
+        const queryBox = document.createElement('div');
+        queryBox.className = 'b7-query';
+        const queryTag = document.createElement('span');
+        queryTag.className = 'b7-query-tag';
+        queryTag.textContent = 'Yêu cầu (User):';
+        const queryText = document.createElement('span');
+        queryText.className = 'b7-query-text';
+        queryBox.append(queryTag, queryText);
+
+        const svgWrap = document.createElement('div');
+        const traceWrap = document.createElement('div');
+        traceWrap.className = 'b7-trace';
+
+        container.append(header, queryBox, svgWrap, traceWrap);
+
+        // Build cycle SVG
+        const W = 760, H = 96;
+        const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+        const nodes = [
+          { key: 'thought', title: '1. Suy nghĩ (Thought)', sub: 'Lập kế hoạch nội tại', x: 110, y: 48 },
+          { key: 'action', title: '2. Hành động (Action)', sub: 'Sinh lệnh gọi hàm JSON', x: 305, y: 48 },
+          { key: 'observation', title: '3. Quan sát (Observation)', sub: 'Môi trường thực thi & trả về', x: 500, y: 48 },
+          { key: 'answer', title: '4. Trả lời (Final Answer)', sub: 'Tổng hợp kết quả', x: 675, y: 48 },
+        ];
+
+        const defs = svg.append('defs');
+        defs.append('marker')
+          .attr('id', 'b7-arrow')
+          .attr('viewBox', '0 0 10 10')
+          .attr('refX', 8)
+          .attr('refY', 5)
+          .attr('markerWidth', 6)
+          .attr('markerHeight', 6)
+          .attr('orient', 'auto-start-reverse')
+          .append('path')
+          .attr('d', 'M0,1 L9,5 L0,9 z')
+          .attr('fill', 'var(--muted-color)');
+
+        // Forward connectors
+        [[0, 1], [1, 2], [0, 3]].forEach(([a, b]) => {
+          if (a === 0 && b === 3) {
+            svg.append('path')
+              .attr('d', `M${nodes[0].x},${nodes[0].y - 24} C${nodes[0].x + 120},4 ${nodes[3].x - 120},4 ${nodes[3].x},${nodes[3].y - 24}`)
+              .attr('fill', 'none')
+              .attr('stroke', 'var(--muted-color)')
+              .attr('stroke-dasharray', '4,3')
+              .attr('stroke-width', 1.3)
+              .attr('marker-end', 'url(#b7-arrow)');
+          } else {
+            svg.append('line')
+              .attr('x1', nodes[a].x + 76)
+              .attr('y1', nodes[a].y)
+              .attr('x2', nodes[b].x - 76)
+              .attr('y2', nodes[b].y)
+              .attr('stroke', 'var(--muted-color)')
+              .attr('stroke-width', 1.5)
+              .attr('marker-end', 'url(#b7-arrow)');
+          }
+        });
+
+        // Feedback loop Observation -> Thought
+        svg.append('path')
+          .attr('d', `M${nodes[2].x},${nodes[2].y + 24} C${nodes[2].x - 80},92 ${nodes[0].x + 80},92 ${nodes[0].x},${nodes[0].y + 24}`)
+          .attr('fill', 'none')
+          .attr('stroke', 'var(--muted-color)')
+          .attr('stroke-width', 1.4)
+          .attr('marker-end', 'url(#b7-arrow)');
+
+        svg.append('text')
+          .attr('x', (nodes[0].x + nodes[2].x) / 2)
+          .attr('y', 91)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10.5)
+          .attr('fill', 'var(--muted-color)')
+          .text('Nối Observation vào cửa sổ ngữ cảnh (Context Window) cho vòng lặp tiếp theo');
+
+        const nodeGroups = svg.selectAll('g.b7-node')
+          .data(nodes)
+          .enter()
+          .append('g')
+          .attr('class', 'b7-node');
+
+        nodeGroups.append('rect')
+          .attr('x', (d) => d.x - 74)
+          .attr('y', (d) => d.y - 22)
+          .attr('width', 148)
+          .attr('height', 44)
+          .attr('rx', 8)
+          .attr('fill', 'var(--surface-bg)')
+          .attr('stroke', 'var(--border-color)')
+          .attr('stroke-width', 1.6);
+
+        nodeGroups.append('text')
+          .attr('x', (d) => d.x)
+          .attr('y', (d) => d.y - 4)
+          .attr('text-anchor', 'middle')
+          .attr('font-weight', 700)
+          .attr('font-size', 11.5)
+          .attr('fill', 'var(--text-color)')
+          .text((d) => d.title);
+
+        nodeGroups.append('text')
+          .attr('x', (d) => d.x)
+          .attr('y', (d) => d.y + 12)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10)
+          .attr('fill', 'var(--muted-color)')
+          .text((d) => d.sub);
+
+        const render = () => {
+          updatePalette();
+          const sc = SCENARIOS[scenarioIdx];
+          queryText.textContent = `“${sc.query}”`;
+
+          const activeStepObj = sc.steps[currentStep];
+          const activeType = activeStepObj ? activeStepObj.type : 'thought';
+
+          nodeGroups.select('rect')
+            .attr('stroke', (d) => (d.key === activeType ? colors[d.key] : 'var(--border-color)'))
+            .attr('stroke-width', (d) => (d.key === activeType ? 2.6 : 1.4))
+            .attr('fill', (d) =>
+              d.key === activeType
+                ? `color-mix(in oklab, ${colors[d.key]} 16%, var(--surface-bg))`
+                : 'var(--surface-bg)'
+            );
+
+          traceWrap.innerHTML = '';
+          sc.steps.forEach((st, idx) => {
+            const card = document.createElement('div');
+            card.className = 'b7-step' + (idx <= currentStep ? ' visible' : '') + (idx === currentStep ? ' active' : '');
+            const c = colors[st.type] || 'var(--primary-color)';
+            card.style.borderLeftColor = c;
+
+            const head = document.createElement('div');
+            head.className = 'b7-step-head';
+
+            const badge = document.createElement('span');
+            badge.className = 'b7-badge';
+            badge.style.background = `color-mix(in oklab, ${c} 18%, transparent)`;
+            badge.style.color = c;
+            badge.textContent = st.label;
+
+            const tok = document.createElement('span');
+            tok.className = 'b7-tokens';
+            tok.textContent = `Bước ${idx + 1}/${sc.steps.length} · ${st.tokens}`;
+
+            head.append(badge, tok);
+
+            const body = document.createElement('div');
+            body.className = 'b7-step-body' + (st.mono ? ' mono' : '');
+            body.textContent = st.text;
+
+            card.append(head, body);
+            card.addEventListener('click', () => {
+              currentStep = idx;
+              render();
+            });
+            traceWrap.appendChild(card);
+          });
+
+          btnPrev.disabled = currentStep <= 0;
+          btnNext.disabled = currentStep >= sc.steps.length - 1;
+        };
+
+        select.addEventListener('change', () => {
+          scenarioIdx = Number(select.value) || 0;
+          currentStep = 0;
+          render();
+        });
+        btnReset.addEventListener('click', () => {
+          currentStep = 0;
+          render();
+        });
+        btnPrev.addEventListener('click', () => {
+          if (currentStep > 0) {
+            currentStep--;
+            render();
+          }
+        });
+        btnNext.addEventListener('click', () => {
+          const sc = SCENARIOS[scenarioIdx];
+          if (currentStep < sc.steps.length - 1) {
+            currentStep++;
+            render();
+          }
+        });
+
+        render();
+        document.addEventListener('palettes:updated', render);
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

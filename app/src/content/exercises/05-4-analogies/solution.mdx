@@ -5,11 +5,11 @@ export const cells = 2;
 export const seconds = 18;
 
 ```python
-# The GloVe vectors of Pennington et al., trained on 6 billion
-# words of Wikipedia and news (Gigaword), in the copy of
-# sentence-transformers on the Hub: 400,000 words in lower case,
-# sorted from the most frequent to the least frequent, with 300
-# dimensions. Row 0 of the file is a padding token: drop it.
+# Các vector GloVe của Pennington và cộng sự, huấn luyện trên 6 tỷ
+# từ Wikipedia và tin tức (Gigaword), từ bản lưu của
+# sentence-transformers trên Hub: 400.000 từ viết thường, sắp xếp
+# từ phổ biến nhất đến ít phổ biến nhất, kích thước 300 chiều.
+# Hàng 0 của tệp là token đệm (padding): bỏ qua hàng này.
 import json
 
 from huggingface_hub import hf_hub_download
@@ -23,13 +23,14 @@ words_path = hf_hub_download(
 glove_vectors = load_file(weights_path)["emb_layer.weight"][1:]
 glove_words = json.load(open(words_path))["vocab"][1:]
 
-# Keep the 30,000 most frequent words
+# Giữ lại 30.000 từ phổ biến nhất
 words = glove_words[:30000]
 vectors = glove_vectors[:30000]
 word_index = {word: i for i, word in enumerate(words)}
 
-# The analogy test set of Mikolov et al.: each row reads "Word1 is to
-# Word2 as Word3 is to Word4", and Subject is its category
+# Tập kiểm tra phép loại suy của Mikolov và cộng sự: mỗi dòng có
+# dạng "Word1 đối với Word2 như Word3 đối với Word4", và Subject
+# là nhóm chủ đề của nó
 from datasets import load_dataset
 
 analogies = load_dataset("almogtavor/google-analogy-dataset")["train"]
@@ -42,11 +43,10 @@ print(f"example: {analogies[0]}")
 <section className="code-output"><pre>{"GloVe: 30000 words, vectors of size 300\ntest set: 19544 analogies\nexample: {'Word1': 'Athens', 'Word2': 'Greece', 'Word3': 'Baghdad', 'Word4': 'Iraq', 'Subject': 'capital-common-countries'}"}</pre></section>
 
 ```python
-# (1) The answer to "a is to b as c is to ?": the word whose vector
-# is closest to b - a + c. Divide each vector by its length, so that
-# the dot products with the target rank the words by cosine
-# similarity. With exclude=True, the three words of the question are
-# not allowed as answers.
+# (1) Đáp án cho "a đối với b như c đối với ?": từ có vector gần
+# nhất với b - a + c. Chia mỗi vector cho độ dài của nó để tích vô
+# hướng với vector mục tiêu xếp hạng các từ theo độ tương đồng
+# cosine. Với exclude=True, không cho phép trả lời bằng 3 từ đề bài.
 import math
 
 vectors = vectors / vectors.norm(dim=1, keepdim=True)
@@ -54,7 +54,7 @@ vectors = vectors / vectors.norm(dim=1, keepdim=True)
 def answer(a, b, c, exclude):
     target = (vectors[word_index[b]] - vectors[word_index[a]]
               + vectors[word_index[c]])
-    similarities = vectors @ target   # one score per word
+    similarities = vectors @ target   # mỗi từ một điểm số
     if exclude:
         for word in [a, b, c]:
             similarities[word_index[word]] = -math.inf
@@ -70,10 +70,10 @@ for a, b, c in questions:
           f"{answer(a, b, c, False)}")
 
 
-# (2) The accuracy on the test set, for the questions whose four
-# words are among the 30,000 words. The categories whose name starts
-# with "gram" are about grammar (plurals, tenses...), the others
-# about meaning (capitals, currencies, family...).
+# (2) Độ chính xác trên tập kiểm tra cho các câu hỏi có cả bốn từ
+# nằm trong 30.000 từ phổ biến nhất. Các chủ đề có tên bắt đầu bằng
+# "gram" thuộc về ngữ pháp (số nhiều, thì...), các chủ đề còn lại
+# thuộc về ngữ nghĩa (thủ đô, tiền tệ, gia đình...).
 for exclude in [True, False]:
     right = {"meaning": 0, "grammar": 0}
     total = {"meaning": 0, "grammar": 0}

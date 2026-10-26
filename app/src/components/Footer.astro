@@ -14,11 +14,11 @@ const isPaper = template === "paper";
   <div class="footer-inner">
     {!isPaper && (
       <section class="citation-block">
-        <p class="footer-heading" role="heading" aria-level="2">Citation</p>
-        <p>For attribution in academic contexts, please cite this work as</p>
+        <p class="footer-heading" role="heading" aria-level="2">Trích dẫn</p>
+        <p>Để trích dẫn tài liệu này trong ngữ cảnh học thuật, vui lòng ghi nguồn:</p>
         <pre class="citation short">{citationText}</pre>
 
-        <p>BibTeX citation</p>
+        <p>Trích dẫn BibTeX</p>
         <pre class="citation long">{bibtex}</pre>
       </section>
     )}
@@ -41,7 +41,7 @@ const isPaper = template === "paper";
     {
       licence && (
         <section class="reuse-block">
-          <p class="footer-heading" role="heading" aria-level="2">Reuse</p>
+          <p class="footer-heading" role="heading" aria-level="2">Bản quyền & Tái sử dụng</p>
           <p set:html={licence} />
         </section>
       )

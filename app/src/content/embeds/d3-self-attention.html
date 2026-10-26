@@ -140,8 +140,8 @@
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
         .attr('role', 'img')
         .attr('aria-label', BERT
-          ? 'BERT reads the review with a token [CLS] at the start. Self-attention computes a new vector for every token at once, from the vectors of all the tokens. The new vector of [CLS] is the representation of the review, which a head turns into the probabilities of the two classes.'
-          : 'Each word of the review enters as its embedding plus an embedding of its position. Self-attention computes a new vector for every word at once: a weighted average of the vectors of all the words.');
+          ? 'BERT đọc bài đánh giá với token [CLS] ở đầu. Cơ chế tự chú ý tính toán một vector mới cho mọi token cùng lúc từ vector của tất cả các token. Vector mới của [CLS] là biểu diễn của bài đánh giá, được đầu phân loại chuyển thành xác suất của hai lớp.'
+          : 'Mỗi từ của bài đánh giá đi vào dưới dạng vector nhúng của từ cộng với vector nhúng vị trí. Cơ chế tự chú ý tính toán một vector mới cho mọi từ cùng lúc: trung bình có trọng số của các vector từ tất cả các từ.');
       svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
         .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
@@ -164,10 +164,10 @@
         g.append('text').attr('class', 'side-strong').attr('x', labelX).attr('y', y).attr('text-anchor', 'end').text(title);
         g.append('text').attr('class', 'side').attr('x', labelX).attr('y', y + 14).attr('text-anchor', 'end').text(sub);
       };
-      const UNIT = BERT ? 'token' : 'word';
-      label(outY + 4, 'new vectors', `one per ${UNIT}`);
-      label((outY + inY) / 2, 'self-attention', BERT ? '× 12 layers in BERT' : 'all the words at once');
-      label(inY + 4, 'input vectors', 'word + position');
+      const UNIT = BERT ? 'token' : 'từ';
+      label(outY + 4, 'vector mới', `mỗi ${UNIT} một vector`);
+      label((outY + inY) / 2, 'tự chú ý (self-attention)', BERT ? '× 12 tầng trong BERT' : 'tất cả các từ cùng lúc');
+      label(inY + 4, 'vector đầu vào', 'từ + vị trí');
 
       // One column per token: the token, its input vector and its new vector
       const vectors = [];
@@ -182,7 +182,7 @@
       const outVectors = [];
       const columns = WORDS.map((w, t) => {
         const col = g.append('g').attr('class', 'column').attr('tabindex', 0).attr('role', 'button')
-          .attr('aria-label', `weights of the attention of ${w}`);
+          .attr('aria-label', `trọng số chú ý của ${w}`);
         const width = tokenWidth(w);
         col.append('rect').attr('x', centers[t] - width / 2 - 2).attr('y', outY - 4).attr('width', width + 4)
           .attr('height', tokenY + tokenH - outY + 6).attr('fill', 'transparent');
@@ -197,7 +197,7 @@
         return col;
       });
       g.append('text').attr('class', 'side').attr('x', (left + right) / 2).attr('y', captionY).attr('text-anchor', 'middle')
-        .attr('font-style', 'italic').text(`hover over a ${UNIT} to see the weights of its attention`);
+        .attr('font-style', 'italic').text(`di chuột qua một ${UNIT} để xem các trọng số chú ý của nó`);
 
       // BERT: the new vector of [CLS] is the representation; a head turns it into probabilities
       let headBox = null, outBars = null;
@@ -210,16 +210,16 @@
         rep.forEach((v, d) => repG.append('rect').attr('class', 'cell').attr('x', cx - (D * repCellW) / 2 + d * repCellW).attr('y', repY)
           .attr('width', repCellW).attr('height', repCellH));
         vectors.push({ sel: repG, values: rep });
-        g.append('text').attr('class', 'side-strong').attr('x', cx + (D * repCellW) / 2 + 14).attr('y', repY + repCellH / 2 - 3).text('representation');
-        g.append('text').attr('class', 'side').attr('x', cx + (D * repCellW) / 2 + 14).attr('y', repY + repCellH / 2 + 11).text('the new vector of [CLS]');
+        g.append('text').attr('class', 'side-strong').attr('x', cx + (D * repCellW) / 2 + 14).attr('y', repY + repCellH / 2 - 3).text('biểu diễn (representation)');
+        g.append('text').attr('class', 'side').attr('x', cx + (D * repCellW) / 2 + 14).attr('y', repY + repCellH / 2 + 11).text('vector mới của [CLS]');
         const headY = 62, headH = 32, headW = 160;
         arrow(cx, repY - 3, cx, headY + headH + 3);
         headBox = g.append('g').attr('class', 'box');
         headBox.append('rect').attr('x', cx - headW / 2).attr('y', headY).attr('width', headW).attr('height', headH).attr('rx', 7).attr('stroke-width', 1.3);
-        headBox.append('text').attr('x', cx).attr('y', headY + headH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('HEAD');
+        headBox.append('text').attr('x', cx).attr('y', headY + headH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle').text('ĐẦU PHÂN LOẠI (HEAD)');
         const outBottom = 36;
         arrow(cx, headY - 3, cx, outBottom + 4);
-        const OUTPUT = [['positive', 0.08], ['negative', 0.92]];
+        const OUTPUT = [['tích cực', 0.08], ['tiêu cực', 0.92]];
         const rowH = 16, maxW = 90;
         const outTop = outBottom - OUTPUT.length * rowH;
         outBars = g.append('g');

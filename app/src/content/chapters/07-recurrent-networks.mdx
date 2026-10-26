@@ -10,95 +10,95 @@ import Solution from '../../components/post/Solution.astro';
 import WhatToNotice from '../../components/post/WhatToNotice.astro';
 import Bonus from '../../components/post/Bonus.astro';
 
-## 7. Recurrent networks: reading in order
+## 7. Mạng nơ-ron truy hồi (Recurrent Networks): Đọc văn bản theo thứ tự
 
-At the end of section 6, we saw that **none of our models reads a text in order**. The n-gram models and Bengio's model read the last few words in order, and forget everything before them. The bags of words and the averaging networks read all the words, but forget their order. Consider again these two hard reviews:
+Ở cuối mục 6, chúng ta đã nhận ra rằng **chưa có mô hình nào của chúng ta thực sự đọc văn bản theo đúng thứ tự từ đầu đến cuối**. Các mô hình n-gram và mô hình của Bengio chỉ đọc một vài từ cuối cùng theo thứ tự rồi quên sạch mọi thứ phía trước. Ngược lại, các mô hình túi từ (bag of words) và mạng lấy trung bình (averaging networks) đọc toàn bộ các từ nhưng lại đánh mất thứ tự của chúng. Hãy xét lại hai bài đánh giá khó dưới đây:
 
-*A: I expected it to be terrible, but it was great.*
+*A: I expected it to be terrible, but it was great.* (Tôi cứ tưởng phim sẽ dở tệ, nhưng hóa ra lại tuyệt vời.)
 
-*B: I expected it to be great, but it was terrible.*
+*B: I expected it to be great, but it was terrible.* (Tôi cứ tưởng phim sẽ tuyệt vời, nhưng hóa ra lại dở tệ.)
 
-They have exactly the same words, so every classifier of the post so far gives them exactly the same probability, and gets one of them wrong. To tell them apart, the encoder must aggregate the embeddings of the words in a way that depends on their order. Before transformers, there were two main ways to do this.
+Hai câu này chứa các từ giống hệt nhau, vì vậy mọi bộ phân loại mà chúng ta xây dựng từ đầu chương đến giờ đều gán cho chúng cùng một xác suất, và chắc chắn sẽ đoán sai một trong hai câu. Để phân biệt được hai câu này, bộ mã hóa (encoder) phải tổng hợp các vector nhúng của từ theo một cơ chế phụ thuộc vào thứ tự xuất hiện của chúng. Trước kỷ nguyên Transformer, có hai hướng tiếp cận chính để giải quyết bài toán này.
 
-The first one is the **convolution**. Take the network of Bengio's model (section 4.2), which reads the concatenated embeddings of a window of a few consecutive words. Instead of applying it only to the last words of the text, slide it along the text, and apply it to every window. Each window gives a small vector of *features*, and one of these features could for instance react to "was terrible", wherever it appears in the review. Then keep, for each feature, its largest value over all the windows of the text. This is called *max pooling*, and it gives a vector of fixed size, whatever the length of the text. Collobert et al. used it to tag the words of a sentence [@collobert2011], and Kim to classify sentences.
+Hướng thứ nhất là **phép tích chập (convolution)**. Hãy lấy mạng nơ-ron trong mô hình của Bengio (mục 4.2) — vốn đọc các vector nhúng đã được ghép nối của một cửa sổ gồm vài từ liên tiếp. Thay vì chỉ áp dụng mạng này vào những từ cuối cùng của văn bản, ta trượt cửa sổ đó dọc theo toàn bộ văn bản và áp dụng lên mọi vị trí. Mỗi cửa sổ sẽ tạo ra một vector nhỏ gồm các *đặc trưng (features)*; chẳng hạn, một trong các đặc trưng này có thể kích hoạt mạnh khi bắt gặp cụm từ "was terrible", bất kể cụm đó nằm ở đâu trong bài đánh giá. Sau đó, ứng với mỗi đặc trưng, ta chỉ giữ lại giá trị lớn nhất của nó trên toàn bộ các cửa sổ trong văn bản. Phép toán này được gọi là *gộp cực đại (max pooling)*, giúp tạo ra một vector có kích thước cố định bất kể văn bản dài hay ngắn. Collobert và cộng sự đã sử dụng kiến trúc này để gán nhãn từ loại trong câu [@collobert2011], còn Kim dùng nó để phân loại câu.
 
-The second one is the **recurrent network**. It reads the words one after the other, as we do, and updates a vector, its *state*, after each word. The state after the last word is the representation of the text.
+Hướng thứ hai là **mạng nơ-ron truy hồi (recurrent network)**. Mô hình này đọc từng từ một nối tiếp nhau giống hệt cách con người đọc, đồng thời cập nhật một vector gọi là *trạng thái (state)* sau mỗi từ. Trạng thái thu được sau từ cuối cùng chính là vector biểu diễn của toàn bộ văn bản.
 
 <HtmlEmbed
   src="d3-order-encoders.html"
-  title="Two encoders that read the words in order"
-  desc="Switch between the two encoders. The convolution reads every window of 3 consecutive embeddings and gives 4 features per window; the representation keeps the maximum of each feature over the windows (outlined). The recurrent network (RNN) reads the embeddings one after the other: each step reads the embedding of a word and the state left by the previous step, and the last state (outlined) is the representation. The values are made up."
+  title="Hai bộ mã hóa đọc các từ theo thứ tự"
+  desc="Chuyển đổi qua lại giữa hai bộ mã hóa. Mạng tích chập (convolution) đọc mọi cửa sổ gồm 3 vector nhúng liên tiếp và tạo ra 4 đặc trưng cho mỗi cửa sổ; biểu diễn cuối cùng giữ lại giá trị cực đại của từng đặc trưng trên toàn bộ các cửa sổ (được đóng khung). Mạng nơ-ron truy hồi (RNN) đọc từng vector nhúng một nối tiếp nhau: mỗi bước đọc vector nhúng của từ hiện tại cùng với trạng thái do bước trước để lại, và trạng thái cuối cùng (được đóng khung) chính là biểu diễn của văn bản. Các con số trong hình là giả định để minh họa."
 />
 
-<PaperNote id="kim2014" look="Table 3: the nearest neighbors of “bad”, “good”, “n't” and “!” in the word2vec vectors, and after fine-tuning on the sentences of SST.">
+<PaperNote id="kim2014" look="Bảng 3: các láng giềng gần nhất của “bad”, “good”, “n't” và “!” trong bộ vector word2vec gốc, và sau khi tinh chỉnh (fine-tuning) trên các câu của tập dữ liệu SST.">
 
-Kim applies the convolution of Collobert et al. to the classification of sentences: windows of 3, 4 and 5 words, 100 features for each size, and a max over the positions. The embeddings are the word2vec vectors of section 5.2, trained on 100 billion words of Google News, and the paper runs the comparison of section 5.5: random embeddings, word2vec frozen, word2vec fine-tuned. On binary SST, the accuracy goes from 82.7% to 86.8% and 87.2%, and the author admits: "we were surprised at the magnitude of the gains". Fine-tuning changes the neighbors as in exercise 5.5a. In word2vec, the neighbors of "n't" are "os", "ca", "ireland" and "wo"; after training on sentiment, they are "not", "never", "nothing" and "neither".
+Kim áp dụng phép tích chập của Collobert và cộng sự vào bài toán phân loại câu: sử dụng các cửa sổ có kích thước 3, 4 và 5 từ, trích xuất 100 đặc trưng cho mỗi kích thước cửa sổ, rồi lấy giá trị cực đại (max pooling) dọc theo các vị trí trong câu. Các vector nhúng đầu vào là vector word2vec ở mục 5.2 (được huấn luyện trên 100 tỷ từ của Google News), và bài báo thực hiện phép so sánh tương tự mục 5.5: khởi tạo nhúng ngẫu nhiên, đóng băng word2vec (frozen), và tinh chỉnh word2vec (fine-tuned). Trên tập dữ liệu phân loại nhị phân SST, độ chính xác tăng từ 82.7% lên 86.8% và 87.2%; chính tác giả cũng thừa nhận: "chúng tôi đã rất bất ngờ trước mức độ cải thiện lớn đến vậy". Quá trình tinh chỉnh làm thay đổi các láng giềng của từ giống như trong bài tập 5.5a. Trong word2vec gốc, các láng giềng gần nhất của "n't" là "os", "ca", "ireland" và "wo"; nhưng sau khi huấn luyện trên tác vụ phân tích cảm xúc, các láng giềng này chuyển thành "not", "never", "nothing" và "neither".
 
 </PaperNote>
 
-A convolution sees the order of the words inside each window, but not beyond. With windows of 3 words, "was terrible" and "was great" give different features, which is enough for our two reviews. But a window cannot relate two words that are farther apart than its size, unless several layers of convolutions are stacked. A recurrent network has no window: in principle, its last state depends on all the words of the text, and on their order. In the years before transformers, recurrent networks were the standard encoder of NLP, and they are the topic of this section.
+Mạng tích chập nhìn thấy được thứ tự của các từ nằm bên trong mỗi cửa sổ, nhưng không thấy được mối liên hệ vượt ra ngoài phạm vi cửa sổ đó. Với cửa sổ 3 từ, hai cụm "was terrible" và "was great" tạo ra các đặc trưng khác nhau — chừng đó là đủ để phân biệt hai bài đánh giá mẫu của chúng ta. Tuy nhiên, một cửa sổ đơn lẻ không thể liên kết hai từ cách xa nhau hơn kích thước của nó, trừ khi ta chồng nhiều tầng tích chập lên nhau. Ngược lại, mạng nơ-ron truy hồi không bị giới hạn bởi cửa sổ trượt: về nguyên lý, trạng thái cuối cùng của nó phụ thuộc vào tất cả các từ trong văn bản cũng như thứ tự xuất hiện của chúng. Trong những năm trước khi Transformer ra đời, mạng nơ-ron truy hồi từng là bộ mã hóa tiêu chuẩn của ngành Xử lý Ngôn ngữ Tự nhiên (NLP), và đây cũng là chủ đề chính của mục này.
 
-### 7.1 The RNN
+### 7.1 Mạng nơ-ron truy hồi (RNN)
 
-A *recurrent neural network* (RNN) reads the embeddings $x_1 \dots x_L$ of the words of a text one at a time. It keeps a *hidden state* $h_t$, a vector of size H, and updates it after each word:
+Một *mạng nơ-ron truy hồi (recurrent neural network – RNN)* đọc lần lượt từng vector nhúng $x_1 \dots x_L$ của các từ trong văn bản. Mạng duy trì một *trạng thái ẩn (hidden state)* $h_t$ — là một vector có kích thước H — và cập nhật trạng thái này sau mỗi từ theo công thức:
 
 $$
 h_t = \tanh(W_h h_{t-1} + W_x x_t + b),
 $$
 
-starting from $h_0 = 0$. The matrices $W_h$, of size H × H, and $W_x$, of size H × D, and the bias $b$ are the same at every step. This is why an RNN can read texts of any length with a fixed number of parameters, like the convolution, whose window has the same weights at every position.
+bắt đầu từ trạng thái khởi tạo $h_0 = 0$. Ma trận $W_h$ (kích thước H × H), ma trận $W_x$ (kích thước H × D), cùng vector độ chệch (bias) $b$ được dùng chung ở mọi bước thời gian. Nhờ cơ chế chia sẻ tham số này, RNN có thể đọc văn bản có độ dài bất kỳ chỉ với một số lượng tham số cố định — tương tự như phép tích chập sử dụng cùng một bộ trọng số cửa sổ tại mọi vị trí trong câu.
 
-<PaperNote id="elman1990" look="Figure 7: the tree of the 29 words of the lexicon, grouped by their average hidden state. The network was never told which words are nouns or verbs.">
+<PaperNote id="elman1990" look="Hình 7: cây phân cụm 29 từ trong từ điển dựa trên trạng thái ẩn trung bình của chúng. Mạng nơ-ron chưa từng được dạy từ nào là danh từ hay động từ.">
 
-Elman's "simple recurrent network" is the RNN of this section, with a sigmoid instead of the tanh: after each word, the hidden units are copied into "context units", which are read with the next word. He trained it to predict the next word of 10,000 short sentences like "man eat cookie" or "dragon chase cat", made from 29 words and a few templates. Each word was a one-hot vector, so the network knew nothing about them. Yet when Elman grouped the words by their average hidden state, the tree separated the verbs from the nouns, the animate nouns from the inanimate ones, the humans from the animals, and the food from the breakable objects. Jay McClelland suggested a metaphor for the task, which Elman calls "humorous—but entirely accurate": "It is like trying to learn a language by listening to the radio."
+"Mạng truy hồi đơn giản" (simple recurrent network) của Elman chính là kiến trúc RNN trong mục này, chỉ khác ở chỗ dùng hàm kích hoạt sigmoid thay vì tanh: sau mỗi từ, các đơn vị ẩn (hidden units) được sao chép sang các "đơn vị ngữ cảnh" (context units) để đọc cùng với từ tiếp theo. Ông huấn luyện mạng dự đoán từ kế tiếp trên 10,000 câu ngắn dạng như "man eat cookie" hay "dragon chase cat", được tạo ra từ 29 từ vựng và một vài mẫu câu. Mỗi từ đầu vào được biểu diễn bằng một vector one-hot, tức là mạng hoàn toàn không có bất kỳ thông tin có sẵn nào về nghĩa hay từ loại của chúng. Thế nhưng, khi Elman gom nhóm các từ dựa trên trạng thái ẩn trung bình của chúng, cây phân cấp thu được đã tự động tách bạch động từ khỏi danh từ, danh từ chỉ sinh vật sống khỏi vật vô tri, con người khỏi động vật, và thức ăn khỏi các đồ vật dễ vỡ. Jay McClelland đã ví von tác vụ này bằng một hình ảnh mà Elman gọi là "hài hước nhưng hoàn toàn chính xác": "Nó giống như cố gắng học một ngôn ngữ chỉ bằng cách nghe đài phát thanh vậy."
 
 </PaperNote>
 
-The state $h_t$ depends on all the words $x_1 \dots x_t$, and on their order: reading "terrible" then "great" does not give the same state as reading "great" then "terrible", since each word is added to a state that has already been transformed by $W_h$ and the tanh. So the state is a summary of everything read so far, of fixed size H, updated at each word. For classification, **the last state $h_L$ is the fixed-size representation of the text**, and a head reads it, for instance a logistic regression as in section 3.2:
+Trạng thái $h_t$ phụ thuộc vào toàn bộ các từ đã đọc $x_1 \dots x_t$ và phụ thuộc vào thứ tự của chúng: việc đọc "terrible" rồi mới đến "great" sẽ tạo ra trạng thái khác hẳn so với đọc "great" rồi mới đến "terrible", bởi mỗi từ mới được cộng vào một trạng thái vốn đã bị biến đổi qua ma trận $W_h$ và hàm phi tuyến tanh ở bước trước. Vì vậy, trạng thái $h_t$ đóng vai trò như một bản tóm tắt có kích thước cố định H của toàn bộ phần văn bản đã đọc tính đến thời điểm $t$, được cập nhật liên tục sau mỗi từ. Đối với bài toán phân loại văn bản, **trạng thái cuối cùng $h_L$ chính là biểu diễn kích thước cố định của toàn bộ văn bản**, và một đầu dự đoán (head) sẽ đọc vector này — chẳng hạn như bộ hồi quy logistic ở mục 3.2:
 
 $$
 p(\text{positive} \mid x_1 \dots x_L) = \sigma(w \cdot h_L + c).
 $$
 
-The RNN also gives a vector for each word, the state $h_t$ after this word, which is what tagging needs (section 1.4): a classifier applied to each $h_t$ gives a label to each word. But $h_t$ only knows the words up to $t$. For tagging, a second RNN often reads the text backwards, and the two states of each word are concatenated: this is a *bidirectional* RNN. Keep this sequence of states $h_1 \dots h_L$ in mind: in section 9.2, attention will read all of them, instead of the last one only.
+Ngoài ra, RNN còn cung cấp một vector riêng cho từng từ — chính là trạng thái $h_t$ ngay sau khi đọc từ thứ $t$ — đáp ứng đúng yêu cầu của bài toán gán nhãn chuỗi (tagging) ở mục 1.4: áp dụng một bộ phân loại lên từng $h_t$ sẽ cho ra nhãn của từng từ tương ứng. Tuy nhiên, $h_t$ chỉ nắm được thông tin của các từ từ đầu câu cho đến vị trí $t$. Để phục vụ bài toán gán nhãn, người ta thường dùng thêm một mạng RNN thứ hai đọc văn bản theo chiều ngược lại (từ cuối về đầu), sau đó ghép nối hai trạng thái xuôi và ngược tại mỗi từ: kiến trúc này được gọi là *RNN hai chiều (bidirectional RNN)*. Hãy ghi nhớ chuỗi trạng thái $h_1 \dots h_L$ này: ở mục 9.2, cơ chế chú ý (attention) sẽ đọc toàn bộ chuỗi trạng thái đó thay vì chỉ lấy mỗi trạng thái cuối cùng $h_L$.
 
-### 7.2 The training problem
+### 7.2 Bài toán huấn luyện và hiện tượng triệt tiêu đạo hàm
 
-An RNN is trained like the other networks of the post, by minimizing a loss with gradient descent. To compute the gradient, *unroll* the network: write its L steps one after the other, as in the figure at the start of this section. The unrolled RNN is a deep feedforward network with one layer per word, where all the layers share the same weights, and the gradient is computed by backpropagation through these L layers. This is called *backpropagation through time* [@werbos1990].
+Mạng RNN cũng được huấn luyện giống như các mạng nơ-ron khác trong chương này: cực tiểu hóa hàm mất mát (loss function) bằng thuật toán hạ gradient (gradient descent). Để tính được gradient, ta *trải phẳng (unroll)* mạng theo thời gian: viết liên tiếp L bước xử lý của mạng nối đuôi nhau, giống như hình minh họa ở đầu mục 7. Khi được trải phẳng, RNN trở thành một mạng truyền thẳng sâu (deep feedforward network) có L tầng (mỗi từ ứng với một tầng), trong đó tất cả các tầng đều dùng chung một bộ trọng số; gradient sẽ được tính bằng cách lan truyền ngược qua L tầng này. Quá trình này được gọi là *lan truyền ngược qua thời gian (backpropagation through time – BPTT)* [@werbos1990].
 
-This is where the problem lies. For the loss to teach the network something about the first words of a review, the gradient must travel back from the last state to the first ones, through all the steps in between. By the chain rule, the gradient of the last state with respect to the state after word $t$ is a product of $L - t$ matrices, one per step:
+Và đây chính là nơi nảy sinh rắc rối lớn. Để hàm mất mát ở cuối câu có thể dạy cho mạng điều gì đó về những từ đầu tiên của bài đánh giá, tín hiệu gradient phải truyền ngược từ trạng thái cuối cùng $h_L$ về tận các trạng thái đầu tiên, đi qua tất cả các bước trung gian ở giữa. Theo quy tắc dây chuyền (chain rule) trong giải tích, đạo hàm của trạng thái cuối cùng theo trạng thái ngay sau từ thứ $t$ là tích của $L - t$ ma trận, mỗi bước ứng với một ma trận:
 
 $$
-\frac{\partial h_L}{\partial h_t} = \frac{\partial h_L}{\partial h_{L-1}} \cdots \frac{\partial h_{t+1}}{\partial h_t}, \qquad \text{with} \quad \frac{\partial h_s}{\partial h_{s-1}} = \text{diag}\big(1 - h_s^2\big)\, W_h,
+\frac{\partial h_L}{\partial h_t} = \frac{\partial h_L}{\partial h_{L-1}} \cdots \frac{\partial h_{t+1}}{\partial h_t}, \qquad \text{với} \quad \frac{\partial h_s}{\partial h_{s-1}} = \text{diag}\big(1 - h_s^2\big)\, W_h,
 $$
 
-where the diagonal matrix holds the derivative of the tanh, $1 - \tanh^2$, for each component of the state. Like the powers of a number, such a product tends to shrink exponentially with the distance $L - t$ if its matrices shrink the vectors they multiply, and to grow exponentially if they stretch them. These are the *vanishing* and the *exploding gradients*. The derivative of the tanh is at most 1, and close to 0 when a unit is saturated, so the gradient tends to vanish. Then the first words of a long review receive almost no gradient, and the network cannot learn to use them, even though they are in its input.
+trong đó ma trận đường chéo chứa đạo hàm của hàm $\tanh$ (tức $1 - \tanh^2$) tại từng thành phần của vector trạng thái. Giống như lũy thừa bậc cao của một con số, tích của một chuỗi dài các ma trận như vậy sẽ có xu hướng co nhỏ lại theo hàm mũ theo khoảng cách $L - t$ nếu các ma trận làm co các vector mà chúng nhân vào, hoặc phình to theo hàm mũ nếu các ma trận kéo giãn vector. Đây chính là hai hiện tượng kinh điển: *triệt tiêu đạo hàm (vanishing gradients)* và *bùng nổ đạo hàm (exploding gradients)*. Vì đạo hàm của hàm $\tanh$ có giá trị tối đa bằng 1 và tiến sát về 0 khi nơ-ron rơi vào vùng bão hòa, nên gradient rất dễ bị triệt tiêu dần. Khi đó, những từ nằm ở đầu một bài đánh giá dài hầu như không nhận được chút gradient nào, khiến mạng không thể học cách sử dụng chúng dù chúng vẫn nằm trong dữ liệu đầu vào.
 
-Bengio, Simard and Frasconi showed that this is not bad luck [@bengio1994]. A network that stores a piece of information robustly, so that the noise of the following inputs does not erase it, is precisely a network whose gradients with respect to the past vanish exponentially. In their words: "These results expose a trade-off between efficient learning by gradient descent and latching on information for long periods."
+Bengio, Simard và Frasconi đã chứng minh rằng đây không phải là sự trùng hợp ngẫu nhiên hay kém may mắn [@bengio1994]. Một mạng nơ-ron muốn lưu giữ thông tin một cách bền vững — sao cho nhiễu từ các từ đầu vào tiếp theo không xóa mất thông tin đã lưu — thì bản thân mạng đó buộc phải hoạt động ở vùng mà đạo hàm theo các bước quá khứ bị triệt tiêu theo hàm mũ. Như các tác giả kết luận: "Những kết quả này phơi bày một sự đánh đổi căn bản giữa việc học hiệu quả bằng hạ gradient và khả năng chốt giữ thông tin trong thời gian dài."
 
-<PaperNote id="hochreiter1991" look="Section 2.3, page 21 (in German): one paragraph that states the exponential dependence, and its consequences for the learning rate and the initialization.">
+<PaperNote id="hochreiter1991" look="Mục 2.3, trang 21 (bằng tiếng Đức): đoạn văn nêu bật sự phụ thuộc hàm mũ cùng hệ quả của nó đối với tốc độ học (learning rate) và việc khởi tạo trọng số.">
 
-Sepp Hochreiter wrote this diploma thesis in Munich, advised by Jürgen Schmidhuber. It contains the first analysis of the problem: the error sent back u steps in time is multiplied by a product of u factors, each a derivative times a weight, so it shrinks or grows exponentially with u. Setting this product close to 1, he writes, "is very difficult and slow, because it needs a very small learning rate" (our translation). He had also seen the explosion in practice: weights that grew until the floating-point numbers overflowed. And the thesis already proposes the remedy of the LSTM: a unit connected to itself with a fixed weight, through which the error flows back unchanged.
+Sepp Hochreiter đã viết luận văn tốt nghiệp này tại Munich dưới sự hướng dẫn của Jürgen Schmidhuber. Công trình chứa đựng phân tích toán học đầu tiên về vấn đề này: tín hiệu lỗi truyền ngược lại $u$ bước thời gian sẽ bị nhân với tích của $u$ thừa số (mỗi thừa số là tích giữa đạo hàm hàm kích hoạt và trọng số), do đó nó sẽ co lại hoặc phình to theo hàm mũ theo $u$. Ông viết rằng việc giữ cho tích này xấp xỉ bằng 1 "là vô cùng khó khăn và chậm chạp, bởi nó đòi hỏi một tốc độ học cực kỳ nhỏ" (bản dịch từ tiếng Đức). Ông cũng đã chứng kiến hiện tượng bùng nổ đạo hàm trong thực nghiệm: các trọng số tăng vọt cho đến khi vượt quá giới hạn biểu diễn số thực dấu phẩy động (floating-point overflow). Đáng chú ý, ngay trong luận văn này, Hochreiter đã đề xuất giải pháp nền tảng của kiến trúc LSTM: một đơn vị tự kết nối với chính nó thông qua trọng số cố định bằng 1, cho phép tín hiệu lỗi truyền ngược qua mà không bị biến dạng.
 
 </PaperNote>
 
-When the gradient explodes, a single update can throw the weights far away, and the loss suddenly jumps. The fix is simple, and it is called *gradient clipping* [@pascanu2013]: before each update, if the norm of the gradient is larger than a threshold, divide the gradient so that its norm equals the threshold. The update keeps its direction, but its size is limited. In PyTorch, it is one line, `nn.utils.clip_grad_norm_(model.parameters(), 1.0)`, between `loss.backward()` and `optimizer.step()`.
+Khi xảy ra hiện tượng bùng nổ đạo hàm (exploding gradient), chỉ một bước cập nhật duy nhất cũng có thể hất văng các trọng số đi rất xa, khiến giá trị hàm mất mát tăng vọt đột ngột. Cách khắc phục rất đơn giản và được gọi là *cắt tỉa gradient (gradient clipping)* [@pascanu2013]: trước mỗi bước cập nhật trọng số, nếu chuẩn (norm) của vector gradient vượt quá một ngưỡng cho trước, ta chia nhỏ vector gradient đó để chuẩn của nó bằng đúng ngưỡng giới hạn. Nhờ vậy, bước cập nhật vẫn giữ nguyên hướng nhưng độ lớn được kìm hãm an toàn. Trong PyTorch, kỹ thuật này chỉ gói gọn trong một dòng lệnh duy nhất: `nn.utils.clip_grad_norm_(model.parameters(), 1.0)`, đặt ngay giữa `loss.backward()` và `optimizer.step()`.
 
-Vanishing gradients need a change of architecture. The **LSTM** (for *long short-term memory*) adds a second state, the *cell* $c_t$, which is updated by an addition instead of a product by a matrix:
+Ngược lại, hiện tượng triệt tiêu đạo hàm (vanishing gradient) đòi hỏi phải thay đổi chính kiến trúc của mạng. Kiến trúc **LSTM** (viết tắt của *long short-term memory* – Bộ nhớ ngắn-dài hạn) bổ sung thêm một trạng thái thứ hai gọi là *ô nhớ (cell state)* $c_t$, được cập nhật thông qua phép cộng thay vì phép nhân ma trận:
 
 $$
 c_t = f_t \odot c_{t-1} + i_t \odot g_t, \qquad h_t = o_t \odot \tanh(c_t),
 $$
 
-where $\odot$ is the product component by component. The vector $g_t = \tanh(W_g [h_{t-1}, x_t] + b_g)$ is a candidate update, computed from the previous state and the current word, like the state of the plain RNN. And $f_t$, $i_t$ and $o_t$ are three *gates*: vectors of numbers between 0 and 1, computed in the same way but with a sigmoid, for instance $f_t = \sigma(W_f [h_{t-1}, x_t] + b_f)$, each with its own weights. The *forget gate* $f_t$ says how much of each component of the cell is kept, the *input gate* $i_t$ how much of the candidate is added, and the *output gate* $o_t$ how much of the cell goes into the state $h_t$, which is what the next step and the head read.
+trong đó ký hiệu $\odot$ biểu thị phép nhân từng phần tử (element-wise product). Vector $g_t = \tanh(W_g [h_{t-1}, x_t] + b_g)$ là bản cập nhật ứng viên (candidate update), được tính từ trạng thái trước đó và từ hiện tại giống như trạng thái của mạng RNN thuần túy. Còn $f_t$, $i_t$ và $o_t$ là ba *cổng (gates)*: các vector chứa các con số nằm trong khoảng từ 0 đến 1, được tính theo cùng công thức nhưng sử dụng hàm kích hoạt sigmoid — ví dụ $f_t = \sigma(W_f [h_{t-1}, x_t] + b_f)$ — trong đó mỗi cổng sở hữu bộ trọng số riêng. *Cổng quên (forget gate)* $f_t$ quyết định giữ lại bao nhiêu phần trăm của từng thành phần trong ô nhớ cũ; *cổng đầu vào (input gate)* $i_t$ quyết định nạp thêm bao nhiêu thông tin từ bản cập nhật ứng viên $g_t$; và *cổng đầu ra (output gate)* $o_t$ quyết định đưa bao nhiêu thông tin từ ô nhớ $c_t$ ra trạng thái ẩn $h_t$ (để chuyển sang bước tiếp theo cũng như đưa vào đầu dự đoán).
 
-From $c_{t-1}$ to $c_t$, the gradient is only multiplied by the forget gate, component by component: no matrix, and no derivative of the tanh. **When the forget gate is close to 1, the gradient goes back through many steps almost unchanged**, and the network learns, word by word, what to keep and what to forget.
+Từ $c_{t-1}$ sang $c_t$, gradient chỉ bị nhân từng phần tử với cổng quên $f_t$: không có phép nhân ma trận nào, cũng không bị đi qua đạo hàm của hàm $\tanh$. **Khi cổng quên có giá trị xấp xỉ bằng 1, tín hiệu gradient có thể truyền ngược qua rất nhiều bước thời gian mà hầu như không bị suy giảm**, giúp mạng học được tại từng từ xem thông tin nào cần lưu giữ và thông tin nào cần xóa bỏ.
 
-The *GRU* (for *gated recurrent unit*) [@cho2014a] is a simpler variant, with two gates and no separate cell. In PyTorch, `nn.RNN`, `nn.LSTM` and `nn.GRU` take the same arguments, so you can switch from one to the other in one line. Let's measure the gradient that reaches each word in these networks.
+Kiến trúc *GRU* (viết tắt của *gated recurrent unit* – Đơn vị truy hồi có cổng) [@cho2014a] là một biến thể gọn nhẹ hơn, chỉ sử dụng hai cổng và không tách riêng ô nhớ $c_t$. Trong PyTorch, các lớp `nn.RNN`, `nn.LSTM` và `nn.GRU` nhận các đối số đầu vào giống hệt nhau, nên bạn có thể chuyển đổi qua lại giữa chúng chỉ bằng một dòng mã. Hãy cùng đo lường trực tiếp độ lớn của gradient truyền về tới từng từ trong các mạng này.
 
-<Exercise number="7.2a" title="Measure the gradient that reaches each word" data="random embeddings" nb="07-2a-vanishing-gradients">
+<Exercise number="7.2a" title="Đo lường độ lớn gradient truyền về tới từng từ" data="random embeddings" nb="07-2a-vanishing-gradients">
 
-Feed a sequence of 100 random embeddings to a plain RNN and to an LSTM, both untrained, with D = H = 100. For each network, compute the norm of the gradient of its last hidden state with respect to each embedding, and plot it against the distance from the end of the sequence, on a log scale. Then set the bias of the forget gate of the LSTM to 3, and plot again.
+Hãy đưa một chuỗi gồm 100 vector nhúng ngẫu nhiên vào một mạng RNN thuần túy và một mạng LSTM (cả hai đều chưa qua huấn luyện) với kích thước $D = H = 100$. Đối với mỗi mạng, hãy tính chuẩn (norm) của gradient của trạng thái ẩn cuối cùng theo từng vector nhúng đầu vào, rồi vẽ đồ thị biểu diễn giá trị này theo khoảng cách tính từ cuối chuỗi trên thang đo logarit (log scale). Sau đó, hãy gán độ chệch (bias) của cổng quên trong mạng LSTM bằng 3, rồi vẽ lại đồ thị để so sánh.
 
 <Starter nb="07-2a-vanishing-gradients" />
 
@@ -106,19 +106,19 @@ Feed a sequence of 100 random embeddings to a plain RNN and to an LSTM, both unt
 
 <Hint>
 
-With `batch_first=True`, `nn.RNN(D, H)` and `nn.LSTM(D, H)` take a tensor of shape (batch, L, D), and return the states after every word, of shape (batch, L, H), with the last state. The LSTM also returns its last cell.
+Khi bật tùy chọn `batch_first=True`, cả `nn.RNN(D, H)` và `nn.LSTM(D, H)` đều nhận đầu vào là một tensor có kích thước `(batch, L, D)`, và trả về chuỗi trạng thái sau mỗi từ có kích thước `(batch, L, H)` kèm theo trạng thái cuối cùng. Riêng `nn.LSTM` trả về một bộ (tuple) gồm trạng thái ẩn cuối cùng và trạng thái ô nhớ cuối cùng.
 
 </Hint>
 
 <Hint>
 
-Call `requires_grad_()` on a copy of the embeddings, so that PyTorch computes the gradient with respect to them. `backward()` needs a single number: use the sum of the components of the last state. The gradient is then in the `.grad` of the embeddings, one row per word. Compute the norms of the rows in float64 (`.double()`): in float32, the squares of the tiniest components round to 0.
+Hãy gọi phương thức `requires_grad_()` trên một bản sao của các vector nhúng để PyTorch tính đạo hàm theo chúng. Hàm `backward()` cần được gọi từ một giá trị vô hướng (scalar): bạn có thể lấy tổng các thành phần của trạng thái ẩn cuối cùng. Khi đó, đạo hàm sẽ nằm trong thuộc tính `.grad` của tensor nhúng, mỗi hàng ứng với một từ. Hãy chuyển sang kiểu số thực dấu phẩy động 64-bit (`.double()`) khi tính chuẩn của từng hàng, bởi ở kiểu `float32`, bình phương của những thành phần quá nhỏ sẽ bị làm tròn thành 0 (underflow).
 
 </Hint>
 
 <Hint>
 
-Each gate of a PyTorch LSTM has two biases, which are added: one in `bias_ih_l0`, one in `bias_hh_l0`. Each of these vectors holds the biases of the four gates one after the other (input, forget, cell, output), H values each, so the forget gate is the slice `[H:2 * H]`. Change them inside `with torch.no_grad():`.
+Mỗi cổng trong lớp LSTM của PyTorch có hai vector độ chệch được cộng lại với nhau: một nằm trong `bias_ih_l0` và một nằm trong `bias_hh_l0`. Mỗi vector này chứa nối tiếp nhau độ chệch của cả bốn cổng theo thứ tự: cổng đầu vào (input), cổng quên (forget), ô nhớ ứng viên (cell), và cổng đầu ra (output), mỗi phần gồm H giá trị. Do đó, cổng quên nằm ở lát cắt `[H:2 * H]`. Hãy thay đổi giá trị của chúng bên trong khối `with torch.no_grad():`.
 
 </Hint>
 
@@ -126,7 +126,7 @@ Each gate of a PyTorch LSTM has two biases, which are added: one in `bias_ih_l0`
 
 <Checkpoint nb="07-2a-vanishing-gradients">
 
-At 10 words from the end, the norm of the gradient is 1.3e-3 for the RNN and 5.5e-3 for the LSTM. At 50 words, it is 1.6e-17 and 1.9e-11, and at the first embedding, 99 words from the end, 6.3e-34 and 3.9e-22. With the bias of its forget gate at 3, the LSTM still gives 0.25 to the first embedding. The chart below shows the three curves.
+Tại vị trí cách cuối chuỗi 10 từ, chuẩn của gradient là `1.3e-3` đối với RNN và `5.5e-3` đối với LSTM. Cách cuối chuỗi 50 từ, con số này giảm xuống còn `1.6e-17` (RNN) và `1.9e-11` (LSTM); và tại vector nhúng đầu tiên (cách cuối chuỗi 99 từ), nó chỉ còn `6.3e-34` và `3.9e-22`. Tuy nhiên, khi đặt độ chệch (bias) của cổng quên bằng 3, mạng LSTM vẫn truyền được mức gradient lên tới `0.25` về tận vector nhúng đầu tiên. Biểu đồ trong notebook thể hiện rõ sự khác biệt giữa ba đường cong này.
 
 </Checkpoint>
 
@@ -134,25 +134,25 @@ At 10 words from the end, the norm of the gradient is 1.3e-3 for the RNN and 5.5
 
 <WhatToNotice>
 
-On a log scale, the curves of the RNN and of the LSTM are almost straight lines: at each step back, the gradient is divided by about 2.2 for the RNN, and by about 1.6 for the LSTM. After 99 steps, the first word gets almost nothing. So the LSTM is not a magic fix. With the default initialization of PyTorch, the biases of its forget gate are close to 0, so the gate starts around $\sigma(0) = 0.5$, and, as Jozefowicz et al. put it, "this introduces a vanishing gradient with a factor of 0.5 per timestep" [@jozefowicz2015]. With a bias of 3, the forget gate starts around $\sigma(3) \approx 0.95$, and the gradient stays between 0.25 and 0.5 from the 10th word back to the first one. This is what the LSTM adds: a path where the gradient is only multiplied by the forget gates, which the network can learn to open. The plain RNN has no such path: at every step, its gradient goes through $W_h$ and the derivative of the tanh. Jozefowicz et al. recommend "adding a bias of 1 to the forget gate of every LSTM in every application". **In an LSTM, the forget gates decide how far back the gradient goes.**
+Trên thang đo logarit, đường cong suy giảm gradient của cả RNN lẫn LSTM mặc định gần như là những đường thẳng tắp: cứ mỗi bước lùi về quá khứ, độ lớn gradient lại bị chia nhỏ đi khoảng 2.2 lần đối với RNN và khoảng 1.6 lần đối với LSTM. Sau 99 bước, từ đầu tiên trong chuỗi hầu như không còn nhận được tín hiệu nào. Điều này cho thấy bản thân kiến trúc LSTM không phải là một phép màu tự động giải quyết mọi thứ. Với cách khởi tạo mặc định của PyTorch, độ chệch của cổng quên nằm gần mức 0, khiến cổng quên khởi đầu ở mức $\sigma(0) = 0.5$; như Jozefowicz và cộng sự đã chỉ ra, "điều này vô tình tạo ra sự suy giảm gradient với hệ số 0.5 sau mỗi bước thời gian" [@jozefowicz2015]. Khi ta đặt độ chệch bằng 3, cổng quên khởi đầu ở mức $\sigma(3) \approx 0.95$, giúp độ lớn gradient duy trì ổn định trong khoảng từ 0.25 đến 0.5 suốt từ từ thứ 10 từ cuối đếm ngược về tận từ đầu tiên. Đây chính là giá trị cốt lõi mà LSTM mang lại: một đường truyền riêng nơi gradient chỉ bị nhân với các cổng quên — thứ mà mạng có thể chủ động học cách mở ra khi cần. Mạng RNN thuần túy hoàn toàn không có đường truyền nào như vậy: ở mọi bước, gradient bắt buộc phải đi qua ma trận $W_h$ và đạo hàm của hàm $\tanh$. Jozefowicz và cộng sự khuyến nghị rằng "nên cộng thêm độ chệch bằng 1 vào cổng quên của mọi mạng LSTM trong mọi ứng dụng". **Trong mạng LSTM, các cổng quên chính là van quyết định tín hiệu đạo hàm có thể truyền ngược về quá khứ xa đến đâu.**
 
 </WhatToNotice>
 
 </Exercise>
 
-<PaperNote id="hochreiter1997" look="Table 2: BPTT and RTRL (another way to compute the gradient of an RNN) against the LSTM, on the same task. With a delay of 100 steps, BPTT and RTRL never succeed.">
+<PaperNote id="hochreiter1997" look="Bảng 2: so sánh BPTT và RTRL (một phương pháp khác để tính gradient của RNN) với LSTM trên cùng một tác vụ. Với độ trễ 100 bước, BPTT và RTRL hoàn toàn bất lực.">
 
-The LSTM of 1997 had no forget gate. Its cell was updated by $c_t = c_{t-1} + i_t \odot g_t$: a self-connection with a fixed weight of 1, which the authors call the "constant error carousel", since the error goes around it without changing. The two gates "learn to open and close access to the constant error flow". On artificial tasks designed to need a long memory, the LSTM bridged "minimal time lags in excess of 1000 discrete-time steps". With a delay of 100 steps, BPTT and RTRL did not succeed once in 5 million training sequences, while the LSTM succeeded in every run, after about 5,000 sequences. The forget gate was added in 2000 by Gers, Schmidhuber and Cummins: on long streams of inputs that were not cut into sequences, the cell grew without limit, and the network had to learn to reset it.
+Kiến trúc LSTM nguyên bản năm 1997 chưa hề có cổng quên. Ô nhớ của nó được cập nhật theo công thức $c_t = c_{t-1} + i_t \odot g_t$: một vòng tự kết nối có trọng số cố định bằng 1, được hai tác giả gọi là "vòng quay sai số hằng định" (constant error carousel), bởi tín hiệu lỗi cứ thế luân chuyển quanh nó mà không bị suy giảm. Hai cổng đầu vào và đầu ra "học cách đóng mở quyền truy cập vào dòng chảy sai số hằng định này". Trên các bài toán nhân tạo được thiết kế để đòi hỏi trí nhớ dài hạn, LSTM đã bắc cầu vượt qua được "những khoảng trễ thời gian tối thiểu lên tới hơn 1,000 bước thời gian rời rạc". Với độ trễ 100 bước, các thuật toán BPTT và RTRL không thành công lấy một lần sau 5 triệu chuỗi huấn luyện, trong khi LSTM thành công ở mọi lần chạy chỉ sau khoảng 5,000 chuỗi. Cổng quên được bổ sung vào năm 2000 bởi Gers, Schmidhuber và Cummins: khi chạy trên các luồng dữ liệu dài liên tục không được cắt nhỏ thành từng đoạn, giá trị của ô nhớ $c_t$ cứ tăng mãi không ngừng, buộc mạng phải học thêm cơ chế tự xóa (reset) ô nhớ khi thông tin cũ không còn cần thiết.
 
 </PaperNote>
 
-Let's now train an LSTM on the reviews of IMDB. Two details are new compared with the averaging networks. First, the LSTM reads the words in order, so each review becomes the list of the indices of its words, instead of a vector of counts. Second, the reviews of a batch have different lengths, but a tensor must be rectangular: we pad the short reviews with zeros, and *pack* the batch with the length of each review, so that the LSTM stops at the last word of each review, and the last state is not computed on the padding. To keep the training short, we only keep the last 400 words of the 14% of reviews that are longer.
+Bây giờ, hãy huấn luyện một mạng LSTM trên tập dữ liệu đánh giá phim IMDB. Có hai chi tiết kỹ thuật mới so với các mạng lấy trung bình trước đây. Thứ nhất, vì LSTM đọc các từ theo đúng thứ tự, mỗi bài đánh giá giờ đây được biểu diễn bằng danh sách chỉ số (index) của các từ theo đúng trình tự xuất hiện, thay vì một vector đếm tần suất. Thứ hai, các bài đánh giá trong cùng một lô (batch) có độ dài ngắn khác nhau, trong khi một tensor bắt buộc phải có dạng hình chữ nhật đều đặn: do đó, ta phải đệm (pad) thêm các số 0 vào cuối những bài đánh giá ngắn, đồng thời *đóng gói (pack)* lô dữ liệu kèm theo độ dài thực của từng bài. Nhờ vậy, LSTM sẽ dừng lại đúng ở từ cuối cùng của mỗi bài đánh giá mà không tính toán trạng thái cuối trên phần đệm vô nghĩa. Để giữ cho thời gian huấn luyện ngắn gọn, đối với 14% số bài đánh giá dài quá 400 từ, ta chỉ giữ lại 400 từ cuối cùng.
 
-<Exercise number="7.2b" title="Classify the IMDB reviews with an LSTM" data="IMDB" nb="07-2b-lstm-classifier">
+<Exercise number="7.2b" title="Phân loại bài đánh giá phim IMDB bằng mạng LSTM" data="IMDB" nb="07-2b-lstm-classifier">
 
-Train an LSTM classifier on IMDB, with the vocabulary of exercise 3.2: the LSTM reads the embeddings of the words of the review (D = 100, H = 128), and a logistic head reads its last state. Choose the number of epochs on the validation set, and measure the test accuracy. Then measure the accuracy on the test reviews with their words shuffled, and run the model on the hard reviews of exercise 3.4.
+Hãy huấn luyện một bộ phân loại LSTM trên tập dữ liệu IMDB sử dụng bộ từ vựng của bài tập 3.2: mạng LSTM đọc các vector nhúng của các từ trong bài đánh giá ($D = 100$, $H = 128$), và một đầu dự đoán logistic (logistic head) sẽ đọc trạng thái ẩn cuối cùng của nó. Hãy chọn số kỷ nguyên (epochs) tối ưu dựa trên tập xác thực (validation set) và đo độ chính xác trên tập kiểm tra (test set). Sau đó, hãy đo độ chính xác khi xáo trộn ngẫu nhiên thứ tự các từ trong các bài đánh giá kiểm tra, đồng thời chạy mô hình trên tập các bài đánh giá khó của bài tập 3.4.
 
-The starter code repeats step (1) of the solution of exercise 3.2 and lists the hard reviews of exercise 3.4. Then it turns each review into the list of the indices of its words, in order, with the vocabulary of exercise 3.2.
+Mã khởi đầu đã thực hiện sẵn bước (1) trong lời giải của bài tập 3.2 và liệt kê các bài đánh giá khó của bài tập 3.4. Tiếp đó, mã chuyển mỗi bài đánh giá thành danh sách chỉ số của các từ theo đúng thứ tự xuất hiện dựa trên bộ từ vựng của bài tập 3.2.
 
 <Starter nb="07-2b-lstm-classifier" />
 
@@ -160,25 +160,25 @@ The starter code repeats step (1) of the solution of exercise 3.2 and lists the 
 
 <Hint>
 
-Write the model as a subclass of `nn.Module`, with `nn.Embedding(V + 1, D)` (the index V is for the words outside the vocabulary), `nn.LSTM(D, H, batch_first=True)` and `nn.Linear(H, 1)`.
+Hãy viết mô hình dưới dạng một lớp con kế thừa từ `nn.Module`, bao gồm `nn.Embedding(V + 1, D)` (chỉ số `V` dành cho các từ nằm ngoài từ vựng), `nn.LSTM(D, H, batch_first=True)` và `nn.Linear(H, 1)`.
 
 </Hint>
 
 <Hint>
 
-`nn.utils.rnn.pad_sequence(tensors, batch_first=True)` pads a list of tensors of different lengths with zeros. Pass the embeddings of the padded batch to `nn.utils.rnn.pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)`, and give the result to the LSTM. It returns the states and `(h, c)`, where `h[0]` holds the state after the last word of each review.
+Hàm `nn.utils.rnn.pad_sequence(tensors, batch_first=True)` giúp đệm thêm các số 0 vào danh sách các tensor có độ dài khác nhau. Hãy đưa các vector nhúng của lô dữ liệu đã đệm vào hàm `nn.utils.rnn.pack_padded_sequence(x, lengths, batch_first=True, enforce_sorted=False)`, rồi truyền kết quả đó cho lớp LSTM. Lớp LSTM sẽ trả về chuỗi trạng thái cùng bộ `(h, c)`, trong đó `h[0]` lưu giữ trạng thái ngay sau từ thực sự cuối cùng của mỗi bài đánh giá trong lô.
 
 </Hint>
 
 <Hint>
 
-Train with Adam (learning rate 0.001) on batches of 64 reviews, with `nn.BCEWithLogitsLoss()` as in exercise 4.3, and clip the gradient at 1. On a laptop CPU, an epoch takes a little more than a minute.
+Hãy huấn luyện bằng bộ tối ưu hóa Adam (tốc độ học `0.001`) trên các lô gồm 64 bài đánh giá, sử dụng hàm mất mát `nn.BCEWithLogitsLoss()` giống bài tập 4.3, và nhớ cắt tỉa gradient (clip gradient) ở ngưỡng `1.0`. Trên CPU của một chiếc laptop thông thường, mỗi kỷ nguyên (epoch) mất hơn một phút một chút.
 
 </Hint>
 
 <Hint>
 
-For the shuffle test, shuffle a copy of the list of indices of each test review with `random.shuffle`, and measure the accuracy on these lists.
+Đối với bài kiểm tra xáo trộn từ, hãy tạo bản sao danh sách chỉ số từ của từng bài đánh giá trong tập kiểm tra, xáo trộn bằng `random.shuffle`, rồi đo lại độ chính xác của mô hình trên các danh sách đã xáo trộn này.
 
 </Hint>
 
@@ -186,7 +186,7 @@ For the shuffle test, shuffle a copy of the list of indices of each test review 
 
 <Checkpoint nb="07-2b-lstm-classifier">
 
-The validation accuracy rises at every epoch, from 72.6% after the first one to 87.2% after the sixth, and the test accuracy is 87.2%. With the words of the test reviews shuffled, it falls to 82.6%. The model gets 8 of the 13 hard reviews right, including the two reviews with the same words: 0.633 for the positive one, and 0.112 for the negative one. Your numbers can differ by a point or so, especially on a GPU.
+Độ chính xác trên tập xác thực (validation accuracy) tăng đều qua từng kỷ nguyên, từ 72.6% sau kỷ nguyên đầu tiên lên 87.2% sau kỷ nguyên thứ sáu, và độ chính xác trên tập kiểm tra đạt 87.2%. Khi xáo trộn ngẫu nhiên thứ tự từ trong các bài đánh giá kiểm tra, độ chính xác sụt giảm xuống còn 82.6%. Mô hình dự đoán đúng 8 trên 13 bài đánh giá khó, bao gồm cả cặp bài đánh giá chứa các từ giống hệt nhau: xác suất tích cực là `0.633` cho câu khen và `0.112` cho câu chê. Kết quả của bạn có thể chênh lệch đôi chút khoảng 1 điểm phần trăm, đặc biệt khi chạy trên GPU.
 
 </Checkpoint>
 
@@ -194,42 +194,42 @@ The validation accuracy rises at every epoch, from 72.6% after the first one to 
 
 <WhatToNotice>
 
-For the first time in the post, a classifier gets the two reviews with the same words right: 0.63 for "I expected it to be terrible, but it was great.", and 0.11 for the other one. And shuffling the words of the test reviews now costs 4.6 points of accuracy: the model uses the order of the words. Yet its test accuracy, 87.2%, is no better than the bag of words of section 3 (87.6% with counts, 88.4% with TF-IDF). Dai and Le found the same: 86.5% for an LSTM trained from scratch on IMDB [@dai2015]. Reading in order is harder to learn than counting. The model must learn the embeddings, what to keep in its state and when to forget it, from 20,000 labeled reviews only, and it needed 6 epochs where the averaging network of exercise 4.3 needed 2. The hard reviews show where the order helps: the contrast "The first hour is slow and the dialogue is clumsy, but the ending makes it all worth it." is now right (0.99). But "Not bad at all, actually." is still negative, and the sarcastic reviews still fool the model. **An LSTM can use the order of the words, but from 20,000 labeled reviews, it learns little more than a bag of words.**
+Lần đầu tiên kể từ đầu chương, một bộ phân loại đã phân biệt đúng hai bài đánh giá chứa các từ giống hệt nhau: gán xác suất 0.63 cho câu "I expected it to be terrible, but it was great." và 0.11 cho câu ngược lại. Đồng thời, việc xáo trộn thứ tự các từ trong tập kiểm tra giờ đây làm mất đi 4.6 điểm phần trăm độ chính xác: điều này chứng tỏ mô hình thực sự có sử dụng thông tin về trật tự từ. Thế nhưng, độ chính xác tổng thể trên tập kiểm tra của nó (87.2%) vẫn không hề cao hơn mô hình túi từ ở mục 3 (đạt 87.6% với tần suất đếm và 88.4% với TF-IDF). Dai và Le cũng từng ghi nhận kết quả tương tự: một mạng LSTM huấn luyện từ đầu (from scratch) trên IMDB chỉ đạt 86.5% [@dai2015]. Học cách đọc văn bản theo thứ tự khó hơn nhiều so với việc chỉ đếm từ. Chỉ từ 20,000 bài đánh giá có nhãn, mô hình vừa phải học các vector nhúng từ, vừa phải học xem nên giữ lại thông tin gì trong trạng thái ẩn và khi nào thì nên quên nó đi; nó cần tới 6 kỷ nguyên trong khi mạng lấy trung bình ở bài tập 4.3 chỉ cần 2 kỷ nguyên. Tập các bài đánh giá khó cho thấy rõ nơi nào trật tự từ phát huy tác dụng: câu có cấu trúc tương phản "The first hour is slow and the dialogue is clumsy, but the ending makes it all worth it." giờ đã được dự đoán đúng một cách tự tin (0.99). Tuy nhiên, câu phủ định kép "Not bad at all, actually." vẫn bị đoán nhầm là tiêu cực, và các câu mỉa mai vẫn tiếp tục đánh lừa được mô hình. **Mạng LSTM có khả năng khai thác thứ tự của các từ, nhưng nếu chỉ học từ 20,000 bài đánh giá có nhãn, những gì nó học được chẳng vượt qua nổi một mô hình túi từ.**
 
 </WhatToNotice>
 
 </Exercise>
 
-Let's look at how the LSTM tells the two reviews apart. The figure below shows it reading them, word by word. The first five words are the same in both reviews, and so are the states: the network cannot know what comes next. Then "terrible" lowers the probability of being positive in review A, and "great" raises it in review B. The next three words, "but it was", are again the same in both reviews, yet the states stay different, since each state carries what was read before it. And the last word moves the prediction to the other side: up with "great" in review A, down with "terrible" in review B.
+Hãy quan sát cách mạng LSTM phân biệt hai bài đánh giá chứa các từ giống hệt nhau. Hình tương tác dưới đây minh họa quá trình mạng đọc từng từ một trong hai câu đó. Năm từ đầu tiên ở cả hai bài đánh giá là giống hệt nhau, nên các trạng thái ẩn của mạng cũng giống hệt nhau: tại thời điểm đó, mạng chưa thể biết điều gì sẽ xảy ra tiếp theo. Đến từ thứ sáu, từ "terrible" kéo xác suất tích cực ở câu A xuống thấp, trong khi từ "great" đẩy xác suất tích cực ở câu B lên cao. Ba từ tiếp theo — "but it was" — lại giống hệt nhau ở cả hai câu, nhưng lúc này các trạng thái ẩn vẫn duy trì sự khác biệt bởi mỗi trạng thái đều mang theo ký ức về những gì đã đọc trước đó. Và đến từ cuối cùng, dự đoán của mạng đảo chiều hoàn toàn: vọt lên mức tích cực khi gặp từ "great" ở câu A, và lao dốc xuống mức tiêu cực khi gặp từ "terrible" ở câu B.
 
 <HtmlEmbed
   src="d3-lstm-reading.html"
   data="lstm-reading.json"
-  title="The LSTM reads the two reviews"
-  desc="The two hard reviews with the same words, read by the LSTM of exercise 7.2b. Each column of cells is the state after a word, restricted to the 8 units with the largest weights in the head. Each cell shows how much its unit pushes the score of the head toward positive or negative (its value times its weight), with the colors of the figure of section 3.2. The curve is the probability of being positive that the head gives after each word. Move the slider to read the reviews word by word."
+  title="Mạng LSTM đọc hai bài đánh giá"
+  desc="Hai bài đánh giá khó có cùng tập từ vựng được đọc bởi mạng LSTM ở bài tập 7.2b. Mỗi cột ô vuông biểu diễn trạng thái ẩn ngay sau khi đọc một từ, giới hạn ở 8 đơn vị (units) có trọng số lớn nhất trong đầu dự đoán. Màu sắc của mỗi ô thể hiện mức độ đơn vị đó đẩy điểm số dự đoán về phía tích cực hay tiêu cực (bằng giá trị kích hoạt nhân với trọng số của nó), sử dụng cùng bảng màu với hình ở mục 3.2. Đường cong phía dưới là xác suất bài đánh giá mang sắc thái tích cực mà đầu dự đoán đưa ra sau mỗi từ. Hãy kéo thanh trượt để theo dõi mô hình đọc từng từ một."
 />
 
-The LSTM reads in order, but on IMDB it does not beat the bag of words. Dai and Le found the same, and they also found the remedy: pre-train the LSTM on raw text first, as section 5 pre-trained the embeddings, then fine-tune it on the labeled reviews. With this, their LSTM reached 92.4% on IMDB. This is the topic of section 8. To pre-train an LSTM on raw text, we need a task that raw text can supervise: predicting the next word, as in section 2.
+Mạng LSTM đã biết đọc theo thứ tự, nhưng trên tập dữ liệu IMDB nó vẫn chưa đánh bại được mô hình túi từ. Dai và Le cũng gặp đúng tình cảnh này, và họ đã tìm ra phương thuốc giải quyết: trước tiên, hãy tiền huấn luyện (pre-train) mạng LSTM trên dữ liệu văn bản thô không nhãn — tương tự như cách mục 5 tiền huấn luyện các vector nhúng — sau đó mới tinh chỉnh (fine-tune) mạng trên các bài đánh giá có nhãn. Nhờ chiến lược này, mạng LSTM của họ đã vọt lên mức độ chính xác 92.4% trên IMDB. Đây sẽ là chủ đề của mục 8. Nhưng để tiền huấn luyện một mạng LSTM trên văn bản thô, chúng ta cần một bài toán mà bản thân văn bản thô có thể tự cung cấp nhãn giám sát: đó chính là bài toán dự đoán từ tiếp theo như ở mục 2.
 
-### 7.3 RNNs as language models and generators
+### 7.3 Mạng RNN trong vai trò mô hình ngôn ngữ và bộ sinh văn bản
 
-Let's go back to language modeling. An RNN is also a language model: at each position $t$, a head reads the state $h_t$ and gives the probabilities of the next word, with a softmax over the vocabulary, as in Bengio's model:
+Hãy quay trở lại với bài toán mô hình hóa ngôn ngữ (language modeling). Bản thân mạng RNN cũng chính là một mô hình ngôn ngữ: tại mỗi vị trí $t$, một đầu dự đoán sẽ đọc trạng thái ẩn $h_t$ và đưa ra phân phối xác suất của từ tiếp theo thông qua hàm softmax trên toàn bộ từ vựng, tương tự như mô hình của Bengio:
 
 $$
 q(x_{t+1} \mid x_1 \dots x_t) = \text{softmax}(U h_t + d).
 $$
 
-The state $h_t$ depends on all the words since the start of the text, so **the context is no longer limited to the last n − 1 words**. Mikolov et al. built such a model in 2010 [@mikolov2010], and with a mix of several RNNs, they reduced the perplexity of a Kneser-Ney 5-gram model on news articles by almost half. In their words, the results were "breaking myth that language modeling is just about counting n-grams".
+Vì trạng thái $h_t$ phụ thuộc vào tất cả các từ kể từ đầu văn bản cho đến vị trí $t$, nên **ngữ cảnh giờ đây không còn bị bó hẹp trong $n - 1$ từ cuối cùng nữa**. Mikolov và cộng sự đã xây dựng một mô hình như vậy vào năm 2010 [@mikolov2010]; khi kết hợp (ensemble) một vài mạng RNN, họ đã cắt giảm được gần một nửa độ hỗn loạn (perplexity) so với mô hình 5-gram làm mịn Kneser-Ney trên kho dữ liệu tin tức. Như nhóm tác giả tuyên bố, những kết quả này đã "đập tan lầm tưởng lâu nay rằng mô hình hóa ngôn ngữ chỉ xoay quanh việc đếm các cụm n-gram".
 
-To train it, we would like to unroll the RNN over the whole training text and backpropagate through it. But WikiText-2 is a single text of 2 million words, and the gradient would have to go through 2 million steps. The usual solution is *truncated backpropagation through time*. Cut the text into chunks of 35 words, and read them in order. The state is carried from one chunk to the next, so that the prediction of each word still depends on all the text before it. But the gradient stops at the start of the chunk: the network learns from at most 35 words of context, even if it uses more. To use the parallelism of matrix products, we also cut the text into 32 long streams, and a batch reads the 32 streams side by side, one chunk of each.
+Để huấn luyện mô hình này, lý tưởng nhất là ta trải phẳng mạng RNN trên toàn bộ văn bản huấn luyện rồi lan truyền ngược qua đó. Thế nhưng WikiText-2 là một văn bản liền mạch dài tới 2 triệu từ, nghĩa là tín hiệu gradient sẽ phải đi ngược qua 2 triệu bước! Giải pháp tiêu chuẩn trong thực tế là *lan truyền ngược qua thời gian bị cắt ngắn (truncated backpropagation through time – TBPTT)*. Ta cắt văn bản thành các đoạn ngắn (chunks) gồm 35 từ và đọc chúng lần lượt theo đúng thứ tự. Trạng thái ẩn vẫn được truyền nguyên vẹn từ đoạn này sang đoạn kế tiếp, nhờ đó việc dự đoán mỗi từ vẫn phụ thuộc vào toàn bộ văn bản phía trước nó. Tuy nhiên, quá trình tính đạo hàm (gradient) sẽ bị chặn lại ở điểm đầu của mỗi đoạn: mạng chỉ học các mối phụ thuộc trong phạm vi tối đa 35 từ ngữ cảnh, mặc dù khi dự đoán nó vẫn sử dụng thông tin xa hơn thế. Để tận dụng khả năng tính toán song song của các phép nhân ma trận trên phần cứng, ta đồng thời chia văn bản thành 32 luồng dài (streams), và mỗi lô (batch) sẽ đọc song song cả 32 luồng này, mỗi luồng một đoạn 35 từ.
 
-Like Bengio's model in exercise 4.2, this model has many parameters (most of them in the output layer, one row of $U$ per word of the vocabulary) and it overfits after a few epochs, so we keep the model of the epoch with the best validation perplexity.
+Giống như mô hình của Bengio ở bài tập 4.2, mô hình này chứa rất nhiều tham số (phần lớn nằm ở tầng đầu ra, với một hàng trong ma trận $U$ cho mỗi từ trong từ vựng) và bắt đầu bị quá khớp (overfit) chỉ sau một vài kỷ nguyên; vì vậy ta sẽ lưu lại phiên bản mô hình ở kỷ nguyên có độ hỗn loạn trên tập xác thực (validation perplexity) thấp nhất.
 
-<Exercise number="7.3" star title="Train an LSTM language model on WikiText-2" data="WikiText-2" nb="07-3-lstm-language-model">
+<Exercise number="7.3" star title="Huấn luyện mô hình ngôn ngữ LSTM trên WikiText-2" data="WikiText-2" nb="07-3-lstm-language-model">
 
-Train an LSTM language model on WikiText-2 (D = H = 256), with truncated backpropagation through time: read the training text in chunks of 35 words, carry the state from one chunk to the next, but stop the gradient at the start of each chunk. Train for 3 epochs, measure the validation perplexity after each epoch, and compute the test perplexity of the best model. Compare with the n-gram models of exercise 2.3b and with Bengio's model of exercise 4.2. Then generate a text of 50 words.
+Hãy huấn luyện một mô hình ngôn ngữ LSTM trên tập dữ liệu WikiText-2 ($D = H = 256$) bằng kỹ thuật lan truyền ngược qua thời gian bị cắt ngắn (truncated backpropagation through time): đọc văn bản huấn luyện theo từng đoạn dài 35 từ, truyền trạng thái từ đoạn này sang đoạn tiếp theo, nhưng ngắt dòng chảy gradient ở đầu mỗi đoạn. Huấn luyện trong 3 kỷ nguyên, đo độ hỗn loạn trên tập xác thực sau mỗi kỷ nguyên, và tính độ hỗn loạn trên tập kiểm tra của mô hình tốt nhất. Hãy so sánh kết quả với các mô hình n-gram ở bài tập 2.3b và mô hình của Bengio ở bài tập 4.2. Cuối cùng, hãy dùng mô hình để sinh ra một đoạn văn bản dài 50 từ.
 
-The starter code builds the three sequences and the index of the words, as in exercises 2.1, 2.2 and 4.2. Then it cuts each sequence into streams that a batch reads side by side (see the first hint).
+Mã khởi đầu đã xây dựng sẵn ba chuỗi dữ liệu cùng bảng chỉ mục từ vựng giống như trong các bài tập 2.1, 2.2 và 4.2, sau đó cắt mỗi chuỗi thành các luồng (streams) để xử lý song song theo lô (xem gợi ý đầu tiên).
 
 <Starter nb="07-3-lstm-language-model" />
 
@@ -237,25 +237,25 @@ The starter code builds the three sequences and the index of the words, as in ex
 
 <Hint>
 
-The starter cuts each set into streams: `train_streams` has 32 rows, and row i is the i-th piece of the text. For a chunk starting at position `start`, the input is `train_streams[:, start:start + 35]`, and the targets are the same columns shifted by one, `train_streams[:, start + 1:start + 36]`.
+Mã khởi đầu đã chia mỗi tập dữ liệu thành các luồng song song: `train_streams` có 32 hàng, trong đó hàng thứ `i` là mảnh văn bản thứ `i`. Đối với một đoạn (chunk) bắt đầu tại vị trí `start`, đầu vào của mạng là `train_streams[:, start:start + 35]`, và nhãn mục tiêu (targets) chính là các cột đó dịch sang phải một vị trí: `train_streams[:, start + 1:start + 36]`.
 
 </Hint>
 
 <Hint>
 
-Write the model as a subclass of `nn.Module`, as in exercise 7.2b, with `nn.Embedding(V, D)`, `nn.LSTM(D, H, batch_first=True)` and `nn.Linear(H, V)`, and start from small embeddings, as in exercise 4.2. The LSTM takes the state `(h, c)` left by the previous chunk, or `None` for the first chunk, and returns the states at every position, then the new state `(h, c)`. `F.cross_entropy` wants the scores as a matrix with one row per position: reshape them with `scores.reshape(-1, V)`, and the targets with `y.reshape(-1)`.
+Hãy viết mô hình dưới dạng một lớp con của `nn.Module` tương tự bài tập 7.2b, sử dụng `nn.Embedding(V, D)`, `nn.LSTM(D, H, batch_first=True)` và `nn.Linear(H, V)`, đồng thời khởi tạo các vector nhúng có giá trị nhỏ giống như ở bài tập 4.2. Lớp LSTM nhận trạng thái `(h, c)` do đoạn trước để lại (hoặc `None` đối với đoạn đầu tiên), và trả về chuỗi trạng thái tại mọi vị trí cùng với trạng thái mới `(h, c)`. Hàm mất mát `F.cross_entropy` yêu cầu điểm số đầu ra phải có dạng ma trận với mỗi hàng ứng với một vị trí: hãy định hình lại (reshape) điểm số bằng `scores.reshape(-1, V)` và nhãn mục tiêu bằng `y.reshape(-1)`.
 
 </Hint>
 
 <Hint>
 
-Before each chunk, replace the state by `(h.detach(), c.detach())`: the values are kept, but the gradient will not flow into the previous chunks. Without it, `backward()` would go back through the whole text read so far.
+Trước khi bước vào mỗi đoạn mới, hãy thay trạng thái bằng `(h.detach(), c.detach())`: các giá trị số trong trạng thái vẫn được giữ nguyên để truyền đi tiếp, nhưng PyTorch sẽ ngắt không cho gradient truyền ngược về các đoạn trước đó. Nếu thiếu bước `.detach()` này, lệnh `backward()` sẽ cố gắng lan truyền ngược qua toàn bộ văn bản đã đọc từ đầu đến giờ.
 
 </Hint>
 
 <Hint>
 
-Train with Adam (learning rate 0.002) and clip the gradient at 1. An epoch is 1,832 chunks, and it takes about two and a half minutes on a laptop CPU. To generate the text, feed one word at a time, and keep the state from one word to the next.
+Hãy huấn luyện với bộ tối ưu hóa Adam (tốc độ học `0.002`) và cắt tỉa gradient ở mức `1.0`. Một kỷ nguyên bao gồm 1,832 đoạn và mất khoảng hai phút rưỡi trên CPU laptop. Khi sinh văn bản mới, hãy đưa từng từ một vào mạng và giữ lại trạng thái ẩn từ từ này sang từ kế tiếp.
 
 </Hint>
 
@@ -263,7 +263,7 @@ Train with Adam (learning rate 0.002) and clip the gradient at 1. An epoch is 1,
 
 <Checkpoint nb="07-3-lstm-language-model">
 
-The validation perplexity is 204.9 after the first epoch, 168.4 after the second, and 169.2 after the third: the model starts to overfit. The test perplexity of the model of epoch 2 is 155.8. Your sample will differ, but it should read like pieces of Wikipedia sentences put end to end. On a GPU, your numbers can differ a little.
+Độ hỗn loạn trên tập xác thực (validation perplexity) đạt 204.9 sau kỷ nguyên đầu tiên, giảm xuống 168.4 sau kỷ nguyên thứ hai, và tăng nhẹ lên 169.2 sau kỷ nguyên thứ ba (dấu hiệu mô hình bắt đầu quá khớp). Độ hỗn loạn trên tập kiểm tra (test perplexity) của mô hình ở kỷ nguyên thứ 2 đạt **155.8**. Đoạn văn bản sinh ra trên máy bạn sẽ khác nhau tùy thuộc vào hạt giống ngẫu nhiên, nhưng nhìn chung sẽ giống như các mảnh câu trên Wikipedia được ghép nối lại với nhau. Nếu chạy trên GPU, các con số có thể xê dịch đôi chút.
 
 </Checkpoint>
 
@@ -271,89 +271,89 @@ The validation perplexity is 204.9 after the first epoch, 168.4 after the second
 
 <WhatToNotice>
 
-After a single epoch, the LSTM already beats every language model of sections 2 and 4: 204.9 on the validation set, against 223.9 for Bengio's model at its best epoch. Its test perplexity, 155.8, is 25% lower than the 208.5 of Bengio's model, and 29% lower than the 219.3 of the Kneser-Ney 5-gram, for about the same training time as Bengio's model. The difference is the context: Bengio's model sees the last 3 words, while the state of the LSTM carries everything since the start of its stream. Look at the sample: it opens a parenthesis, "( Bass in December 2006 )", and closes it four words later. By then, the opening parenthesis is out of the window of the last 3 words, so Bengio's model could only guess, while the LSTM can keep it in its state. But the sample still makes no sense beyond a few words: the state remembers some things, such as an open parenthesis, but not what the text is about. **With a context that is no longer limited to a window, the LSTM predicts the next word much better than the models of sections 2 and 4.**
+Chỉ sau một kỷ nguyên duy nhất, mạng LSTM đã vượt qua mọi mô hình ngôn ngữ ở mục 2 và mục 4: đạt mức perplexity 204.9 trên tập xác thực, so với 223.9 của mô hình Bengio ở kỷ nguyên tốt nhất. Độ hỗn loạn trên tập kiểm tra của nó (155.8) thấp hơn 25% so với mức 208.5 của mô hình Bengio, và thấp hơn 29% so với mức 219.3 của mô hình 5-gram Kneser-Ney, trong khi thời gian huấn luyện chỉ tương đương mô hình của Bengio. Sự khác biệt nằm ở độ rộng của ngữ cảnh: mô hình của Bengio chỉ nhìn thấy 3 từ gần nhất, còn trạng thái của LSTM mang theo thông tin tích lũy kể từ đầu luồng văn bản. Hãy nhìn vào đoạn văn bản mẫu được sinh ra: mô hình mở một dấu ngoặc đơn trong cụm `( Bass in December 2006 )`, rồi đóng ngoặc lại một cách chính xác sau đó bốn từ. Tại thời điểm đóng ngoặc, dấu mở ngoặc đã trôi ra ngoài cửa sổ 3 từ cuối, nên mô hình của Bengio chỉ có thể đoán mò, trong khi LSTM vẫn lưu giữ được thông tin đó trong trạng thái của mình. Dù vậy, đoạn văn bản sinh ra vẫn mất đi tính mạch lạc về ngữ nghĩa khi vượt quá phạm vi vài từ: trạng thái ẩn nhớ được những cấu trúc cục bộ như việc đang mở ngoặc đơn, nhưng chưa đủ sức nắm bắt chủ đề xuyên suốt của cả đoạn văn. **Nhờ ngữ cảnh không còn bị giới hạn trong một cửa sổ cố định, mạng LSTM dự đoán từ tiếp theo tốt hơn hẳn các mô hình ở mục 2 và mục 4.**
 
 </WhatToNotice>
 
 </Exercise>
 
-Our LSTM is small, and it was trained for only 3 epochs. The best LSTMs of 2016 on WikiText-2 have two layers of 650 units, and they are regularized with *dropout*: during the training, components of the vectors of the network are set to zero at random, so that the network cannot rely too much on any of them. Zaremba et al. applied dropout to the embeddings and to the states that go from one layer to the next, but not to the state that goes from one word to the next: new random zeros at every word would also erase what the network remembers [@zaremba2014]. Gal and Ghahramani then showed that this state can be dropped too, if the same components are set to zero at every word of a sequence [@gal2016]. With this *variational dropout*, a two-layer LSTM reaches a test perplexity of 96.3 on WikiText-2, and 80.8 with a mechanism that can also copy a word from the recent text [@merity2016]. We will meet an even better LSTM in section 8.
+Mạng LSTM của chúng ta ở bài tập trên có kích thước khá nhỏ và mới chỉ được huấn luyện trong 3 kỷ nguyên. Những mô hình LSTM tốt nhất vào năm 2016 trên tập dữ liệu WikiText-2 có tới hai tầng, mỗi tầng gồm 650 đơn vị ẩn, và được điều chuẩn (regularized) bằng kỹ thuật *dropout*: trong quá trình huấn luyện, một số thành phần ngẫu nhiên trong các vector của mạng bị gán bằng 0 để buộc mạng không được phụ thuộc quá mức vào bất kỳ thành phần đơn lẻ nào. Zaremba và cộng sự đã áp dụng dropout cho các vector nhúng và cho các trạng thái truyền từ tầng này lên tầng kế tiếp, nhưng không áp dụng cho trạng thái truyền từ từ này sang từ tiếp theo: bởi việc chèn thêm các số 0 ngẫu nhiên mới ở mỗi bước từ sẽ xóa sổ luôn những thông tin mà mạng đang cố ghi nhớ [@zaremba2014]. Sau đó, Gal và Ghahramani đã chứng minh rằng hoàn toàn có thể áp dụng dropout lên cả trạng thái truy hồi này, miễn là ta giữ cố định cùng một mặt nạ các thành phần bị gán bằng 0 tại mọi bước từ trong suốt một chuỗi [@gal2016]. Với kỹ thuật *dropout biến phân (variational dropout)* này, một mạng LSTM hai tầng đã giảm được perplexity trên tập kiểm tra của WikiText-2 xuống còn 96.3, và xuống tới 80.8 khi kết hợp thêm một cơ chế cho phép sao chép các từ vừa xuất hiện trong đoạn văn bản gần đó [@merity2016]. Ở mục 8, chúng ta sẽ còn gặp một mô hình LSTM xuất sắc hơn nữa.
 
-Like the n-gram models, an RNN language model can generate text: draw the next word from its probabilities, feed it back as the next input, and repeat. RNNs made this popular at the level of characters. Instead of words, the model reads and predicts one character at a time, with a vocabulary of a few dozen symbols. In a famous blog post, Andrej Karpathy trained such LSTMs on the works of Shakespeare, on Wikipedia, on LaTeX files and on the source code of Linux [@karpathy2015]. As he notes about Shakespeare, "all the RNN knows are characters, so in particular it samples both speaker's names and the contents". Below are the samples of a small character-level LSTM trained on TinyShakespeare, at several steps of its training.
+Giống như các mô hình n-gram, mô hình ngôn ngữ RNN có thể được dùng để sinh văn bản: lấy mẫu từ tiếp theo dựa trên phân phối xác suất mà mạng dự đoán, đưa từ vừa sinh ra quay trở lại làm đầu vào cho bước kế tiếp, và cứ thế lặp lại. Mạng RNN đã làm cho kỹ thuật sinh văn bản này trở nên cực kỳ nổi tiếng ở cấp độ ký tự (character-level). Thay vì xử lý từng từ, mô hình đọc và dự đoán từng ký tự một với bộ từ vựng chỉ gồm vài chục ký hiệu. Trong một bài viết blog nổi tiếng năm 2015, Andrej Karpathy đã huấn luyện các mạng LSTM cấp độ ký tự như vậy trên tuyển tập tác phẩm của Shakespeare, trên Wikipedia, trên các tệp tài liệu toán học LaTeX và cả trên mã nguồn nhân hệ điều hành Linux [@karpathy2015]. Như ông nhận xét về mô hình học Shakespeare: "tất cả những gì mạng RNN biết chỉ là các ký tự, vì vậy nó tự lấy mẫu sinh ra cả tên nhân vật lẫn lời thoại". Hình tương tác dưới đây trình bày các đoạn văn bản mẫu được sinh ra bởi một mạng LSTM nhỏ cấp độ ký tự huấn luyện trên tập dữ liệu TinyShakespeare qua từng giai đoạn huấn luyện.
 
-<PaperNote id="graves2013" look="Figures 5 to 8: four pages of generated Wikipedia, with its markup and its invented names.">
+<PaperNote id="graves2013" look="Hình 5 đến Hình 8: bốn trang văn bản Wikipedia do mô hình tự sinh ra, đầy đủ cả cú pháp đánh dấu (markup) lẫn những cái tên do mạng tự bịa ra.">
 
-Graves trains seven layers of LSTM (700 cells each, 21 million weights) to predict the next byte of the first 96 million bytes of the English Wikipedia. The gradient is cut every 100 bytes, as in exercise 7.3, but the state is carried over 100 sequences, so the network can use up to 10,000 characters of context. It reaches 1.67 bits per character on held-out text, against "more than 2" for compressors like zip. In its samples, the network closes the brackets and the XML tags it opens, and it has learned "a subword model that enables it to invent feasible-looking words and names", like "Lochroom River" or "swalloped". The second half of the paper does the same with handwriting: the network writes a text one pen stroke at a time.
+Alex Graves huấn luyện một mạng LSTM sâu 7 tầng (mỗi tầng 700 ô nhớ, tổng cộng 21 triệu trọng số) để dự đoán byte tiếp theo trên 96 triệu byte đầu tiên của Wikipedia tiếng Anh. Dòng chảy gradient được cắt ngắn sau mỗi 100 byte giống như trong bài tập 7.3, nhưng trạng thái ẩn được giữ liên tục qua 100 chuỗi liên tiếp, cho phép mạng tận dụng ngữ cảnh dài tới 10,000 ký tự. Mô hình đạt mức nén 1.67 bit trên mỗi ký tự đối với văn bản kiểm tra, vượt xa mức "hơn 2 bit" của các phần mềm nén dữ liệu truyền thống như zip. Trong các văn bản mẫu sinh ra, mạng biết đóng đúng các dấu ngoặc và các thẻ XML mà nó đã mở, đồng thời học được "một mô hình từ phụ (subword model) cho phép nó tự sáng tạo ra những từ và tên riêng nghe rất hợp lý" như "Lochroom River" hay "swalloped". Nửa sau của bài báo áp dụng cùng ý tưởng đó cho chữ viết tay: mạng điều khiển việc viết văn bản theo từng nét bút một.
 
 </PaperNote>
 
 <HtmlEmbed
   src="d3-char-samples.html"
   data="char-lstm-samples.json"
-  title="A character-level LSTM learns to write a play"
-  desc="Samples of 400 characters from a two-layer LSTM (256 units) trained to predict the next character of TinyShakespeare, after more and more batches of training (64 windows of 100 characters each). All the samples use the same random draws, which is why they start in the same way. The validation loss is in bits per character."
+  title="Mạng LSTM cấp độ ký tự học cách viết kịch"
+  desc="Các đoạn văn bản mẫu dài 400 ký tự được sinh bởi một mạng LSTM hai tầng (256 đơn vị mỗi tầng) huấn luyện để dự đoán ký tự tiếp theo trên tập dữ liệu TinyShakespeare, ghi lại sau số lượng lô (batches) huấn luyện tăng dần (mỗi lô gồm 64 cửa sổ, mỗi cửa sổ dài 100 ký tự). Tất cả các mẫu đều sử dụng cùng một dãy số ngẫu nhiên nên chúng bắt đầu giống nhau. Giá trị mất mát trên tập xác thực (validation loss) được tính bằng đơn vị bit trên mỗi ký tự (bits per character)."
 />
 
-At first, the characters are drawn at random. After 100 batches, the model has learned the spaces, the line breaks and a few short words. After 300 batches, it writes in the format of a play: a name in capitals followed by a colon, then the lines of this character, like "GOLUTE:", a name that Shakespeare never wrote. After 1,000 batches, the names are real ones, like JULIET or FRIAR LAURENCE, and most words are English words, in sentences that make no sense.
+Ở thời điểm ban đầu, các ký tự được rút ra hoàn toàn ngẫu nhiên. Sau 100 lô huấn luyện, mô hình đã học được cách đặt khoảng trắng, xuống dòng và viết đúng một vài từ ngắn. Sau 300 lô, nó đã nắm được định dạng trình bày của một vở kịch: tên nhân vật viết hoa toàn bộ theo sau bởi dấu hai chấm, rồi đến lời thoại của nhân vật đó — ví dụ như `GOLUTE:`, một cái tên mà Shakespeare chưa từng viết. Sau 1,000 lô, tên các nhân vật đã trở thành tên thật trong tác phẩm (như `JULIET` hay `FRIAR LAURENCE`), và phần lớn các từ đều là từ tiếng Anh chuẩn xác, dù ghép lại thành những câu chưa có ý nghĩa hoàn chỉnh.
 
-<Note title="Words, characters or subwords?" emoji="🔤" variant="info">
+<Note title="Từ, ký tự hay từ phụ (subwords)?" emoji="🔤" variant="info">
 
-So far, our units have been words. A word-level model has a fixed vocabulary: in WikiText-2, the words that appear at least 3 times in the training text, every other word being replaced by `<unk>`. A word outside the vocabulary, like "Zendaya" or "flabbergasting" in section 3, is invisible, or at best an `<unk>`, which says nothing about it. And each word gets its own embedding, learned separately, so the model must learn "film" and "films" twice.
+Từ đầu chương đến giờ, đơn vị xử lý cơ bản của chúng ta luôn là *từ (words)*. Một mô hình cấp độ từ có bộ từ vựng cố định: chẳng hạn trong WikiText-2, chỉ những từ xuất hiện ít nhất 3 lần trong tập huấn luyện mới được giữ lại, còn mọi từ khác đều bị thay thế bằng ký hiệu `<unk>`. Một từ nằm ngoài từ vựng — như tên riêng "Zendaya" hay tính từ "flabbergasting" ở mục 3 — sẽ trở nên vô hình đối với mô hình, hoặc cùng lắm chỉ được nhìn nhận như một thẻ `<unk>` chung chung không mang chút thông tin nào. Hơn nữa, mỗi từ nhận một vector nhúng riêng biệt và được học độc lập, nên mô hình buộc phải học hai từ "film" và "films" như hai thực thể hoàn toàn tách rời.
 
-Characters solve this problem: TinyShakespeare has only 65 different characters, and any word can be written with them, even a word that the model has never seen. But a text has about 5 times more characters than words, so the RNN must carry information over 5 times more steps, which is exactly what section 7.2 says is hard. And the model must learn to spell before it can learn anything about meaning.
+Xử lý ở cấp độ *ký tự (characters)* giải quyết triệt để vấn đề từ ngoài từ vựng: tập dữ liệu TinyShakespeare chỉ có vỏn vẹn 65 ký tự khác nhau, và bất kỳ từ nào cũng có thể được ghép nên từ chúng, kể cả những từ mà mô hình chưa từng gặp bao giờ. Thế nhưng, một văn bản tính theo ký tự sẽ dài gấp khoảng 5 lần so với tính theo từ, đồng nghĩa với việc mạng RNN phải truyền tải thông tin qua số bước thời gian nhiều gấp 5 lần — mà đây lại chính là điểm yếu cố hữu của RNN như chúng ta đã phân tích ở mục 7.2. Chưa kể, mô hình còn phải tốn công học cách đánh vần từng chữ trước khi có thể học bất cứ điều gì về ngữ nghĩa.
 
-Note that perplexities measured on different units cannot be compared directly. The probability that a model gives to a whole text does not depend on the unit, but the perplexity divides its logarithm by the number of units: words, characters, or anything else. For instance, the character-level LSTM of the figure above ends with 2.0 bits per character on the validation text of TinyShakespeare: a perplexity of $2^{2.0} = 4$ per character, which looks much better than the perplexities of our word-level models. But this text has 5.5 characters per word, spaces and punctuation included, so the same probability is $2.0 \times 5.5 \approx 11$ bits per word: a perplexity of about $2^{11} \approx 2{,}000$ per word. To compare a character-level model with a word-level model, divide the log-probability of the same text by the same number, for instance its number of words.
+Cần lưu ý rằng không thể so sánh trực tiếp độ hỗn loạn (perplexity) được đo trên các đơn vị khác nhau. Xác suất mà một mô hình gán cho toàn bộ văn bản không phụ thuộc vào cách chia đơn vị, nhưng công thức tính perplexity lại lấy logarit của xác suất đó chia cho *số lượng đơn vị* (số từ, số ký tự, hoặc đơn vị bất kỳ). Chẳng hạn, mạng LSTM cấp độ ký tự ở hình trên kết thúc với mức mất mát 2.0 bit trên mỗi ký tự đối với tập xác thực của TinyShakespeare: tương đương mức perplexity bằng $2^{2.0} = 4$ trên mỗi ký tự — thoạt nhìn tưởng như tốt hơn rất nhiều so với con số hàng trăm của các mô hình cấp độ từ. Tuy nhiên, văn bản này có trung bình 5.5 ký tự trên mỗi từ (tính cả khoảng trắng và dấu câu), nên cùng một xác suất đó khi quy đổi sang từ sẽ tương ứng với $2.0 \times 5.5 \approx 11$ bit trên mỗi từ: tức mức perplexity khoảng $2^{11} \approx 2{,}000$ trên mỗi từ! Do đó, muốn so sánh công bằng một mô hình cấp độ ký tự với một mô hình cấp độ từ, ta phải chia log-xác suất của cùng một văn bản cho cùng một mẫu số — chẳng hạn như tổng số từ của văn bản đó.
 
-*Subwords* are the compromise used by today's language models: frequent words are units of their own, and rare words are cut into frequent pieces. Byte-pair encoding [@sennrich2016] builds such a vocabulary from the training text: start from the characters, and merge the most frequent pair of consecutive symbols into a new symbol, again and again, until the vocabulary has the size you want. With subwords, no word is unknown, and the texts are only a little longer than with words. These are the tokenizers, the topic of the next post.
+*Từ phụ (subwords)* chính là giải pháp dung hòa được các mô hình ngôn ngữ hiện đại lựa chọn: những từ phổ biến được giữ nguyên làm một đơn vị độc lập, còn những từ hiếm sẽ được tách nhỏ thành các mảnh phổ biến hơn. Thuật toán mã hóa cặp byte (*Byte-Pair Encoding – BPE*) [@sennrich2016] xây dựng một bộ từ vựng như vậy trực tiếp từ văn bản huấn luyện: xuất phát từ các ký tự đơn lẻ, thuật toán lặp đi lặp lại việc gộp cặp ký hiệu liên tiếp xuất hiện nhiều nhất thành một ký hiệu mới cho đến khi bộ từ vựng đạt kích thước mong muốn. Với từ phụ, không còn từ nào bị coi là từ lạ (`<unk>`), trong khi độ dài chuỗi văn bản chỉ tăng lên đôi chút so với khi tách theo từ. Đây chính là cơ chế hoạt động của các *bộ tách từ (tokenizers)* — chủ đề sẽ được trình bày chi tiết ở chương tiếp theo.
 
 </Note>
 
-<PaperNote id="bojanowski2017" look="Table 6: the character n-grams that weigh the most in a few words. They are often morphemes: “fahr” and “fahrer” in the German autofahrer, “ness>” in kindness.">
+<PaperNote id="bojanowski2017" look="Bảng 6: các cụm n-gram ký tự có trọng số lớn nhất trong một số từ. Chúng thường trùng khớp với các hình vị (morphemes) mang nghĩa: như “fahr” và “fahrer” trong từ tiếng Đức autofahrer (tài xế ô tô), hay “ness>” trong từ kindness (lòng tốt).">
 
-By the team of fastText (section 4.3), this paper solves the problem of unknown words for embeddings. Each word is represented by its character n-grams, for n from 3 to 6, with `<` and `>` to mark its start and its end: with n = 3, "where" gives `<wh`, `whe`, `her`, `ere` and `re>`, plus the whole word, `<where>`. The vector of a word is the sum of the vectors of its n-grams, trained with the skip-gram model of section 5.2. So "Zendaya" and "flabbergasting" get a vector even if they never appear in the training text, built from pieces that do. The gain is largest for rare words and for languages with many forms per word: on a German test of word similarity, the model trained on 5% of the text does better than the CBOW of word2vec trained on all of it.
+Được thực hiện bởi nhóm tác giả của fastText (mục 4.3), bài báo này giải quyết bài toán từ ngoài từ vựng (out-of-vocabulary words) cho các vector nhúng. Mỗi từ được biểu diễn bằng tập hợp các cụm n-gram ký tự của nó (với $n$ chạy từ 3 đến 6), có gắn thêm ký hiệu `<` ở đầu và `>` ở cuối để đánh dấu ranh giới từ: chẳng hạn với $n = 3$, từ "where" sẽ sinh ra `<wh`, `whe`, `her`, `ere` và `re>`, cộng thêm bản thân từ nguyên vẹn `<where>`. Vector biểu diễn của một từ được tính bằng tổng các vector của toàn bộ các n-gram ký tự cấu thành nên nó, và được huấn luyện bằng mô hình skip-gram ở mục 5.2. Nhờ vậy, những từ như "Zendaya" hay "flabbergasting" vẫn có được vector biểu diễn hợp lý ngay cả khi chúng chưa từng xuất hiện trong văn bản huấn luyện, bằng cách ghép từ các mảnh ký tự đã biết. Sự cải thiện thể hiện rõ nhất ở các từ hiếm và ở những ngôn ngữ có hình thái từ phong phú (nhiều biến thể chia từ): trên bài kiểm tra độ tương đồng từ tiếng Đức, mô hình fastText chỉ huấn luyện trên 5% kho văn bản đã đạt kết quả tốt hơn mô hình CBOW của word2vec huấn luyện trên toàn bộ 100% kho văn bản đó.
 
 </PaperNote>
 
-If you want to dig deeper, below are a few bonus exercises.
+Nếu muốn tìm hiểu sâu hơn, bạn có thể thử sức với một số bài tập mở rộng dưới đây.
 
 <Bonus>
 
-**A plain RNN.** Replace the LSTM of exercise 7.2b with `nn.RNN`. Does it learn? How far is its accuracy from the accuracy of the LSTM?
+**Mạng RNN thuần túy.** Hãy thay thế lớp LSTM trong bài tập 7.2b bằng lớp `nn.RNN`. Mô hình có học được không? Độ chính xác của nó kém mạng LSTM bao nhiêu điểm phần trăm?
 
 </Bonus>
 
 <Bonus>
 
-**The GRU.** Replace the LSTM with `nn.GRU` in exercises 7.2b and 7.3. Which one learns faster, and which one gets the best result?
+**Mạng GRU.** Hãy thay thế lớp LSTM bằng `nn.GRU` trong cả hai bài tập 7.2b và 7.3. Kiến trúc nào hội tụ nhanh hơn, và kiến trúc nào đạt kết quả cuối cùng tốt hơn?
 
 </Bonus>
 
 <Bonus>
 
-**Open the forget gates.** Before training the LSTM of exercise 7.2b, set the biases of its forget gate to 1, as Jozefowicz et al. recommend [@jozefowicz2015]. Does the validation accuracy rise faster?
+**Mở sẵn cổng quên.** Trước khi huấn luyện mạng LSTM ở bài tập 7.2b, hãy khởi tạo độ chệch (bias) của cổng quên bằng 1 theo đúng khuyến nghị của Jozefowicz và cộng sự [@jozefowicz2015]. Độ chính xác trên tập xác thực có tăng lên nhanh hơn ở những kỷ nguyên đầu không?
 
 </Bonus>
 
 <Bonus>
 
-**Without clipping.** Train the language model of exercise 7.3 without gradient clipping, with a learning rate of 0.01. Plot the loss of each batch: do you see spikes?
+**Huấn luyện không cắt tỉa gradient.** Hãy huấn luyện mô hình ngôn ngữ ở bài tập 7.3 mà không sử dụng kỹ thuật cắt tỉa gradient (gradient clipping), đồng thời tăng tốc độ học lên `0.01`. Hãy vẽ đồ thị hàm mất mát sau từng lô (batch): bạn có quan sát thấy những cú nhảy vọt (spikes) của hàm mất mát không?
 
 </Bonus>
 
 <Bonus>
 
-**The gradient in a trained model.** Redo exercise 7.2a with the trained LSTM of exercise 7.2b, on the embeddings of a real review of 400 words. Which words get the largest gradients?
+**Dòng chảy gradient trong mô hình đã huấn luyện.** Hãy lặp lại thí nghiệm ở bài tập 7.2a nhưng sử dụng mạng LSTM đã được huấn luyện xong ở bài tập 7.2b, chạy trên các vector nhúng của một bài đánh giá thực tế dài 400 từ. Những từ nào trong bài đánh giá nhận được gradient lớn nhất?
 
 </Bonus>
 
 <Bonus>
 
-**Convolutions.** Train the convolutional network of Kim [@kim2014] on IMDB: windows of 3, 4 and 5 words, 100 features for each size, a max over the positions, and a logistic head. `nn.Conv1d` applies the same small network to every window of the text. How does it compare with the LSTM? How much does its accuracy change when the words of the test reviews are shuffled?
+**Mạng tích chập (Convolutions).** Hãy huấn luyện mạng nơ-ron tích chập của Kim [@kim2014] trên tập dữ liệu IMDB: sử dụng các cửa sổ trượt kích thước 3, 4 và 5 từ, trích xuất 100 đặc trưng cho mỗi kích thước, lấy cực đại (max pooling) dọc theo các vị trí, rồi đưa qua đầu dự đoán logistic. Trong PyTorch, lớp `nn.Conv1d` giúp áp dụng cùng một mạng nhỏ lên mọi cửa sổ của văn bản. Kết quả của nó so với mạng LSTM ra sao? Độ chính xác thay đổi thế nào khi thứ tự từ trong các bài đánh giá kiểm tra bị xáo trộn?
 
 </Bonus>
 
 <Bonus>
 
-**Characters.** Train a character-level LSTM on TinyShakespeare (`jchwenger/tiny_shakespeare`, loaded with `sample_by="document"`), and look at its samples during the training, as in the figure of section 7.3. Compare them with the samples of the character n-gram models of the bonus of section 2.3.
+**Mô hình cấp độ ký tự.** Hãy huấn luyện một mạng LSTM cấp độ ký tự trên tập dữ liệu TinyShakespeare (`jchwenger/tiny_shakespeare`, tải với tùy chọn `sample_by="document"`), và quan sát các đoạn văn bản mẫu được sinh ra trong suốt quá trình huấn luyện giống như hình minh họa ở mục 7.3. Hãy so sánh chúng với các mẫu sinh ra từ mô hình n-gram ký tự ở phần bài tập mở rộng của mục 2.3.
 
 </Bonus>

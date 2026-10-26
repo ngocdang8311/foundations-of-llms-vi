@@ -1,0 +1,505 @@
+<div class="d3-ch5-mha-mqa-gqa"></div>
+<style>
+  .d3-ch5-mha-mqa-gqa {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-tab {
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-tab:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-tab.is-active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-sliders {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-ctrl {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-ctrl-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-val {
+    font-family: var(--font-mono, monospace);
+    color: var(--primary-color);
+    font-weight: 700;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+  }
+  .d3-ch5-mha-mqa-gqa input[type="range"] {
+    width: 100%;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch5-mha-mqa-gqa svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-formula {
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    font-size: 12px;
+    color: var(--muted-color);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .d3-ch5-mha-mqa-gqa .gqa-formula strong {
+    color: var(--text-color);
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 680px) {
+    .d3-ch5-mha-mqa-gqa .gqa-sliders {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.getElementById('d3-cdn-script');
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const CTX_LENGTHS = [2048, 4096, 8192, 16384, 32768, 65536, 131072];
+    const MODES = [
+      { key: 'mha', name: 'Multi-Head Attention (MHA · G = 8)', groups: 8, kv70b: 64, desc: 'Mỗi đầu Query có 1 đầu Key/Value riêng biệt (Tốn VRAM nhất)' },
+      { key: 'gqa4', name: 'Grouped-Query (GQA-4 · G = 4)', groups: 4, kv70b: 16, desc: 'Cứ 2 đầu Query dùng chung 1 đầu Key/Value (Giảm 4× KV Cache)' },
+      { key: 'gqa2', name: 'Grouped-Query (GQA-2 · G = 2, chuẩn Llama-3)', groups: 2, kv70b: 8, desc: 'Nhóm các đầu Query chia sẻ Key/Value (Giảm 8× KV Cache, giữ nguyên độ chính xác)' },
+      { key: 'mqa', name: 'Multi-Query Attention (MQA · G = 1)', groups: 1, kv70b: 1, desc: 'Tất cả đầu Query dùng chung duy nhất 1 đầu Key/Value (Nén tối đa)' },
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch5-mha-mqa-gqa'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch5-mha-mqa-gqa'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let modeIdx = 2; // Default GQA-2 (represents Llama-3 8x reduction)
+        let ctxIdx = 2;  // 8192
+        let batchB = 8;
+        let hoverGroup = -1;
+
+        let PALETTE = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7'];
+        const readColors = () => {
+          try {
+            const cat = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 8);
+            if (cat && cat.length >= 4) PALETTE = cat;
+          } catch (_) {}
+        };
+        readColors();
+
+        // Top mode selector
+        const topDiv = document.createElement('div');
+        topDiv.className = 'gqa-top';
+        const tabsDiv = document.createElement('div');
+        tabsDiv.className = 'gqa-tabs';
+        const tabBtns = MODES.map((m, idx) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'gqa-tab' + (idx === modeIdx ? ' is-active' : '');
+          b.textContent = m.name;
+          b.addEventListener('click', () => {
+            modeIdx = idx;
+            hoverGroup = -1;
+            draw();
+          });
+          tabsDiv.appendChild(b);
+          return b;
+        });
+        topDiv.appendChild(tabsDiv);
+        container.appendChild(topDiv);
+
+        // Sliders for Context Length L and Batch Size B
+        const slidersDiv = document.createElement('div');
+        slidersDiv.className = 'gqa-sliders';
+
+        // Context Length slider
+        const cCtx = document.createElement('div');
+        cCtx.className = 'gqa-ctrl';
+        const cCtxHead = document.createElement('div');
+        cCtxHead.className = 'gqa-ctrl-head';
+        const cCtxLbl = document.createElement('span');
+        cCtxLbl.textContent = 'Độ dài ngữ cảnh (Context Length L)';
+        const cCtxVal = document.createElement('span');
+        cCtxVal.className = 'gqa-val';
+        cCtxHead.append(cCtxLbl, cCtxVal);
+        const inpCtx = document.createElement('input');
+        inpCtx.type = 'range';
+        inpCtx.min = '0';
+        inpCtx.max = String(CTX_LENGTHS.length - 1);
+        inpCtx.step = '1';
+        inpCtx.value = String(ctxIdx);
+        const cCtxSub = document.createElement('div');
+        cCtxSub.className = 'gqa-sub';
+        cCtxSub.textContent = 'Dung lượng KV Cache tăng tuyến tính theo L';
+        cCtx.append(cCtxHead, inpCtx, cCtxSub);
+
+        // Batch Size B slider
+        const cBatch = document.createElement('div');
+        cBatch.className = 'gqa-ctrl';
+        const cBatchHead = document.createElement('div');
+        cBatchHead.className = 'gqa-ctrl-head';
+        const cBatchLbl = document.createElement('span');
+        cBatchLbl.textContent = 'Số luồng hội thoại đồng thời (Batch Size B)';
+        const cBatchVal = document.createElement('span');
+        cBatchVal.className = 'gqa-val';
+        cBatchHead.append(cBatchLbl, cBatchVal);
+        const inpBatch = document.createElement('input');
+        inpBatch.type = 'range';
+        inpBatch.min = '1';
+        inpBatch.max = '32';
+        inpBatch.step = '1';
+        inpBatch.value = String(batchB);
+        const cBatchSub = document.createElement('div');
+        cBatchSub.className = 'gqa-sub';
+        cBatchSub.textContent = 'Mỗi yêu cầu người dùng cần vùng nhớ KV Cache riêng';
+        cBatch.append(cBatchHead, inpBatch, cBatchSub);
+
+        slidersDiv.append(cCtx, cBatch);
+        container.appendChild(slidersDiv);
+
+        const W = 740;
+        const H = 285;
+        const svg = d3.select(container)
+          .append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        const formulaBar = document.createElement('div');
+        formulaBar.className = 'gqa-formula';
+        container.appendChild(formulaBar);
+
+        // Helper: calculate KV Cache GB for a 70B model (80 layers, d_h = 128, FP16 = 2 bytes, K+V = 2)
+        // Bytes per token per KV head = 2 (K,V) * 2 (FP16) * 80 (layers) * 128 (d_h) = 40,960 bytes
+        const calcKvGb = (numKvHeads, L, B) => {
+          const bytes = 2 * 2 * 80 * numKvHeads * 128 * L * B;
+          return bytes / (1024 ** 3);
+        };
+
+        const draw = () => {
+          tabBtns.forEach((b, i) => b.classList.toggle('is-active', i === modeIdx));
+          const mode = MODES[modeIdx];
+          const L = CTX_LENGTHS[ctxIdx];
+          cCtxVal.textContent = `${(L / 1024).toFixed(0)}K (${L.toLocaleString()} tokens)`;
+          cBatchVal.textContent = `B = ${batchB}`;
+
+          svg.selectAll('*').remove();
+
+          // ==========================================
+          // LEFT PANEL: Head Wiring Diagram (8 Q -> G KV)
+          // ==========================================
+          const gWire = svg.append('g').attr('transform', 'translate(16, 20)');
+          gWire.append('text')
+            .attr('x', 165)
+            .attr('y', 0)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 12.5)
+            .attr('font-weight', 700)
+            .attr('fill', 'var(--text-color)')
+            .text(`Sơ đồ nối đầu chú ý: 8 đầu Query → ${mode.groups} đầu Key/Value`);
+
+          gWire.append('text')
+            .attr('x', 165)
+            .attr('y', 16)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11)
+            .attr('fill', 'var(--muted-color)')
+            .text(mode.desc);
+
+          const numQ = 8;
+          const G = mode.groups;
+          const qPerGroup = numQ / G;
+          const wireW = 330;
+          const qY = 42;
+          const kvY = 178;
+          const boxW = 34;
+          const boxH = 26;
+
+          const qX = (i) => 18 + i * ((wireW - 36) / (numQ - 1));
+          const kvX = (gIdx) => {
+            // Center KV head below its assigned Q heads
+            const firstQ = gIdx * qPerGroup;
+            const lastQ = firstQ + qPerGroup - 1;
+            return (qX(firstQ) + qX(lastQ)) / 2;
+          };
+
+          // Bezier links from Q_i to KV_g
+          for (let i = 0; i < numQ; i++) {
+            const gIdx = Math.floor(i / qPerGroup);
+            const col = PALETTE[gIdx % PALETTE.length];
+            const isLit = hoverGroup === -1 || hoverGroup === gIdx;
+            const x1 = qX(i);
+            const y1 = qY + boxH;
+            const x2 = kvX(gIdx);
+            const y2 = kvY;
+            const midY = (y1 + y2) / 2;
+
+            gWire.append('path')
+              .attr('d', `M ${x1},${y1} C ${x1},${midY} ${x2},${midY} ${x2},${y2}`)
+              .attr('fill', 'none')
+              .attr('stroke', col)
+              .attr('stroke-width', isLit ? 2.4 : 1.2)
+              .attr('opacity', isLit ? 0.85 : 0.18);
+          }
+
+          // Query heads (top row)
+          for (let i = 0; i < numQ; i++) {
+            const gIdx = Math.floor(i / qPerGroup);
+            const col = PALETTE[gIdx % PALETTE.length];
+            const isLit = hoverGroup === -1 || hoverGroup === gIdx;
+            const cx = qX(i);
+
+            const qNode = gWire.append('g')
+              .attr('transform', `translate(${cx - boxW / 2}, ${qY})`)
+              .style('cursor', 'pointer')
+              .on('mouseenter', () => { hoverGroup = gIdx; draw(); })
+              .on('mouseleave', () => { hoverGroup = -1; draw(); });
+
+            qNode.append('rect')
+              .attr('width', boxW)
+              .attr('height', boxH)
+              .attr('rx', 5)
+              .attr('fill', `color-mix(in oklab, ${col} ${isLit ? 26 : 8}%, var(--surface-bg))`)
+              .attr('stroke', col)
+              .attr('stroke-width', isLit ? 1.8 : 1);
+
+            qNode.append('text')
+              .attr('x', boxW / 2)
+              .attr('y', boxH / 2 + 4)
+              .attr('text-anchor', 'middle')
+              .attr('font-family', 'var(--font-mono, monospace)')
+              .attr('font-size', 11)
+              .attr('font-weight', 700)
+              .attr('fill', 'var(--text-color)')
+              .text(`Q${i + 1}`);
+          }
+
+          // Key/Value heads (bottom row)
+          const kvBoxW = 48;
+          const kvBoxH = 34;
+          for (let gIdx = 0; gIdx < G; gIdx++) {
+            const col = PALETTE[gIdx % PALETTE.length];
+            const isLit = hoverGroup === -1 || hoverGroup === gIdx;
+            const cx = kvX(gIdx);
+
+            const kvNode = gWire.append('g')
+              .attr('transform', `translate(${cx - kvBoxW / 2}, ${kvY})`)
+              .style('cursor', 'pointer')
+              .on('mouseenter', () => { hoverGroup = gIdx; draw(); })
+              .on('mouseleave', () => { hoverGroup = -1; draw(); });
+
+            kvNode.append('rect')
+              .attr('width', kvBoxW)
+              .attr('height', kvBoxH)
+              .attr('rx', 6)
+              .attr('fill', col)
+              .attr('opacity', isLit ? 0.9 : 0.35);
+
+            kvNode.append('text')
+              .attr('x', kvBoxW / 2)
+              .attr('y', kvBoxH / 2 + 4)
+              .attr('text-anchor', 'middle')
+              .attr('font-family', 'var(--font-mono, monospace)')
+              .attr('font-size', 11)
+              .attr('font-weight', 700)
+              .attr('fill', '#fff')
+              .text(`K${gIdx + 1}/V${gIdx + 1}`);
+          }
+
+          gWire.append('text')
+            .attr('x', 165)
+            .attr('y', kvY + kvBoxH + 22)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11)
+            .attr('fill', 'var(--muted-color)')
+            .text('Di chuột vào các đầu Q hoặc K/V để xem nhóm chia sẻ');
+
+          // ==========================================
+          // RIGHT PANEL: KV Cache VRAM Bar Chart (70B Model)
+          // ==========================================
+          const rLeft = 385;
+          const rTop = 20;
+          const rW = W - rLeft - 24;
+          const rH = 205;
+
+          const gBar = svg.append('g').attr('transform', `translate(${rLeft}, ${rTop})`);
+          gBar.append('text')
+            .attr('x', 0)
+            .attr('y', 0)
+            .attr('font-size', 12.5)
+            .attr('font-weight', 700)
+            .attr('fill', 'var(--text-color)')
+            .text('Dung lượng KV Cache (Mô hình 70B FP16)');
+
+          gBar.append('text')
+            .attr('x', 0)
+            .attr('y', 16)
+            .attr('font-size', 11)
+            .attr('fill', 'var(--muted-color)')
+            .text(`80 lớp · d_head=128 · Trọng số tĩnh đã chiếm ~140 GB`);
+
+          const barsData = MODES.map((m, idx) => ({
+            ...m,
+            idx,
+            gb: calcKvGb(m.kv70b, L, batchB),
+          }));
+
+          const maxGb = Math.max(85, d3.max(barsData, (d) => d.gb) * 1.12);
+          const xScale = d3.scaleLinear().domain([0, maxGb]).range([0, rW - 65]);
+          const yScale = d3.scaleBand()
+            .domain(barsData.map((d) => d.key))
+            .range([34, rH + 20])
+            .padding(0.28);
+
+          // 80 GB single A100 VRAM reference line
+          if (80 <= maxGb) {
+            const x80 = xScale(80);
+            gBar.append('line')
+              .attr('x1', x80)
+              .attr('x2', x80)
+              .attr('y1', 28)
+              .attr('y2', rH + 24)
+              .attr('stroke', '#e15759')
+              .attr('stroke-width', 1.5)
+              .attr('stroke-dasharray', '4,3');
+
+            gBar.append('text')
+              .attr('x', x80)
+              .attr('y', rH + 38)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', 10)
+              .attr('font-weight', 700)
+              .attr('fill', '#e15759')
+              .text('80 GB (1× GPU A100)');
+          }
+
+          const rows = gBar.selectAll('.kv-row')
+            .data(barsData)
+            .join('g')
+            .attr('transform', (d) => `translate(0, ${yScale(d.key)})`);
+
+          rows.append('text')
+            .attr('x', 0)
+            .attr('y', -4)
+            .attr('font-size', 11)
+            .attr('font-weight', (d) => (d.idx === modeIdx ? 700 : 500))
+            .attr('fill', (d) => (d.idx === modeIdx ? 'var(--text-color)' : 'var(--muted-color)'))
+            .text((d) => `${d.key.toUpperCase()} (${d.kv70b} đầu KV)`);
+
+          rows.append('rect')
+            .attr('x', 0)
+            .attr('y', 2)
+            .attr('width', (d) => Math.max(3, xScale(d.gb)))
+            .attr('height', yScale.bandwidth() - 6)
+            .attr('rx', 4)
+            .attr('fill', (d) => (d.idx === modeIdx ? PALETTE[0] : 'var(--muted-color)'))
+            .attr('opacity', (d) => (d.idx === modeIdx ? 0.92 : 0.32));
+
+          rows.append('text')
+            .attr('x', (d) => Math.max(3, xScale(d.gb)) + 6)
+            .attr('y', (yScale.bandwidth() - 6) / 2 + 5)
+            .attr('font-family', 'var(--font-mono, monospace)')
+            .attr('font-size', 11)
+            .attr('font-weight', 700)
+            .attr('fill', (d) => (d.idx === modeIdx ? 'var(--text-color)' : 'var(--muted-color)'))
+            .text((d) => (d.gb >= 1 ? `${d.gb.toFixed(1)} GB` : `${(d.gb * 1024).toFixed(0)} MB`));
+
+          const curGb = barsData[modeIdx].gb;
+          const mhaGb = barsData[0].gb;
+          formulaBar.innerHTML = `
+            <span>Công thức: <strong>VRAM_KV = 2 × 2B × n_layers(80) × n_kv(${mode.kv70b}) × d_h(128) × L(${L}) × B(${batchB})</strong></span>
+            <span>Tiết kiệm so với MHA: <strong>${(mhaGb / curGb).toFixed(0)}× (${mhaGb.toFixed(1)} GB → ${curGb.toFixed(2)} GB)</strong></span>
+          `;
+        };
+
+        inpCtx.addEventListener('input', () => {
+          ctxIdx = parseInt(inpCtx.value, 10) || 0;
+          draw();
+        });
+        inpBatch.addEventListener('input', () => {
+          batchB = parseInt(inpBatch.value, 10) || 1;
+          draw();
+        });
+
+        document.addEventListener('palettes:updated', () => {
+          readColors();
+          draw();
+        });
+
+        draw();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

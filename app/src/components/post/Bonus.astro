@@ -1,15 +1,13 @@
 ---
-// An exercise without a solution. `extra`: only the idea, with no hint and no dataset.
-// Consecutive bonuses are drawn as one list.
+// Bài tập mở rộng không kèm lời giải. `extra`: ý tưởng mở rộng thêm.
 const { extra = false } = Astro.props as { extra?: boolean };
 ---
 <div class={`bonus${extra ? " bonus--extra" : ""}`}>
-  <span class="bonus__tag">{extra ? "Idea" : "Bonus"}</span>
+  <span class="bonus__tag">{extra ? "Ý tưởng" : "Mở rộng"}</span>
   <div class="bonus__body"><slot /></div>
 </div>
 
 <style is:global>
-  /* Blue like the exercises: --exercise-color is defined in Exercise.astro */
   .bonus {
     --primary-color: var(--exercise-color);
     --primary-color-hover: oklch(from var(--exercise-color) calc(l - 0.05) c h);
@@ -25,7 +23,7 @@ const { extra = false } = Astro.props as { extra?: boolean };
   .bonus + .bonus { margin-top: -1px; border-top-left-radius: 0; border-top-right-radius: 0; }
   .bonus:has(+ .bonus) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
   .bonus__tag {
-    flex: 0 0 4.2em;
+    flex: 0 0 5.2em;
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.06em;

@@ -51,12 +51,12 @@
       container.dataset.mounted = 'true';
 
       const MODES = [
-        { key: 'scratch', button: 'From scratch (section 4.3)', copied: false, trainW: true,
-          wNote: 'random at the start' },
-        { key: 'frozen', button: 'Pre-trained, frozen', copied: true, trainW: false,
-          wNote: 'copied, kept fixed' },
-        { key: 'finetuned', button: 'Pre-trained, fine-tuned', copied: true, trainW: true,
-          wNote: 'copied, trained further' },
+        { key: 'scratch', button: 'Huấn luyện từ đầu (mục 4.3)', copied: false, trainW: true,
+          wNote: 'khởi tạo ngẫu nhiên' },
+        { key: 'frozen', button: 'Tiền huấn luyện, đóng băng', copied: true, trainW: false,
+          wNote: 'sao chép, giữ cố định' },
+        { key: 'finetuned', button: 'Tiền huấn luyện, tinh chỉnh', copied: true, trainW: true,
+          wNote: 'sao chép, huấn luyện tiếp' },
       ];
       let mode = MODES[1];
 
@@ -97,7 +97,7 @@
       const markerId = `transfer-arrow-${uid}`;
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
         .attr('role', 'img')
-        .attr('aria-label', 'The embedding matrix of a review classifier is learned from scratch, or copied from embeddings pre-trained on raw text, then kept fixed or trained further.');
+        .attr('aria-label', 'Ma trận nhúng của bộ phân loại bài đánh giá được học từ đầu, hoặc sao chép từ các vector nhúng tiền huấn luyện trên văn bản thô, sau đó giữ cố định hoặc huấn luyện tiếp.');
       svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
         .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
@@ -119,22 +119,22 @@
       const left = g.append('g').attr('class', 'faded');
       const leftCx = leftX + leftW / 2;
       left.append('rect').attr('class', 'panel').attr('x', leftX).attr('y', panelTop).attr('width', leftW).attr('height', 300).attr('rx', 10);
-      left.append('text').attr('class', 'panel-title').attr('x', leftCx).attr('y', panelTop + 24).attr('text-anchor', 'middle').text('1. Pre-training');
-      left.append('text').attr('class', 'side').attr('x', leftCx).attr('y', panelTop + 42).attr('text-anchor', 'middle').text('on raw text, without labels');
+      left.append('text').attr('class', 'panel-title').attr('x', leftCx).attr('y', panelTop + 24).attr('text-anchor', 'middle').text('1. Tiền huấn luyện');
+      left.append('text').attr('class', 'side').attr('x', leftCx).attr('y', panelTop + 42).attr('text-anchor', 'middle').text('trên văn bản thô, không nhãn');
       const preMatX = leftX + (leftW - matW) / 2, preMatY = 150;
-      left.append('text').attr('class', 'side').attr('x', leftCx).attr('y', preMatY - 10).attr('text-anchor', 'middle').text('embedding matrix W');
+      left.append('text').attr('class', 'side').attr('x', leftCx).attr('y', preMatY - 10).attr('text-anchor', 'middle').text('ma trận nhúng W');
       const preMatrix = matrix(left, preMatX, preMatY);
       const preBox = left.append('g').attr('class', 'box');
       const preBoxY = 240;
       preBox.append('rect').attr('x', leftX + 22).attr('y', preBoxY).attr('width', leftW - 44).attr('height', 50).attr('rx', 7).attr('stroke-width', 1.3);
       preBox.append('text').attr('x', leftCx).attr('y', preBoxY + 21).attr('text-anchor', 'middle').text('WORD2VEC, GLOVE');
-      preBox.append('text').attr('class', 'box-sub').attr('x', leftCx).attr('y', preBoxY + 38).attr('text-anchor', 'middle').text('billions of words');
+      preBox.append('text').attr('class', 'box-sub').attr('x', leftCx).attr('y', preBoxY + 38).attr('text-anchor', 'middle').text('hàng tỷ từ');
       arrow(left, leftCx, preBoxY - 3, leftCx, preMatY + matH + 6);
 
       // Right panel: the classifier of the reviews, from the review (bottom) to its label (top)
       g.append('rect').attr('class', 'panel').attr('x', rightX).attr('y', panelTop).attr('width', rightW).attr('height', H - panelTop - 6).attr('rx', 10);
-      g.append('text').attr('class', 'panel-title').attr('x', rightX + rightW / 2).attr('y', panelTop + 24).attr('text-anchor', 'middle').text('2. Downstream task');
-      g.append('text').attr('class', 'side').attr('x', rightX + rightW / 2).attr('y', panelTop + 42).attr('text-anchor', 'middle').text('classify the reviews, with labels');
+      g.append('text').attr('class', 'panel-title').attr('x', rightX + rightW / 2).attr('y', panelTop + 24).attr('text-anchor', 'middle').text('2. Tác vụ đích (Downstream)');
+      g.append('text').attr('class', 'side').attr('x', rightX + rightW / 2).attr('y', panelTop + 42).attr('text-anchor', 'middle').text('phân loại bài đánh giá có nhãn');
 
       // The review
       const WORDS = ['A', 'superb', 'film', ',', 'wonderful', 'score'];
@@ -161,9 +161,9 @@
 
       const boxW = 160, boxH = 30;
       const stack = [
-        { y: 234, label: 'AVERAGE', trained: null },
-        { y: 182, label: 'HIDDEN LAYERS', trained: true },
-        { y: 130, label: 'HEAD', trained: true },
+        { y: 234, label: 'TRUNG BÌNH CỘNG', trained: null },
+        { y: 182, label: 'CÁC TẦNG ẨN', trained: true },
+        { y: 130, label: 'ĐẦU PHÂN LOẠI', trained: true },
       ];
       arrow(g, rightCx, dsMatY - 3, rightCx, stack[0].y + boxH + 3);
       const boxes = stack.map((st, k) => {
@@ -177,7 +177,7 @@
       arrow(g, rightCx, stack[2].y - 3, rightCx, 110);
 
       // The output
-      const OUTPUTS = [['positive', 0.9], ['negative', 0.1]];
+      const OUTPUTS = [['tích cực', 0.9], ['tiêu cực', 0.1]];
       OUTPUTS.forEach(([label, v], i) => {
         const y = 76 + i * 14;
         g.append('text').attr('class', 'out-label').attr('x', rightCx - 8).attr('y', y + 6).attr('dy', '0.35em').attr('text-anchor', 'end').text(label);
@@ -188,12 +188,12 @@
       const copyLine = g.append('path').attr('class', 'copy').attr('stroke-width', 1.3)
         .attr('d', `M${preMatX + matW + 6},${preMatY + matH / 2} C 250,${preMatY + matH / 2} 250,${dsMatY + matH / 2} ${dsMatX - 24},${dsMatY + matH / 2}`)
         .attr('marker-end', `url(#${markerId})`);
-      const copyLabel = g.append('text').attr('class', 'side').attr('x', 236).attr('y', (preMatY + dsMatY + matH) / 2 + 6).attr('text-anchor', 'middle').text('copy');
+      const copyLabel = g.append('text').attr('class', 'side').attr('x', 236).attr('y', (preMatY + dsMatY + matH) / 2 + 6).attr('text-anchor', 'middle').text('sao chép');
 
       // The toggle, above the figure
       const controls = document.createElement('div');
       controls.className = 'controls';
-      controls.innerHTML = `<span class="control-label" id="transfer-label-${uid}">Embeddings</span>`;
+      controls.innerHTML = `<span class="control-label" id="transfer-label-${uid}">Vector nhúng</span>`;
       controls.setAttribute('role', 'group');
       controls.setAttribute('aria-labelledby', `transfer-label-${uid}`);
       MODES.forEach((m) => {
@@ -206,9 +206,9 @@
       container.insertBefore(controls, container.firstChild);
 
       const setStatus = (el, trained) => {
-        if (trained === null) el.attr('fill', 'var(--muted-color)').text('no parameters');
-        else if (trained) el.attr('fill', MODEL).text('trained');
-        else el.attr('fill', 'var(--muted-color)').text('fixed');
+        if (trained === null) el.attr('fill', 'var(--muted-color)').text('không có tham số');
+        else if (trained) el.attr('fill', MODEL).text('được huấn luyện');
+        else el.attr('fill', 'var(--muted-color)').text('cố định');
       };
 
       function render() {

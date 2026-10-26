@@ -1,0 +1,25 @@
+export const cells = 1;
+
+```python
+import tiktoken
+
+en_doc = (
+    "Large language models are trained on massive multilingual text corpora. "
+    "However, when a tokenizer is trained primarily on English text, words in "
+    "other languages are fragmented into many small subword or byte tokens. "
+    "This increases computational cost and reduces effective context length."
+)
+
+vi_doc = (
+    "Các mô hình ngôn ngữ lớn được huấn luyện trên kho văn bản đa ngữ khổng lồ. "
+    "Tuy nhiên, khi bộ tách từ chủ yếu học từ tiếng Anh, các từ trong ngôn ngữ "
+    "khác bị cắt vụn thành nhiều mảnh từ phụ hoặc byte nhỏ. Điều này làm tăng "
+    "chi phí tính toán và thu hẹp độ dài ngữ cảnh hiệu dụng."
+)
+
+en_words = en_doc.split()
+vi_words = vi_doc.split()
+print(f"Số từ: EN = {len(en_words)} từ, VI = {len(vi_words)} từ")
+```
+
+<section className="code-output"><pre>{"Số từ: EN = 42 từ, VI = 63 từ"}</pre></section>

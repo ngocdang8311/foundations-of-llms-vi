@@ -9,35 +9,35 @@ import WhatToNotice from '../../components/post/WhatToNotice.astro';
 import Bonus from '../../components/post/Bonus.astro';
 import WrapTable from '../../components/post/WrapTable.astro';
 
-## 6. Interlude: where we stand
+## 6. Điểm dừng chân: Chúng ta đang ở đâu?
 
-We have now trained models of four kinds on our two tasks: counts of n-grams, Bengio's neural language model, bags of words and deep averaging networks. Before we turn to networks that read the words in order, let's pause and see where we stand. The table below shows the best model of each kind, how it turns a text into a vector of fixed size, what it reuses from another task, and its score on the test set.
+Đến đây, chúng ta đã huấn luyện bốn dòng mô hình trên hai bài toán xuyên suốt: mô hình đếm n-gram, mô hình ngôn ngữ nơ-ron của Bengio, túi từ (bag of words) và mạng lấy trung bình sâu (deep averaging network). Trước khi chuyển sang các mạng nơ-ron đọc từng từ theo đúng thứ tự xuất hiện, hãy tạm dừng lại để nhìn nhận bức tranh tổng thể. Bảng dưới đây tổng hợp mô hình tốt nhất của từng dòng, cách mô hình chuyển một văn bản thành vector có kích thước cố định, phần tri thức được tái sử dụng từ bài toán khác, và điểm số đạt được trên tập kiểm tra (test set).
 
 <WrapTable>
 
-| Model | Section | How a text becomes a vector of fixed size | What is reused from another task | WikiText-2 perplexity | IMDB accuracy |
+| Mô hình | Mục | Cách chuyển văn bản thành vector kích thước cố định | Tri thức tái sử dụng từ bài toán khác | Perplexity trên WikiText-2 | Độ chính xác trên IMDB |
 |---|---|---|---|---|---|
-| 5-gram model, interpolated | 2 | keep the last 4 words | nothing | 277.7 | – |
-| Bag of words, TF-IDF | 3 | count the words | nothing | – | 88.4% |
-| Bengio's language model | 4.2 | concatenate the embeddings of the last 3 words | nothing | 208.5 | – |
-| Deep averaging network | 4.3 | average the embeddings of the words | nothing | – | 88.1% |
-| Deep averaging network with GloVe | 5.5 | average the embeddings of the words | the embedding matrix, learned on 6 billion words | – | 88.1% |
+| Mô hình 5-gram, nội suy (interpolated) | 2 | giữ lại 4 từ cuối cùng | không có | 277.7 | – |
+| Túi từ (Bag of words), TF-IDF | 3 | đếm tần suất từ | không có | – | 88.4% |
+| Mô hình ngôn ngữ của Bengio | 4.2 | ghép nối (concatenate) các vector nhúng (embedding) của 3 từ cuối | không có | 208.5 | – |
+| Mạng lấy trung bình sâu (Deep averaging network) | 4.3 | lấy trung bình cộng các vector nhúng của các từ | không có | – | 88.1% |
+| Mạng lấy trung bình sâu kết hợp GloVe | 5.5 | lấy trung bình cộng các vector nhúng của các từ | ma trận nhúng (embedding matrix), học trên 6 tỷ từ | – | 88.1% |
 
 </WrapTable>
 
-In language modeling, each new model did better. From the unigram model (941.7) to Bengio's model, the perplexity went down from about 1,000 to about 200, and Bengio's model beats the best published smoothing of the counts, Kneser-Ney, at 219.3 [@herel2023]. But all these models make the assumption of section 2.1: the next word depends only on the last few words. **Our language models see at most four words of the past.**
+Ở bài toán mô hình hóa ngôn ngữ (language modeling), mỗi mô hình mới đều mang lại kết quả tốt hơn. Từ mô hình unigram (941.7) đến mô hình của Bengio, độ hỗn loạn (perplexity) đã giảm từ khoảng 1,000 xuống còn khoảng 200; mô hình của Bengio thậm chí còn vượt qua cả phương pháp làm mịn (smoothing) dựa trên tần suất đếm tốt nhất từng được công bố là Kneser-Ney với mức 219.3 [@herel2023]. Tuy nhiên, tất cả các mô hình này đều dựa trên giả định ở mục 2.1: từ tiếp theo chỉ phụ thuộc vào một vài từ ngay trước đó. **Các mô hình ngôn ngữ của chúng ta nhìn thấy tối đa bốn từ trong quá khứ.**
 
-In classification, nothing moved. Dense embeddings, averages, and embeddings pre-trained on 6 billion words: none of them beat the bag of words of section 3. All our classifiers are between 87.6% and 88.4%, except the deep averaging network with frozen GloVe vectors, at 83.3%. The largest gain we met came from elsewhere: when Wang and Manning add the pairs of consecutive words to a bag of words, they gain 2 to 3 points, up to 91.2% for their best classifier [@wang2012]. As we saw in section 3.3, a pair like "not good" brings back a little of the word order. **On IMDB, the pairs of words gained more than the embeddings.**
+Ở bài toán phân loại văn bản (classification), kết quả hầu như giẫm chân tại chỗ. Các vector nhúng đặc (dense embeddings), phép lấy trung bình, và cả các vector nhúng tiền huấn luyện (pre-trained embeddings) trên 6 tỷ từ: không phương pháp nào vượt qua được mô hình túi từ đơn giản ở mục 3. Tất cả các bộ phân loại của chúng ta đều dao động trong khoảng từ 87.6% đến 88.4%, ngoại trừ mạng lấy trung bình sâu sử dụng vector GloVe đóng băng (frozen) bị tụt xuống 83.3%. Bước tiến lớn nhất mà chúng ta từng thấy lại đến từ một hướng khác: khi Wang và Manning bổ sung các cặp từ liên tiếp (bigrams) vào túi từ, họ tăng thêm được từ 2 đến 3 điểm phần trăm, đạt tới 91.2% ở bộ phân loại tốt nhất [@wang2012]. Như chúng ta đã thấy ở mục 3.3, một cặp từ như "not good" khôi phục lại được một phần nhỏ thông tin về trật tự từ. **Trên tập dữ liệu IMDB, các cặp từ mang lại cải thiện lớn hơn cả các vector nhúng.**
 
-The hard reviews of section 3.4 tell the same story. All our classifiers get the synonyms and the rare words right, but none of them gets more than 4 of the 10 reviews of negation, contrast, sarcasm and word order. And each of them gives the same probability to the two reviews with the same words, so one of the two is always wrong. Whether they count the words or average their embeddings, our classifiers do not see the order of the words.
+Tập các bài đánh giá khó ở mục 3.4 cũng phản ánh đúng thực trạng này. Mọi bộ phân loại của chúng ta đều xử lý đúng các từ đồng nghĩa và từ hiếm, nhưng không mô hình nào đoán đúng quá 4 trên 10 bài đánh giá có chứa cấu trúc phủ định (negation), tương phản (contrast), mỉa mai (sarcasm) và đảo trật tự từ (word order). Hơn nữa, mỗi mô hình đều gán cùng một xác suất cho hai bài đánh giá chứa các từ giống hệt nhau nhưng ngược nghĩa, dẫn đến việc luôn có một câu bị dự đoán sai. Dù đếm từ hay lấy trung bình các vector nhúng, các bộ phân loại của chúng ta vẫn hoàn toàn mù mờ trước thứ tự của các từ.
 
-There is one more limit, which the hard reviews do not show. In "Superb film, wonderful score.", the score is the music of the film. But in all our models, a word has a single weight or a single vector, whatever the sentence it appears in: the score of a film and the score of a football match get the same embedding. When a word has several meanings, which one does its vector hold? Let's look at GloVe.
+Vẫn còn một giới hạn nữa mà các bài đánh giá khó chưa bộc lộ hết. Trong câu "Superb film, wonderful score." (Bộ phim tuyệt đỉnh, nhạc phim tuyệt vời), từ "score" mang nghĩa là phần âm nhạc của bộ phim. Thế nhưng trong tất cả các mô hình của chúng ta từ đầu đến giờ, mỗi từ chỉ có duy nhất một trọng số hoặc một vector cố định, bất kể nó xuất hiện trong câu nào: nhạc phim ("score" của một bộ phim) và tỷ số ("score" của một trận bóng đá) đều nhận cùng một vector nhúng. Khi một từ có nhiều nghĩa, vector của nó sẽ lưu giữ nghĩa nào? Hãy cùng kiểm tra trên GloVe.
 
-<Exercise number="6" title="Find the meanings of ambiguous words in GloVe" data="GloVe" nb="06-polysemy">
+<Exercise number="6" title="Khám phá các nghĩa của từ đa nghĩa trong GloVe" data="GloVe" nb="06-polysemy">
 
-Print the 8 nearest neighbors of "bank", "mouse", "plot" and "score" among the 30,000 most frequent words of GloVe. Which meaning of each word do they show? Then find the rank of "river" among the neighbors of "bank", and the rank of "soundtrack" among the neighbors of "score".
+Hãy in ra 8 láng giềng gần nhất (nearest neighbors) của các từ "bank", "mouse", "plot" và "score" trong số 30,000 từ phổ biến nhất của GloVe. Chúng thể hiện nghĩa nào của mỗi từ? Sau đó, hãy tìm thứ hạng (rank) của từ "river" trong số các láng giềng của "bank", và thứ hạng của từ "soundtrack" trong số các láng giềng của "score".
 
-The starter code loads the GloVe vectors of the 30,000 most frequent words, as in the starter of exercise 5.4.
+Mã khởi đầu (starter code) đã tải sẵn các vector GloVe của 30,000 từ phổ biến nhất, giống như trong bài tập 5.4.
 
 <Starter nb="06-polysemy" />
 
@@ -45,13 +45,13 @@ The starter code loads the GloVe vectors of the 30,000 most frequent words, as i
 
 <Hint>
 
-Start as in exercise 5.4: divide each vector by its length, so that the product of the matrix of the vectors by the vector of a word gives the cosine similarities of this word with the 30,000 words at once. `argsort(descending=True)` sorts the words from the closest to the farthest, and the first one is the word itself.
+Hãy bắt đầu giống như bài tập 5.4: chia mỗi vector cho độ dài (chuẩn Euclid) của chính nó, sao cho tích giữa ma trận chứa toàn bộ các vector với vector của một từ sẽ cho ra ngay độ tương đồng cosine (cosine similarity) của từ đó với cả 30,000 từ cùng lúc. Hàm `argsort(descending=True)` sẽ sắp xếp các từ theo thứ tự từ gần nhất đến xa nhất, trong đó vị trí đầu tiên chính là bản thân từ đang xét.
 
 </Hint>
 
 <Hint>
 
-The rank of a word among the neighbors of another one is one plus the number of words that are closer. `(similarities > similarities[j]).sum()` counts them, and the word itself is one of them.
+Thứ hạng của một từ trong số các láng giềng của một từ khác bằng 1 cộng với số lượng các từ có độ tương đồng lớn hơn nó. Biểu thức `(similarities > similarities[j]).sum()` sẽ đếm số lượng này, và bản thân từ gốc cũng nằm trong số đó.
 
 </Hint>
 
@@ -59,7 +59,7 @@ The rank of a word among the neighbors of another one is one plus the number of 
 
 <Checkpoint nb="06-polysemy">
 
-The neighbors of "bank" are all about finance: "banks", "banking", "central", "credit"... Those of "mouse" mix the animal ("mice", "rat", "rabbit") and the computer ("keyboard"). Those of "plot" are about conspiracies ("foiled", "assassinate"), and those of "score" about games ("scoring", "winning", "goal"). "river" is only the 544th neighbor of "bank", and "soundtrack" the 146th neighbor of "score", out of 29,999 words.
+Các láng giềng của "bank" đều xoay quanh lĩnh vực tài chính: "banks", "banking", "central", "credit"... Các láng giềng của "mouse" pha trộn giữa loài vật ("mice", "rat", "rabbit") và thiết bị máy tính ("keyboard"). Các láng giềng của "plot" nghiêng về nghĩa âm mưu ("foiled", "assassinate"), còn của "score" lại xoay quanh các trận đấu thể thao ("scoring", "winning", "goal"). Từ "river" (dòng sông) chỉ đứng thứ 544 trong số các láng giềng của "bank" (ngân hàng / bờ sông), và "soundtrack" (nhạc phim) đứng thứ 146 trong số các láng giềng của "score" (tỷ số / nhạc phim), trên tổng số 29,999 từ.
 
 </Checkpoint>
 
@@ -67,36 +67,36 @@ The neighbors of "bank" are all about finance: "banks", "banking", "central", "c
 
 <WhatToNotice>
 
-A single vector must hold all the meanings of a word, and the meaning that is the most frequent in the training text wins. GloVe was trained on Wikipedia and news articles, where a bank holds money, a plot is a conspiracy, and a score is the result of a match. The meanings that matter in movie reviews, the story of a film and its music, are not the frequent ones. They are not lost: "river" is closer to "bank" than 98% of the words, and "soundtrack" is closer to "score" than 99.5% of them. But they are mixed into the same vector as the other meanings. When two meanings are both frequent, as for "mouse", the neighbors come from both. **A static embedding mixes all the meanings of a word, and the most frequent one dominates.**
+Một vector duy nhất buộc phải gánh toàn bộ các nghĩa của một từ, và nghĩa nào xuất hiện thường xuyên nhất trong văn bản huấn luyện sẽ chiếm ưu thế. GloVe được huấn luyện trên dữ liệu Wikipedia và các bài báo tin tức — nơi "bank" thường là ngân hàng giữ tiền, "plot" là một âm mưu chính trị, và "score" là tỷ số của một trận đấu. Những nét nghĩa quan trọng trong các bài đánh giá phim — như cốt truyện ("plot") hay nhạc phim ("score") — lại không phải là nghĩa phổ biến nhất trong kho ngữ liệu đó. Dù vậy, các nghĩa này không hề biến mất hoàn toàn: "river" vẫn gần với "bank" hơn 98% tổng số từ vựng, và "soundtrack" gần với "score" hơn 99.5% số từ. Tuy nhiên, chúng bị trộn lẫn vào chung một vector với các nghĩa khác. Khi cả hai nghĩa đều phổ biến như trường hợp của từ "mouse" (con chuột và chuột máy tính), danh sách láng giềng sẽ xuất hiện các từ thuộc cả hai nghĩa. **Một vector nhúng tĩnh (static embedding) trộn lẫn tất cả các nghĩa của một từ vào làm một, và nghĩa phổ biến nhất sẽ áp đảo.**
 
 </WhatToNotice>
 
 </Exercise>
 
-Many words have several meanings, and this is called *polysemy*. To tell the bank of a river from the bank that holds money, a model must look at the other words of the sentence. In section 8.2, we will meet the first embeddings that depend on the sentence of the word, and in section 10.2, we will compare the vectors of "bank" in sentences about rivers and about money.
+Hiện tượng một từ mang nhiều nghĩa khác nhau được gọi là *hiện tượng đa nghĩa (polysemy)*. Để phân biệt được bờ sông ("bank of a river") với ngân hàng giữ tiền ("bank that holds money"), mô hình bắt buộc phải nhìn vào các từ xung quanh trong cùng một câu. Ở mục 8.2, chúng ta sẽ làm quen với những vector nhúng đầu tiên có khả năng thay đổi tùy theo câu chứa từ đó — tức *vector nhúng theo ngữ cảnh (contextual embeddings)* — và ở mục 10.2, chúng ta sẽ trực tiếp so sánh các vector của từ "bank" trong những câu viết về dòng sông với những câu viết về tiền bạc.
 
-<PaperNote id="arora2018" look="Table 6: the meanings of “tie” and “spring” recovered from their single vectors, with the mistakes of the method.">
+<PaperNote id="arora2018" look="Bảng 6: các nét nghĩa của từ “tie” và “spring” được khôi phục từ vector đơn lẻ của chúng, cùng với những trường hợp phương pháp này mắc lỗi.">
 
-This paper looks inside the vector of a word with several meanings. Its claim: the vector is close to a weighted sum of one vector per meaning, and the weight of each meaning is proportional to the number of times it occurs in the training text. For a word with two meanings, $v_w \approx \alpha\, v_{s_1} + \beta\, v_{s_2}$, with $\alpha = f_1 / (f_1 + f_2)$, where $f_1$ and $f_2$ count the occurrences of the two meanings. To test it, the authors merge two unrelated words into one artificial word, train the embeddings again, and compare the vector of the new word with the predicted sum: for GloVe, the cosine similarity reaches 0.91. They then recover the meanings from the vectors alone, by writing each vector as a combination of at most 5 of about 2,000 directions, which they call "atoms of discourse". For "tie", the atoms include clothing, the result of a match, and wires. As they put it, "multiple word senses reside in linear superposition within the word embedding".
+Bài báo này đi sâu phân tích cấu trúc bên trong vector của một từ đa nghĩa. Luận điểm chính của nhóm tác giả là: vector của một từ đa nghĩa xấp xỉ bằng tổng có trọng số của các vector đại diện cho từng nghĩa riêng biệt, trong đó trọng số của mỗi nghĩa tỷ lệ thuận với tần suất xuất hiện của nghĩa đó trong dữ liệu huấn luyện. Với một từ có hai nghĩa, ta có $v_w \approx \alpha\, v_{s_1} + \beta\, v_{s_2}$, trong đó $\alpha = f_1 / (f_1 + f_2)$, với $f_1$ và $f_2$ là số lần xuất hiện của hai nghĩa. Để kiểm chứng, các tác giả gộp hai từ không liên quan thành một từ nhân tạo duy nhất, huấn luyện lại bộ vector nhúng, rồi so sánh vector của từ mới với tổng dự đoán theo công thức: đối với GloVe, độ tương đồng cosine đạt tới 0.91. Sau đó, họ khôi phục lại các nét nghĩa chỉ từ bản thân các vector bằng cách biểu diễn mỗi vector dưới dạng tổ hợp tuyến tính của tối đa 5 hướng trong khoảng 2,000 hướng cơ sở mà họ gọi là các "nguyên tử diễn ngôn" (atoms of discourse). Đối với từ "tie", các nguyên tử tìm được bao gồm trang phục (cà vạt), kết quả trận đấu (hòa), và dây buộc. Như các tác giả nhận xét: "nhiều nghĩa của từ cùng tồn tại ở trạng thái chồng chập tuyến tính (linear superposition) bên trong một vector nhúng từ".
 
 </PaperNote>
 
-Let's go back to the two questions of the introduction.
+Hãy quay trở lại với hai câu hỏi lớn đã đặt ra ở phần mở đầu.
 
-**How can we build a model that takes as input a piece of text of any length?** So far we have two kinds of answers. Either we keep only the last few words, in order: this suits language modeling, but forgets everything before them. Or we keep all the words but forget their order: this suits classification, but fails on the hard reviews. None of our models reads the whole text in order, as we do. This is what the recurrent networks of the next section do.
+**Làm thế nào để xây dựng một mô hình nhận đầu vào là một đoạn văn bản có độ dài bất kỳ?** Cho đến lúc này, chúng ta mới có hai kiểu câu trả lời. Hoặc chúng ta chỉ giữ lại một vài từ cuối cùng theo đúng thứ tự: cách này phù hợp với bài toán mô hình hóa ngôn ngữ, nhưng lại quên sạch mọi thông tin phía trước. Hoặc chúng ta giữ lại toàn bộ các từ nhưng vứt bỏ hoàn toàn thứ tự của chúng: cách này phù hợp để phân loại văn bản nói chung, nhưng lại thất bại trước các bài đánh giá khó. Chưa có mô hình nào của chúng ta thực sự đọc toàn bộ văn bản từ đầu đến cuối theo đúng trình tự như cách con người vẫn đọc. Đó chính là điều mà các *mạng nơ-ron truy hồi (recurrent neural networks)* ở mục tiếp theo sẽ thực hiện.
 
-**How can we transfer what a model learned on one task to another?** So far, only the embedding matrix has been transferred. It helps when labels are scarce, with 6 points of accuracy for 100 labeled reviews (exercise 5.5b), but not with all the labels. What the classifier does with the embeddings, which is where the hard reviews fail, is still learned from the labeled reviews alone, and each word keeps a single vector whatever its sentence. Pre-training the rest of the encoder is the topic of section 8.
+**Làm thế nào để chuyển giao (transfer) những gì mô hình đã học được từ bài toán này sang bài toán khác?** Cho đến nay, thứ duy nhất được chuyển giao mới chỉ là ma trận nhúng (embedding matrix). Việc này phát huy tác dụng rõ rệt khi dữ liệu gán nhãn khan hiếm — giúp tăng 6 điểm phần trăm độ chính xác khi chỉ có 100 bài đánh giá được gán nhãn (bài tập 5.5b) — nhưng lại không tạo ra khác biệt khi ta sử dụng toàn bộ tập nhãn. Phần xử lý phía trên các vector nhúng của bộ phân loại — nơi quyết định sự thành bại trước các bài đánh giá khó — vẫn phải học hoàn toàn từ đầu chỉ dựa vào các bài đánh giá có nhãn, và mỗi từ vẫn chỉ mang một vector cố định bất kể ngữ cảnh câu. Việc tiền huấn luyện (pre-training) toàn bộ phần còn lại của bộ mã hóa (encoder) sẽ là chủ đề của mục 8.
 
-If you want to dig deeper, below are two bonus exercises.
+Nếu muốn đào sâu hơn, bạn có thể thử sức với hai bài tập mở rộng dưới đây.
 
 <Bonus>
 
-**The meanings of the movie reviews.** Train the skip-gram model of exercise 5.2 on the 50,000 unlabeled reviews of IMDB (the `unsupervised` split), and compare the neighbors of "plot", "score" and "cast" with those of GloVe.
+**Các nét nghĩa trong thế giới điện ảnh.** Hãy huấn luyện mô hình skip-gram ở bài tập 5.2 trên 50,000 bài đánh giá không nhãn của tập dữ liệu IMDB (phần `unsupervised`), sau đó so sánh các láng giềng gần nhất của các từ "plot", "score" và "cast" với kết quả thu được từ GloVe.
 
 </Bonus>
 
 <Bonus>
 
-**Fool the models.** Write a short review whose sentiment is obvious to a human reader, without negation, contrast or sarcasm, that the bag of words and the deep averaging networks get wrong. What did you use to fool them?
+**Đánh lừa mô hình.** Hãy tự viết một bài đánh giá ngắn mà người đọc có thể nhận ra ngay sắc thái cảm xúc (tích cực hoặc tiêu cực), không sử dụng từ phủ định, cấu trúc tương phản hay giọng điệu mỉa mai, nhưng cả mô hình túi từ lẫn mạng lấy trung bình sâu đều dự đoán sai. Bạn đã khai thác điểm yếu nào để đánh lừa chúng?
 
 </Bonus>

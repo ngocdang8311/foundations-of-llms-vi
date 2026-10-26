@@ -1,0 +1,457 @@
+<div class="d3-banner-2"></div>
+<style>
+  .d3-banner-2 {
+    padding: 20px 22px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    color: var(--text-color);
+    font-size: 13px;
+  }
+  .d3-banner-2 .b2-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 14px;
+  }
+  .d3-banner-2 .b2-kicker {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-color);
+  }
+  .d3-banner-2 .b2-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .d3-banner-2 .b2-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-banner-2 .b2-btn.active {
+    border-color: var(--b2-accent, var(--primary-color));
+    background: color-mix(in oklab, var(--b2-accent, var(--primary-color)) 16%, var(--surface-bg));
+  }
+  .d3-banner-2 svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 780px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-banner-2 .b2-node {
+    cursor: pointer;
+    outline: none;
+  }
+  .d3-banner-2 .b2-node rect {
+    transition: stroke 0.15s ease, stroke-width 0.15s ease, fill 0.15s ease;
+  }
+  .d3-banner-2 .b2-node:hover rect,
+  .d3-banner-2 .b2-node.active rect {
+    stroke: var(--b2-accent, var(--primary-color));
+    stroke-width: 2.2px;
+  }
+  .d3-banner-2 .b2-inspector {
+    margin-top: 14px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 12px 20px;
+    align-items: center;
+  }
+  .d3-banner-2 .b2-title {
+    font-weight: 700;
+    font-size: 14px;
+    margin-bottom: 4px;
+    color: var(--text-color);
+  }
+  .d3-banner-2 .b2-desc {
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--muted-color);
+  }
+  .d3-banner-2 .b2-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+  }
+  .d3-banner-2 .b2-metric-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .d3-banner-2 .b2-metric-label {
+    color: var(--muted-color);
+  }
+  .d3-banner-2 .b2-metric-val {
+    font-weight: 700;
+    color: var(--text-color);
+  }
+  @media (max-width: 640px) {
+    .d3-banner-2 .b2-inspector {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-banner-2'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-banner-2'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+
+        const PRESETS = {
+          mini: { label: 'Mini-Llama (Bài tập 2.5)', B: 2, L: 16, d: 64, H: 4, kvH: 4, dff: 172, V: 512, layers: 4 },
+          gpt2: { label: 'GPT-2 Small (124M)', B: 4, L: 1024, d: 768, H: 12, kvH: 12, dff: 3072, V: 50257, layers: 12 },
+          llama3: { label: 'Llama-3 8B', B: 1, L: 4096, d: 4096, H: 32, kvH: 8, dff: 14336, V: 128256, layers: 32 },
+        };
+
+        let currentPreset = 'llama3';
+        let activeStage = 'attn';
+
+        const STAGES = [
+          {
+            id: 'emb',
+            short: 'Embeddings',
+            sub: 'Token → Vector',
+            x: 52, y: 66, w: 94, h: 48,
+            kind: 'io',
+            title: '1. Nhúng Token (Input Token Embeddings)',
+            desc: 'Mỗi ID token nguyên trong chuỗi đầu vào được tra cứu trong ma trận nhúng W_E để tạo thành trạng thái ban đầu x_0 trên luồng thặng dư (Residual Stream). Không cộng mã hóa vị trí tại đây nếu dùng RoPE.',
+            formula: (p) => `x₀ = W_E[tokens]`,
+            shape: (p) => `(${p.B}, ${p.L}, ${p.d})`,
+            params: (p) => `${(p.V * p.d / 1e6).toFixed(2)}M (${p.V.toLocaleString()} × ${p.d})`,
+          },
+          {
+            id: 'norm1',
+            short: 'RMSNorm 1',
+            sub: 'Pre-Attention',
+            x: 175, y: 114, w: 86, h: 42,
+            kind: 'norm',
+            title: '2. Chuẩn hóa Pre-RMSNorm (Trước Attention)',
+            desc: 'Nhánh con đọc từ luồng thặng dư x_{l-1} và chuẩn hóa theo căn bậc hai trung bình bình phương (Root Mean Square) trước khi chiếu sang Q, K, V, giữ cho phương sai ổn định ngay từ bước đầu.',
+            formula: (p) => `x̂ = (x / √(mean(x²) + ε)) ⊙ γ`,
+            shape: (p) => `(${p.B}, ${p.L}, ${p.d})`,
+            params: (p) => `${p.d.toLocaleString()} tham số (vector γ)`,
+          },
+          {
+            id: 'qkv_rope',
+            short: 'QKV + RoPE',
+            sub: 'Quay vị trí',
+            x: 280, y: 114, w: 96, h: 42,
+            kind: 'attn',
+            title: '3. Phép chiếu Q, K, V & Quay vị trí RoPE',
+            desc: 'Chiếu tuyến tính thành H đầu Query và kvH đầu Key/Value (mỗi đầu có số chiều d_head = d/H), sau đó áp dụng phép quay phức RoPE R_m lên từng cặp tọa độ của Q và K theo vị trí m.',
+            formula: (p) => `Q = R_m(x̂ W_Q), K = R_n(x̂ W_K), V = x̂ W_V`,
+            shape: (p) => `Q: (${p.B}, ${p.H}, ${p.L}, ${p.d / p.H}) | K,V: (${p.B}, ${p.kvH}, ${p.L}, ${p.d / p.H})`,
+            params: (p) => {
+              const dh = p.d / p.H;
+              const cnt = p.d * (p.H * dh + 2 * p.kvH * dh);
+              return `${(cnt / 1e6).toFixed(3)}M tham số / tầng`;
+            },
+          },
+          {
+            id: 'attn',
+            short: 'Causal MHA',
+            sub: '+ Cộng thặng dư',
+            x: 395, y: 114, w: 108, h: 42,
+            kind: 'attn',
+            title: '4. Causal Multi-Head Attention & Cộng vào Luồng Thặng dư',
+            desc: 'Tính softmax(Q Kᵀ / √d_k + M) V với mặt nạ nhân quả M_ij = -∞ khi j > i, nối các đầu lại, nhân ma trận W_O và cộng thẳng kết quả vào luồng thặng dư: h_l = x_{l-1} + Attn(RMSNorm(x_{l-1})).',
+            formula: (p) => `h_l = x_{l-1} + Concat(head₁…head_H) W_O`,
+            shape: (p) => `Ma trận chú ý: (${p.B}, ${p.H}, ${p.L}, ${p.L}) → Ra: (${p.B}, ${p.L}, ${p.d})`,
+            params: (p) => `W_O: ${(p.d * p.d / 1e6).toFixed(3)}M (${p.d} × ${p.d})`,
+          },
+          {
+            id: 'norm2',
+            short: 'RMSNorm 2',
+            sub: 'Pre-FFN',
+            x: 530, y: 114, w: 86, h: 42,
+            kind: 'norm',
+            title: '5. Chuẩn hóa Pre-RMSNorm (Trước mạng FFN)',
+            desc: 'Đọc trạng thái trung gian h_l từ luồng thặng dư và chuẩn hóa RMSNorm một lần nữa trước khi đưa vào mạng truyền thẳng có cổng SwiGLU.',
+            formula: (p) => `ĥ = RMSNorm(h_l)`,
+            shape: (p) => `(${p.B}, ${p.L}, ${p.d})`,
+            params: (p) => `${p.d.toLocaleString()} tham số (vector γ)`,
+          },
+          {
+            id: 'swiglu',
+            short: 'SwiGLU FFN',
+            sub: 'W_gate, W_up, W_down',
+            x: 634, y: 114, w: 104, h: 42,
+            kind: 'ffn',
+            title: '6. Mạng Truyền thẳng Cổng SwiGLU & Cộng Thặng dư',
+            desc: 'Biến đổi từng token độc lập qua cổng phi tuyến SiLU(ĥ W_gate) ⊙ (ĥ W_up) trong không gian ẩn d_ff lớn hơn, rồi chiếu ngược về d_model qua W_down và cộng trở lại luồng thặng dư.',
+            formula: (p) => `x_l = h_l + (SiLU(ĥ W_gate) ⊙ ĥ W_up) W_down`,
+            shape: (p) => `Ẩn: (${p.B}, ${p.L}, ${p.dff}) → Ra: (${p.B}, ${p.L}, ${p.d})`,
+            params: (p) => `${(3 * p.d * p.dff / 1e6).toFixed(3)}M (3 × ${p.d} × ${p.dff})`,
+          },
+          {
+            id: 'head',
+            short: 'LM Head',
+            sub: 'Logits từ vựng',
+            x: 758, y: 66, w: 88, h: 48,
+            kind: 'io',
+            title: '7. RMSNorm Cuối & Đầu Dự đoán Ngôn ngữ (LM Head)',
+            desc: 'Sau khi đi qua toàn bộ L khối Transformer, vector trên luồng thặng dư được chuẩn hóa lần cuối và nhân với ma trận W_LM để xuất ra điểm logits trên toàn bộ từ vựng V cho token tiếp theo.',
+            formula: (p) => `logits = RMSNorm(x_L) W_LM`,
+            shape: (p) => `(${p.B}, ${p.L}, ${p.V.toLocaleString()})`,
+            params: (p) => `${(p.d * p.V / 1e6).toFixed(2)}M (${p.d} × ${p.V.toLocaleString()})`,
+          }
+        ];
+
+        const header = document.createElement('div');
+        header.className = 'b2-header';
+        const kicker = document.createElement('span');
+        kicker.className = 'b2-kicker';
+        kicker.textContent = 'Sơ đồ tương tác: Luồng Thặng dư (Residual Stream) & Kích thước Tensor qua Khối Decoder';
+        const presetsEl = document.createElement('div');
+        presetsEl.className = 'b2-presets';
+
+        const presetBtns = {};
+        Object.entries(PRESETS).forEach(([key, cfg]) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `b2-btn${key === currentPreset ? ' active' : ''}`;
+          btn.textContent = cfg.label;
+          btn.addEventListener('click', () => {
+            currentPreset = key;
+            Object.entries(presetBtns).forEach(([k, b]) => b.classList.toggle('active', k === currentPreset));
+            render();
+          });
+          presetBtns[key] = btn;
+          presetsEl.appendChild(btn);
+        });
+        header.append(kicker, presetsEl);
+        container.appendChild(header);
+
+        const W = 860, H = 186;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img')
+          .attr('aria-label', 'Sơ đồ luồng thặng dư và các nhánh Attention, SwiGLU của khối Transformer Decoder');
+
+        const inspector = document.createElement('div');
+        inspector.className = 'b2-inspector';
+        container.appendChild(inspector);
+
+        let cAttn = '#4e79a7', cFfn = '#f28e2b', cNorm = '#59a14f', cIo = '#76b7b2';
+        const updatePalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) {
+                [cAttn, cFfn, cNorm, cIo] = cat;
+              }
+            }
+          } catch (_) {}
+          container.style.setProperty('--b2-accent', cAttn);
+        };
+        updatePalette();
+
+        const render = () => {
+          const p = PRESETS[currentPreset];
+          svg.selectAll('*').remove();
+
+          const uid = Math.random().toString(36).slice(2, 7);
+          const defs = svg.append('defs');
+          defs.append('marker')
+            .attr('id', `b2-arr-${uid}`)
+            .attr('viewBox', '0 0 10 10')
+            .attr('refX', 8).attr('refY', 5)
+            .attr('markerWidth', 6).attr('markerHeight', 6)
+            .attr('orient', 'auto-start-reverse')
+            .append('path')
+            .attr('d', 'M0,1 L9,5 L0,9 z')
+            .attr('fill', 'var(--muted-color)');
+
+          // Outer frame for repeated Transformer block (× N layers)
+          svg.append('rect')
+            .attr('x', 158).attr('y', 8)
+            .attr('width', 592).attr('height', 168)
+            .attr('rx', 10)
+            .attr('fill', 'color-mix(in oklab, var(--text-color) 2.5%, transparent)')
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', '5,4');
+
+          svg.append('text')
+            .attr('x', 170).attr('y', 25)
+            .attr('fill', 'var(--muted-color)')
+            .attr('font-size', 11)
+            .attr('font-weight', 700)
+            .text(`KHỐI TRANSFORMER DECODER (Lặp lại × ${p.layers} tầng)`);
+
+          // Residual Stream Highway line at y = 52
+          const resY = 52;
+          svg.append('line')
+            .attr('x1', 146).attr('y1', resY)
+            .attr('x2', 754).attr('y2', resY)
+            .attr('stroke', 'var(--text-color)')
+            .attr('stroke-width', 2.6)
+            .attr('marker-end', `url(#b2-arr-${uid})`);
+
+          svg.append('text')
+            .attr('x', 450).attr('y', resY - 10)
+            .attr('text-anchor', 'middle')
+            .attr('fill', 'var(--text-color)')
+            .attr('font-size', 11.5)
+            .attr('font-weight', 700)
+            .text(`Luồng Thặng dư (Residual Stream Highway) — Kích thước cố định (${p.B}, ${p.L}, ${p.d})`);
+
+          // Branch 1: Attention sub-block
+          const b1StartX = 166, b1AddX = 508, branchY = 135;
+          svg.append('path')
+            .attr('d', `M${b1StartX},${resY} L${b1StartX},${branchY} L${b1AddX},${branchY} L${b1AddX},${resY + 11}`)
+            .attr('fill', 'none')
+            .attr('stroke', 'var(--muted-color)')
+            .attr('stroke-width', 1.5)
+            .attr('marker-end', `url(#b2-arr-${uid})`);
+
+          // Residual Add circle 1
+          const add1 = svg.append('g').attr('transform', `translate(${b1AddX}, ${resY})`);
+          add1.append('circle').attr('r', 10).attr('fill', 'var(--surface-bg)').attr('stroke', cAttn).attr('stroke-width', 2);
+          add1.append('text').attr('dy', '0.35em').attr('text-anchor', 'middle').attr('font-weight', 700).attr('font-size', 13).attr('fill', 'var(--text-color)').text('+');
+
+          // Branch 2: FFN sub-block
+          const b2StartX = 522, b2AddX = 744;
+          svg.append('path')
+            .attr('d', `M${b2StartX},${resY} L${b2StartX},${branchY} L${b2AddX},${branchY} L${b2AddX},${resY + 11}`)
+            .attr('fill', 'none')
+            .attr('stroke', 'var(--muted-color)')
+            .attr('stroke-width', 1.5)
+            .attr('marker-end', `url(#b2-arr-${uid})`);
+
+          // Residual Add circle 2
+          const add2 = svg.append('g').attr('transform', `translate(${b2AddX}, ${resY})`);
+          add2.append('circle').attr('r', 10).attr('fill', 'var(--surface-bg)').attr('stroke', cFfn).attr('stroke-width', 2);
+          add2.append('text').attr('dy', '0.35em').attr('text-anchor', 'middle').attr('font-weight', 700).attr('font-size', 13).attr('fill', 'var(--text-color)').text('+');
+
+          const colorForKind = (k) => k === 'attn' ? cAttn : k === 'ffn' ? cFfn : k === 'norm' ? cNorm : cIo;
+
+          STAGES.forEach((st) => {
+            const col = colorForKind(st.kind);
+            const isSel = st.id === activeStage;
+            const nodeY = st.kind === 'io' ? resY - st.h / 2 : branchY - st.h / 2;
+            const g = svg.append('g')
+              .attr('class', `b2-node${isSel ? ' active' : ''}`)
+              .attr('tabindex', 0)
+              .attr('role', 'button')
+              .attr('aria-label', st.title)
+              .on('mouseenter click focus', () => {
+                if (activeStage !== st.id) {
+                  activeStage = st.id;
+                  container.style.setProperty('--b2-accent', col);
+                  render();
+                }
+              });
+
+            g.append('rect')
+              .attr('x', st.x).attr('y', nodeY)
+              .attr('width', st.w).attr('height', st.h)
+              .attr('rx', 7)
+              .attr('fill', `color-mix(in oklab, ${col} ${isSel ? 22 : 11}%, var(--surface-bg))`)
+              .attr('stroke', isSel ? col : 'var(--border-color)')
+              .attr('stroke-width', isSel ? 2.2 : 1.2);
+
+            g.append('text')
+              .attr('x', st.x + st.w / 2)
+              .attr('y', nodeY + st.h / 2 - 5)
+              .attr('text-anchor', 'middle')
+              .attr('fill', 'var(--text-color)')
+              .attr('font-weight', 700)
+              .attr('font-size', 11.5)
+              .text(st.short);
+
+            g.append('text')
+              .attr('x', st.x + st.w / 2)
+              .attr('y', nodeY + st.h / 2 + 10)
+              .attr('text-anchor', 'middle')
+              .attr('fill', 'var(--muted-color)')
+              .attr('font-size', 10)
+              .text(st.sub);
+          });
+
+          const sel = STAGES.find((s) => s.id === activeStage) || STAGES[3];
+          inspector.innerHTML = `
+            <div>
+              <div class="b2-title">${sel.title}</div>
+              <div class="b2-desc">${sel.desc}</div>
+            </div>
+            <div class="b2-metrics">
+              <div class="b2-metric-row">
+                <span class="b2-metric-label">Phương trình:</span>
+                <span class="b2-metric-val">${sel.formula(p)}</span>
+              </div>
+              <div class="b2-metric-row">
+                <span class="b2-metric-label">Kích thước Tensor:</span>
+                <span class="b2-metric-val">${sel.shape(p)}</span>
+              </div>
+              <div class="b2-metric-row">
+                <span class="b2-metric-label">Số tham số:</span>
+                <span class="b2-metric-val">${sel.params(p)}</span>
+              </div>
+            </div>
+          `;
+        };
+
+        render();
+        document.addEventListener('palettes:updated', () => {
+          updatePalette();
+          render();
+        });
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

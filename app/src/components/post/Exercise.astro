@@ -1,23 +1,20 @@
 ---
-// An exercise box. Its children, in order: the statement (markdown), <Starter>, <Hints>,
-// <Checkpoint>, <Solution> and <WhatToNotice>. The styles of these parts are defined here.
-// The box is folded when the page opens: a click on the header, or on its Show/Hide button, unfolds it.
+// Hộp bài tập thực hành.
 import { fragment } from "./exercises";
 interface Props {
-  number: string; // the section that holds the exercise, "4.3", with a letter when it holds two: "2.3a"
+  number: string;
   title: string;
-  data?: string; // datasets used, shown in the header
-  nb?: string; // the notebook: the header shows the run time of its solution cells
-  star?: boolean; // ★ in the outline
+  data?: string;
+  nb?: string;
+  star?: boolean;
   id?: string;
 }
 const { number, title, data, nb, star = false, id } = Astro.props as Props;
 const anchor = id ?? `exercise-${number.replace(/\./g, "-")}`;
-// Measured when the notebook was last run with nb2mdx --execute: a rough estimate.
 const seconds: number | undefined = nb ? fragment(nb, "solution")?.seconds : undefined;
 const computeTime = seconds === undefined ? undefined
-  : seconds < 60 ? "< 1 min" : `${Math.round(seconds / 60)} min`; // never split across lines
-const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTime}`].filter(Boolean);
+  : seconds < 60 ? "< 1 phút" : `${Math.round(seconds / 60)} phút`;
+const meta = [data && `Dữ liệu: ${data}`, computeTime && `Thời gian chạy: ${computeTime}`].filter(Boolean);
 ---
 
 <details class="exercise" id={anchor}>
@@ -25,13 +22,13 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
     <svg class="exercise__icon exercise__icon--header" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></svg>
     <div>
       <div class="exercise__heading">
-        <span class="exercise__number">Exercise {number}{star && <span class="exercise__star" title="Longer exercise">★</span>}</span>
+        <span class="exercise__number">Bài tập {number}{star && <span class="exercise__star" title="Bài tập dài hơn">★</span>}</span>
         <span class="exercise__title">{title}</span>
       </div>
       {meta.length > 0 && <div class="exercise__meta">{meta.join(" · ")}</div>}
     </div>
     <span class="exercise__toggle" aria-hidden="true">
-      <span class="exercise__toggle-show">Show</span><span class="exercise__toggle-hide">Hide</span>
+      <span class="exercise__toggle-show">Hiện</span><span class="exercise__toggle-hide">Ẩn</span>
       <svg class="exercise__chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" /></svg>
     </span>
   </summary>
@@ -41,7 +38,6 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
 </details>
 
 <script>
-  // A link to an exercise, or to something inside it, opens it
   const openTarget = () => {
     const id = decodeURIComponent(location.hash.slice(1));
     const box = id ? document.getElementById(id)?.closest<HTMLDetailsElement>("details.exercise") : null;
@@ -51,22 +47,14 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", openTarget, { once: true });
   else openTarget();
 
-  // In the starter code (and in the first cell of the solution, which repeats it), the code
-  // copied from earlier exercises is folded under its marker, "# [Copied from the solution of
-  // 3.2, step (1)]", which follows the comment that describes the copied code: a button
-  // unfolds it. The folded lines stay in the code block, only hidden, so the copy button
-  // still copies the whole cell. The markers are written by the notebooks (see
-  // blog/exercise-guidelines.md in the course repo).
-  const RULE = /^#\s-{5,}\s*$/; // the first and last lines of a banner, "New in this exercise"
-  const COPIED = /^#\s*\[Copied from .*\]\s*$/;
+  const RULE = /^#\s-{5,}\s*$/;
+  const COPIED = /^#\s*\[(Copied from|Sao chép từ) .*\]\s*$/;
 
   const foldCopiedCode = (code: HTMLElement) => {
     const lines = Array.from(code.children).filter((el) => el.classList.contains("line"));
     const text = (i: number) => lines[i]?.textContent ?? "";
     const markers = lines.map((_, i) => i).filter((i) => COPIED.test(text(i)));
     markers.forEach((marker, k) => {
-      // The copy runs to the comment above the next marker, or to the next banner, without
-      // the blank lines before it
       const first = marker + 1;
       let next = k + 1 < markers.length ? markers[k + 1] : lines.length;
       while (next > first && text(next - 1).startsWith("#")) next--;
@@ -78,12 +66,11 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
       if (last < first) return;
       const count = last - first + 1;
 
-      // Move the lines, and the line breaks that follow them, into a hidden span
       const folded = document.createElement("span");
       folded.className = "exercise__copied";
       folded.hidden = true;
       lines[first].before(folded);
-      const end = lines[last].nextSibling; // the line break after the last line
+      const end = lines[last].nextSibling;
       let node: ChildNode | null = lines[first];
       while (node) {
         const next: ChildNode | null = node.nextSibling;
@@ -92,17 +79,13 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
         node = next;
       }
 
-      // The button has no text of its own (its label comes from CSS), so that the copy
-      // button does not copy it
       const button = document.createElement("button");
       button.type = "button";
       button.className = "exercise__copied-toggle";
-      button.style.setProperty("--copied-lines", String(count)); // for the line numbers
+      button.style.setProperty("--copied-lines", String(count));
       const update = () => {
-        const action = folded.hidden ? "Show" : "Hide";
-        const label = count === 1
-          ? `${action} the copied line`
-          : `${action} the ${count} copied lines`;
+        const action = folded.hidden ? "Hiện" : "Ẩn";
+        const label = `${action} ${count} dòng mã đã sao chép`;
         button.dataset.label = label;
         button.setAttribute("aria-label", label);
         button.setAttribute("aria-expanded", String(!folded.hidden));
@@ -124,14 +107,11 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
 </script>
 
 <style is:global>
-  /* The exercises are blue, to set them apart from the orange of the rest of the post. <Bonus> uses this color too. */
   :root {
     --exercise-color: oklch(0.65 0.13 255);
-    /* For text: darker in the light theme, lighter in the dark theme */
     --exercise-text-color: color-mix(in oklab, var(--exercise-color) 70%, var(--text-color));
   }
   .exercise {
-    /* Links and other elements in the box take the color of the exercise */
     --primary-color: var(--exercise-color);
     --primary-color-hover: oklch(from var(--exercise-color) calc(l - 0.05) c h);
     margin: var(--spacing-5) 0;
@@ -155,7 +135,6 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
   .exercise__header::marker { content: ""; }
   .exercise__header:hover { background: color-mix(in oklab, var(--exercise-color) 15%, var(--page-bg)); }
   .exercise__header:focus-visible { outline: 2px solid var(--exercise-color); outline-offset: -2px; }
-  /* The button at the right of the header: "Show" when the exercise is folded, "Hide" when it is open */
   .exercise__toggle {
     display: inline-flex;
     align-items: center;
@@ -174,12 +153,10 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
   .exercise[open] > .exercise__header .exercise__chevron { transform: rotate(90deg); }
   .exercise:not([open]) .exercise__toggle-hide,
   .exercise[open] .exercise__toggle-show { display: none; }
-  /* "Exercise 2.1", then the title, on one line */
   .exercise__heading { font-size: 1.05rem; font-weight: 700; color: var(--exercise-text-color); line-height: 1.3; }
   .exercise__number { margin-right: 0.35em; }
   .exercise__star { margin-left: 4px; }
   .exercise__meta { font-size: 0.8rem; color: var(--muted-color); margin-top: 2px; }
-  /* The body is set smaller than the text of the post */
   .exercise__body { padding: 14px 16px 0; font-size: 14px; }
   .exercise__body :not(pre) > code { font-size: 12px; }
   .exercise__body > :first-child { margin-top: 0; }
@@ -206,7 +183,6 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
   }
   .exercise__starter { margin-bottom: var(--spacing-3); }
 
-  /* Folded parts: full-width rows separated by a line */
   .exercise__fold { margin: 0 -16px; border-top: 1px solid var(--border-color); }
   .exercise__fold[hidden] { display: none; }
   .exercise__fold > summary {
@@ -241,18 +217,14 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
   .exercise__outputs .code-output + .code-output { margin-top: var(--spacing-2); }
 
   .exercise .astro-code, .exercise .astro-code code { font-size: 12px; }
-  /* Code and outputs are tinted with the color of the exercise; the outputs a little more */
   .exercise .astro-code { background-color: color-mix(in oklab, var(--exercise-color) 5%, var(--surface-bg)) !important; }
   .exercise .code-output { background: color-mix(in oklab, var(--exercise-color) 9%, var(--surface-bg)); }
-  /* Long lines of output wrap instead of scrolling */
   .exercise .code-output pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
 
-  /* The code copied from earlier exercises, folded under its marker (see the script above) */
   .exercise__copied[hidden] { display: none; }
   .exercise__copied-toggle {
     display: block;
     width: fit-content;
-    /* Aligned with the code, after the column of the line numbers (styles/components/_code.css) */
     margin: 2px 0 2px calc(var(--code-gutter-width) + var(--spacing-1));
     padding: 1px 8px;
     border: 1px dashed color-mix(in oklab, var(--exercise-color) 55%, var(--border-color));
@@ -264,7 +236,6 @@ const meta = [data && `Data: ${data}`, computeTime && `Compute time: ${computeTi
   }
   .exercise__copied-toggle:hover { background: color-mix(in oklab, var(--exercise-color) 18%, var(--page-bg)); }
   .exercise__copied-toggle:focus-visible { outline: 2px solid var(--exercise-color); outline-offset: 1px; }
-  /* While the lines are hidden, they still count in the line numbers of the lines that follow */
   .exercise__copied-toggle[aria-expanded="false"] { counter-increment: astro-code-line var(--copied-lines); }
   .exercise__copied-toggle::before { content: "▸ " attr(data-label); }
   .exercise__copied-toggle[aria-expanded="true"]::before { content: "▾ " attr(data-label); }

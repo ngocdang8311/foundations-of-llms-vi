@@ -1,0 +1,492 @@
+<div class="d3-ch3-doc-packing"></div>
+<style>
+  .d3-ch3-doc-packing {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch3-doc-packing .dp-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .d3-ch3-doc-packing .dp-tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-ch3-doc-packing .dp-tab {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch3-doc-packing .dp-tab.active {
+    border-color: var(--primary-color);
+    background: color-mix(in oklab, var(--primary-color) 14%, var(--surface-bg));
+  }
+  .d3-ch3-doc-packing .dp-stats {
+    display: flex;
+    gap: 14px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-ch3-doc-packing .dp-stat strong {
+    font-weight: 800;
+  }
+  .d3-ch3-doc-packing svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 740px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch3-doc-packing .dp-note {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 5%, var(--page-bg));
+    font-size: 12px;
+    line-height: 1.45;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch3-doc-packing'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch3-doc-packing'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      const DOCS = [
+        { id: 0, name: 'Văn bản A', tokens: ['Hà', 'Nội', 'mùa', 'thu'] },
+        { id: 1, name: 'Văn bản B', tokens: ['Mô', 'hình', 'ngôn', 'ngữ', 'lớn'] },
+        { id: 2, name: 'Văn bản C', tokens: ['Học', 'sâu'] },
+        { id: 3, name: 'Văn bản D', tokens: ['Tối', 'ưu', 'hóa', 'GPU'] }
+      ];
+      const L = 8; // context window length
+
+      let mode = 'compare'; // 'compare' | 'mask'
+      let maskType = 'intra'; // 'standard' | 'intra'
+      let hoverIdx = 5;
+
+      const toolbar = document.createElement('div');
+      toolbar.className = 'dp-toolbar';
+      const tabs = document.createElement('div');
+      tabs.className = 'dp-tabs';
+
+      const tabCompare = document.createElement('button');
+      tabCompare.type = 'button';
+      tabCompare.className = 'dp-tab active';
+      tabCompare.textContent = '1. So sánh Padding vs Document Packing';
+
+      const tabMask = document.createElement('button');
+      tabMask.type = 'button';
+      tabMask.className = 'dp-tab';
+      tabMask.textContent = '2. Mặt nạ chú ý nội bộ (Intra-Doc Mask)';
+
+      tabs.append(tabCompare, tabMask);
+      const statsDiv = document.createElement('div');
+      statsDiv.className = 'dp-stats';
+      toolbar.append(tabs, statsDiv);
+      container.appendChild(toolbar);
+
+      const W = 740, H = 310;
+      const svg = d3.select(container).append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Minh họa đóng gói tài liệu và mặt nạ chú ý nội bộ');
+      const rootG = svg.append('g');
+
+      const noteDiv = document.createElement('div');
+      noteDiv.className = 'dp-note';
+      container.appendChild(noteDiv);
+
+      let COLORS = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759'];
+      const readColors = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 4) COLORS = cat;
+          }
+        } catch (_) {}
+      };
+      readColors();
+
+      const renderCompare = () => {
+        rootG.selectAll('*').remove();
+
+        // Left side: Padding (4 rows x 8 cols = 32 slots, 15 real tokens + 4 EOS = 19 tokens, 13 pad tokens)
+        const leftX = 16, rightX = 392;
+        const cellW = 40, cellH = 26, gap = 3;
+
+        rootG.append('text')
+          .attr('x', leftX).attr('y', 18)
+          .attr('font-weight', '700').attr('font-size', '13px')
+          .attr('fill', 'var(--text-color)')
+          .text('A. Đệm chuỗi truyền thống (Padding — L = 8)');
+        rootG.append('text')
+          .attr('x', leftX).attr('y', 35)
+          .attr('font-size', '11.5px').attr('fill', 'var(--muted-color)')
+          .text('Hiệu suất: 19 / 32 = 59.4% (Lãng phí 40.6% FLOPs cho <pad>)');
+
+        DOCS.forEach((doc, r) => {
+          const y = 50 + r * (cellH + 10);
+          const rowTokens = [...doc.tokens, '<eos>'];
+          for (let c = 0; c < L; c++) {
+            const x = leftX + c * (cellW + gap);
+            const isPad = c >= rowTokens.length;
+            const tok = isPad ? '<pad>' : rowTokens[c];
+            const isEos = tok === '<eos>';
+            const gCell = rootG.append('g');
+            gCell.append('rect')
+              .attr('x', x).attr('y', y)
+              .attr('width', cellW).attr('height', cellH)
+              .attr('rx', 4)
+              .attr('fill', isPad
+                ? 'color-mix(in oklab, var(--muted-color) 12%, transparent)'
+                : isEos
+                  ? 'color-mix(in oklab, var(--text-color) 18%, var(--surface-bg))'
+                  : `color-mix(in oklab, ${COLORS[doc.id]} 28%, var(--surface-bg))`)
+              .attr('stroke', isPad ? 'var(--border-color)' : COLORS[doc.id])
+              .attr('stroke-dasharray', isPad ? '3,2' : null);
+            gCell.append('text')
+              .attr('x', x + cellW / 2).attr('y', y + cellH / 2)
+              .attr('dy', '0.35em').attr('text-anchor', 'middle')
+              .attr('font-size', isPad || isEos ? '9.5px' : '10.5px')
+              .attr('font-weight', isEos ? '700' : '500')
+              .attr('fill', isPad ? 'var(--muted-color)' : 'var(--text-color)')
+              .text(tok);
+          }
+        });
+
+        // Right side: Document Packing (stream of 19 tokens -> 2 full windows of L = 8 + 3 leftover)
+        rootG.append('text')
+          .attr('x', rightX).attr('y', 18)
+          .attr('font-weight', '700').attr('font-size', '13px')
+          .attr('fill', 'var(--text-color)')
+          .text('B. Đóng gói tài liệu (Document Packing — L = 8)');
+        rootG.append('text')
+          .attr('x', rightX).attr('y', 35)
+          .attr('font-size', '11.5px').attr('fill', 'var(--muted-color)')
+          .text('Hiệu suất: 16 / 16 = 100% token hữu ích trong 2 cửa sổ đầy!');
+
+        const stream = [];
+        DOCS.forEach((doc) => {
+          doc.tokens.forEach((t) => stream.push({ tok: t, docId: doc.id, isEos: false }));
+          stream.push({ tok: '<eos>', docId: doc.id, isEos: true });
+        });
+
+        // Draw 2 packed rows of length L=8
+        for (let r = 0; r < 2; r++) {
+          const y = 50 + r * (cellH + 14);
+          rootG.append('text')
+            .attr('x', rightX - 6).attr('y', y + cellH / 2)
+            .attr('dy', '0.35em').attr('text-anchor', 'end')
+            .attr('font-size', '10px').attr('font-weight', '700')
+            .attr('fill', 'var(--muted-color)')
+            .text(`#${r + 1}`);
+          for (let c = 0; c < L; c++) {
+            const item = stream[r * L + c];
+            const x = rightX + c * (cellW + gap);
+            const gCell = rootG.append('g');
+            gCell.append('rect')
+              .attr('x', x).attr('y', y)
+              .attr('width', cellW).attr('height', cellH)
+              .attr('rx', 4)
+              .attr('fill', item.isEos
+                ? 'color-mix(in oklab, var(--text-color) 20%, var(--surface-bg))'
+                : `color-mix(in oklab, ${COLORS[item.docId]} 30%, var(--surface-bg))`)
+              .attr('stroke', COLORS[item.docId])
+              .attr('stroke-width', item.isEos ? 1.6 : 1.1);
+            gCell.append('text')
+              .attr('x', x + cellW / 2).attr('y', y + cellH / 2)
+              .attr('dy', '0.35em').attr('text-anchor', 'middle')
+              .attr('font-size', item.isEos ? '9.5px' : '10.5px')
+              .attr('font-weight', item.isEos ? '700' : '600')
+              .attr('fill', 'var(--text-color)')
+              .text(item.tok);
+          }
+        }
+
+        // Show Input x vs Target y shift for Packed Row #1
+        const shiftY = 198;
+        rootG.append('text')
+          .attr('x', leftX).attr('y', shiftY)
+          .attr('font-weight', '700').attr('font-size', '12.5px')
+          .attr('fill', 'var(--text-color)')
+          .text('Cặp dịch chuyển tự hồi quy (x → y = x dịch trái 1 vị trí) trên Cửa sổ đóng gói #1:');
+
+        const xRowY = shiftY + 14;
+        const yRowY = shiftY + 52;
+        rootG.append('text')
+          .attr('x', leftX + 68).attr('y', xRowY + cellH / 2).attr('dy', '0.35em').attr('text-anchor', 'end')
+          .attr('font-size', '11px').attr('font-weight', '700').attr('fill', 'var(--text-color)')
+          .text('Đầu vào x:');
+        rootG.append('text')
+          .attr('x', leftX + 68).attr('y', yRowY + cellH / 2).attr('dy', '0.35em').attr('text-anchor', 'end')
+          .attr('font-size', '11px').attr('font-weight', '700').attr('fill', 'var(--text-color)')
+          .text('Nhãn đích y:');
+
+        for (let c = 0; c < L; c++) {
+          const xItem = stream[c];
+          const yItem = stream[c + 1];
+          const cx = leftX + 80 + c * (cellW + 18);
+
+          // Input x cell
+          rootG.append('rect')
+            .attr('x', cx).attr('y', xRowY)
+            .attr('width', cellW + 8).attr('height', cellH)
+            .attr('rx', 4)
+            .attr('fill', `color-mix(in oklab, ${COLORS[xItem.docId]} 25%, var(--surface-bg))`)
+            .attr('stroke', COLORS[xItem.docId]);
+          rootG.append('text')
+            .attr('x', cx + (cellW + 8) / 2).attr('y', xRowY + cellH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle')
+            .attr('font-size', '10px').attr('fill', 'var(--text-color)')
+            .text(xItem.tok);
+
+          // Arrow down
+          rootG.append('line')
+            .attr('x1', cx + (cellW + 8) / 2).attr('y1', xRowY + cellH + 2)
+            .attr('x2', cx + (cellW + 8) / 2).attr('y2', yRowY - 2)
+            .attr('stroke', 'var(--muted-color)').attr('stroke-width', 1.2);
+
+          // Target y cell
+          rootG.append('rect')
+            .attr('x', cx).attr('y', yRowY)
+            .attr('width', cellW + 8).attr('height', cellH)
+            .attr('rx', 4)
+            .attr('fill', `color-mix(in oklab, ${COLORS[yItem.docId]} 25%, var(--surface-bg))`)
+            .attr('stroke', COLORS[yItem.docId]);
+          rootG.append('text')
+            .attr('x', cx + (cellW + 8) / 2).attr('y', yRowY + cellH / 2).attr('dy', '0.35em').attr('text-anchor', 'middle')
+            .attr('font-size', '10px').attr('fill', 'var(--text-color)')
+            .text(yItem.tok);
+        }
+
+        statsDiv.innerHTML = `<span class="dp-stat">Padding: <strong>59.4%</strong> hữu ích</span><span class="dp-stat">Packing: <strong>100%</strong> hữu ích</span>`;
+        noteDiv.innerHTML = '<strong>Tại sao đóng gói (Document Packing) là tiêu chuẩn công nghiệp?</strong> Thay vì đệm <code>&lt;pad&gt;</code> vào cuối câu ngắn, ta nối mọi tài liệu bằng token phân cách <code>&lt;eos&gt;</code> (hay <code>&lt;|endoftext|&gt;</code>) rồi cắt thành các khối cố định dài <em>L</em>. Nhờ đó 100% phép nhân ma trận trên GPU đều sinh ra đạo hàm hữu ích.';
+      };
+
+      const renderMask = () => {
+        rootG.selectAll('*').remove();
+
+        const windowTokens = [
+          { tok: 'Hà', docId: 0 },
+          { tok: 'Nội', docId: 0 },
+          { tok: 'mùa', docId: 0 },
+          { tok: 'thu', docId: 0 },
+          { tok: '<eos>', docId: 0, isEos: true },
+          { tok: 'Mô', docId: 1 },
+          { tok: 'hình', docId: 1 },
+          { tok: 'lớn', docId: 1 }
+        ];
+
+        // Sub-toggle for mask type inside SVG
+        const toggleG = rootG.append('g').attr('transform', 'translate(16, 12)');
+        const btns = [
+          { id: 'intra', label: 'Mặt nạ nội bộ tài liệu (Intra-Document Mask — Khuyên dùng)' },
+          { id: 'standard', label: 'Mặt nạ nhân quả chuẩn (Standard Causal Mask — Nhiễm chéo)' }
+        ];
+        btns.forEach((b, idx) => {
+          const bx = idx * 355;
+          const bg = toggleG.append('g').style('cursor', 'pointer').on('click', () => {
+            maskType = b.id;
+            renderMask();
+          });
+          bg.append('rect')
+            .attr('x', bx).attr('y', 0).attr('width', 345).attr('height', 24).attr('rx', 6)
+            .attr('fill', maskType === b.id ? `color-mix(in oklab, ${COLORS[0]} 20%, var(--surface-bg))` : 'var(--surface-bg)')
+            .attr('stroke', maskType === b.id ? COLORS[0] : 'var(--border-color)');
+          bg.append('text')
+            .attr('x', bx + 172.5).attr('y', 12).attr('dy', '0.35em').attr('text-anchor', 'middle')
+            .attr('font-size', '11px').attr('font-weight', maskType === b.id ? '700' : '500')
+            .attr('fill', 'var(--text-color)')
+            .text(b.label);
+        });
+
+        // Draw 8x8 Matrix on left, explanation on right
+        const matX = 88, matY = 66, cellS = 28;
+
+        rootG.append('text')
+          .attr('x', matX + (L * cellS) / 2).attr('y', matY - 12)
+          .attr('text-anchor', 'middle').attr('font-size', '11px').attr('font-weight', '700')
+          .attr('fill', 'var(--muted-color)')
+          .text('Cột j: Token khóa (Key — quá khứ được phép nhìn)');
+
+        windowTokens.forEach((rowTok, i) => {
+          // Row label (Query i)
+          rootG.append('text')
+            .attr('x', matX - 8).attr('y', matY + i * cellS + cellS / 2)
+            .attr('dy', '0.35em').attr('text-anchor', 'end')
+            .attr('font-size', '11px')
+            .attr('font-weight', i === hoverIdx ? '800' : '600')
+            .attr('fill', COLORS[rowTok.docId])
+            .text(`${i}: ${rowTok.tok}`);
+
+          // Col label
+          rootG.append('text')
+            .attr('x', matX + i * cellS + cellS / 2).attr('y', matY + L * cellS + 14)
+            .attr('text-anchor', 'middle').attr('font-size', '10px')
+            .attr('fill', COLORS[rowTok.docId])
+            .text(rowTok.tok);
+
+          windowTokens.forEach((colTok, j) => {
+            const causalAllowed = j <= i;
+            const sameDoc = rowTok.docId === colTok.docId;
+            const allowed = maskType === 'standard' ? causalAllowed : (causalAllowed && sameDoc);
+            const isContamination = maskType === 'standard' && causalAllowed && !sameDoc;
+
+            const cell = rootG.append('rect')
+              .attr('x', matX + j * cellS + 1)
+              .attr('y', matY + i * cellS + 1)
+              .attr('width', cellS - 2)
+              .attr('height', cellS - 2)
+              .attr('rx', 3)
+              .style('cursor', 'pointer')
+              .attr('fill', !allowed
+                ? 'color-mix(in oklab, var(--muted-color) 10%, transparent)'
+                : isContamination
+                  ? 'color-mix(in oklab, #e15759 42%, var(--surface-bg))'
+                  : `color-mix(in oklab, ${COLORS[rowTok.docId]} 45%, var(--surface-bg))`)
+              .attr('stroke', i === hoverIdx ? 'var(--text-color)' : 'var(--border-color)')
+              .attr('stroke-width', i === hoverIdx ? 1.5 : 0.8)
+              .on('mouseenter click', () => {
+                hoverIdx = i;
+                renderMask();
+              });
+          });
+        });
+
+        // Right panel: Interactive inspection of query hoverIdx
+        const infoX = 345, infoY = 72;
+        const qTok = windowTokens[hoverIdx];
+        const attended = windowTokens.filter((t, j) => {
+          if (j > hoverIdx) return false;
+          return maskType === 'standard' ? true : t.docId === qTok.docId;
+        });
+
+        rootG.append('text')
+          .attr('x', infoX).attr('y', infoY)
+          .attr('font-size', '13px').attr('font-weight', '700')
+          .attr('fill', 'var(--text-color)')
+          .text(`Đang chọn Query tại vị trí i = ${hoverIdx} ("${qTok.tok}")`);
+
+        rootG.append('text')
+          .attr('x', infoX).attr('y', infoY + 22)
+          .attr('font-size', '12px').attr('fill', 'var(--muted-color)')
+          .text(`Thuộc: ${DOCS[qTok.docId].name}`);
+
+        rootG.append('text')
+          .attr('x', infoX).attr('y', infoY + 50)
+          .attr('font-size', '12px').attr('font-weight', '700')
+          .attr('fill', 'var(--text-color)')
+          .text('Các token quá khứ được phép chú ý tới:');
+
+        attended.forEach((t, k) => {
+          const bx = infoX + k * 46;
+          const by = infoY + 62;
+          const leak = t.docId !== qTok.docId;
+          rootG.append('rect')
+            .attr('x', bx).attr('y', by).attr('width', 42).attr('height', 24).attr('rx', 4)
+            .attr('fill', leak
+              ? 'color-mix(in oklab, #e15759 35%, var(--surface-bg))'
+              : `color-mix(in oklab, ${COLORS[t.docId]} 30%, var(--surface-bg))`)
+            .attr('stroke', leak ? '#e15759' : COLORS[t.docId]);
+          rootG.append('text')
+            .attr('x', bx + 21).attr('y', by + 12).attr('dy', '0.35em').attr('text-anchor', 'middle')
+            .attr('font-size', '10.5px').attr('fill', 'var(--text-color)')
+            .text(t.tok);
+        });
+
+        const msgY = infoY + 115;
+        if (maskType === 'standard' && qTok.docId === 1) {
+          rootG.append('text')
+            .attr('x', infoX).attr('y', msgY)
+            .attr('font-size', '12px').attr('font-weight', '700').attr('fill', '#e15759')
+            .text('⚠ Cảnh báo nhiễm ngữ cảnh chéo (Cross-doc leak):');
+          rootG.append('text')
+            .attr('x', infoX).attr('y', msgY + 18)
+            .attr('font-size', '11.5px').attr('fill', 'var(--text-color)')
+            .text('Token của Văn bản B vẫn chú ý ngược về "Hà Nội mùa thu"');
+          rootG.append('text')
+            .attr('x', infoX).attr('y', msgY + 34)
+            .attr('font-size', '11.5px').attr('fill', 'var(--text-color)')
+            .text('của Văn bản A (các ô màu đỏ trên ma trận)!');
+        } else {
+          rootG.append('text')
+            .attr('x', infoX).attr('y', msgY)
+            .attr('font-size', '12px').attr('font-weight', '700').attr('fill', COLORS[0])
+            .text('✓ Mặt nạ đường chéo khối (Block-Diagonal Causal):');
+          rootG.append('text')
+            .attr('x', infoX).attr('y', msgY + 18)
+            .attr('font-size', '11.5px').attr('fill', 'var(--text-color)')
+            .text('Mỗi tài liệu được cô lập hoàn toàn trong ma trận chú ý');
+          rootG.append('text')
+            .attr('x', infoX).attr('y', msgY + 34)
+            .attr('font-size', '11.5px').attr('fill', 'var(--text-color)')
+            .text('(hỗ trợ trực tiếp bởi FlashAttention varlen_func).');
+        }
+
+        statsDiv.innerHTML = `<span class="dp-stat">Di chuột lên hàng của ma trận để kiểm tra</span>`;
+        noteDiv.innerHTML = '<strong>Mặt nạ chú ý nội bộ (Intra-document Causal Mask):</strong> Khi đóng gói nhiều văn bản vào cùng một chuỗi dài (ví dụ 8.192 token trong Llama-3), ta dùng mặt nạ đường chéo theo từng khối tài liệu $M_{i,j} = 0$ nếu $j \\le i$ và $\\text{doc}(i) = \\text{doc}(j)$, ngược lại $M_{i,j} = -\\infty$.';
+      };
+
+      const render = () => {
+        if (mode === 'compare') renderCompare();
+        else renderMask();
+      };
+
+      tabCompare.addEventListener('click', () => {
+        mode = 'compare';
+        tabCompare.classList.add('active');
+        tabMask.classList.remove('active');
+        render();
+      });
+      tabMask.addEventListener('click', () => {
+        mode = 'mask';
+        tabMask.classList.add('active');
+        tabCompare.classList.remove('active');
+        render();
+      });
+
+      render();
+      document.addEventListener('palettes:updated', () => { readColors(); render(); });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

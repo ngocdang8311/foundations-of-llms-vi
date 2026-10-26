@@ -1,0 +1,27 @@
+export const cells = 1;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(7)
+
+# Bài toán Nhớ có Chọn lọc (Selective Copying):
+# Chuỗi gồm L=24 bước; chỉ có 1 token tín hiệu (marker=1) ở vị trí ngẫu nhiên,
+# các bước còn lại là nhiễu (marker=0). Mô hình phải xuất lại giá trị tín hiệu ở bước cuối.
+def sample_selective_copy_batch(batch_size=64, seq_len=24):
+    values = torch.randn(batch_size, seq_len, 1)
+    markers = torch.zeros(batch_size, seq_len, 1)
+    pos = torch.randint(0, seq_len - 4, (batch_size,))
+    for b in range(batch_size):
+        markers[b, pos[b], 0] = 1.0
+    x = torch.cat([values, markers], dim=-1)      # (B, L, 2)
+    y = values[torch.arange(batch_size), pos, 0]  # (B,)
+    return x, y, pos
+
+x_demo, y_demo, pos_demo = sample_selective_copy_batch(4, 12)
+print(f"Batch x shape: {tuple(x_demo.shape)}, target y shape: {tuple(y_demo.shape)}")
+```
+
+<section className="code-output"><pre>{"Batch x shape: (4, 12, 2), target y shape: (4,)"}</pre></section>

@@ -1,0 +1,19 @@
+export const cells = 1;
+
+```python
+import math
+import torch
+import torch.nn as nn
+
+torch.manual_seed(7)
+B, L_prompt, gen_steps, d_model = 1, 8, 16, 64
+W_q = nn.Linear(d_model, d_model, bias=False)
+W_k = nn.Linear(d_model, d_model, bias=False)
+W_v = nn.Linear(d_model, d_model, bias=False)
+W_o = nn.Linear(d_model, d_model, bias=False)
+
+seq_tokens = torch.randn(B, L_prompt + gen_steps, d_model)
+print("Kích thước chuỗi mô phỏng:", tuple(seq_tokens.shape))
+```
+
+<section className="code-output"><pre>{"Kích thước chuỗi mô phỏng: (1, 24, 64)"}</pre></section>

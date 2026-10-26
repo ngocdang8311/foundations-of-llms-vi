@@ -1,0 +1,570 @@
+---
+title: "Kiến trúc Transformer: Giải phẫu cỗ máy đằng sau mọi LLM"
+chapter: 2
+banner: "banner-2.html"
+description: "Từ cơ chế Scaled Dot-Product Attention năm 2017 đến kiến trúc Decoder hiện đại với Pre-RMSNorm, RoPE và SwiGLU."
+authors:
+  - name: "David Louapre"
+    url: "https://huggingface.co/dlouapre"
+    affiliations: [1]
+affiliations:
+  - name: "Hugging Face"
+    url: "https://huggingface.co"
+published: "Oct. 21, 2026"
+template: "article"
+licence: >
+  Sơ đồ và nội dung văn bản được cấp phép theo <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC‑BY 4.0</a>, trừ khi có ghi chú khác.
+tableOfContentsAutoCollapse: true
+showPdf: true
+---
+
+import Note from '../components/Note.astro';
+import HtmlEmbed from '../components/HtmlEmbed.astro';
+import PaperNote from '../components/post/PaperNote.astro';
+import Exercise from '../components/post/Exercise.astro';
+import Starter from '../components/post/Starter.astro';
+import Hints from '../components/post/Hints.astro';
+import Hint from '../components/post/Hint.astro';
+import Checkpoint from '../components/post/Checkpoint.astro';
+import Solution from '../components/post/Solution.astro';
+import WhatToNotice from '../components/post/WhatToNotice.astro';
+import Bonus from '../components/post/Bonus.astro';
+import Optional from '../components/post/Optional.astro';
+import Inset from '../components/post/Inset.astro';
+import WrapTable from '../components/post/WrapTable.astro';
+import ReferenceList from '../components/post/ReferenceList.astro';
+
+<Note variant="success">
+Chương này là bài giảng thứ ba trong chuỗi học liệu tương tác **"Nền tảng Mô hình Ngôn ngữ Lớn | Học qua Thực hành"** (dựa trên giáo trình cao học MVA tại ENS Paris-Saclay).
+
+Ở Chương 0, chúng ta đã chứng kiến hành trình từ đếm n-gram, mạng truy hồi RNN/LSTM cho đến khoảnh khắc cơ chế chú ý (Attention) xuất hiện để giải cứu bài toán dịch máy. Ở Chương 1, ta đã biến chuỗi văn bản thô thành một dãy các số nguyên (token IDs) nhờ thuật toán tách từ BPE. Bây giờ là lúc mở nắp ca-pô của cỗ máy trung tâm: **kiến trúc Transformer**.
+
+Triết lý xuyên suốt chương này vẫn là **học qua thực hành**: thay vì gọi một hàm thư viện đóng gói sẵn như `nn.Transformer`, bạn sẽ tự tay cài đặt từng viên gạch toán học của một khối Transformer hiện đại (như Llama-3) chỉ bằng các phép nhân ma trận cơ bản trong PyTorch.
+
+**Chúc bạn thực hành vui vẻ!**
+</Note>
+
+Khi đọc tin tức công nghệ, bạn thấy hàng loạt tên gọi mới xuất hiện mỗi tháng: GPT-4, Llama-3, Claude, Qwen, Gemma, DeepSeek... Có vẻ như thế giới AI đang thay đổi chóng mặt. Nhưng nếu mở mã nguồn của tất cả các mô hình đó ra, bạn sẽ bắt gặp một sự thật đáng kinh ngạc: **về mặt kiến trúc cốt lõi, hầu như tất cả chúng đều là cùng một cỗ máy** — một chồng các khối *Transformer Decoder* lặp đi lặp lại.
+
+Vậy chính xác chuyện gì diễn ra bên trong một khối đó? Trong chương này, chúng ta sẽ đi tìm lời giải cho hai câu hỏi cốt lõi:
+
+- **Bên trong một khối Transformer Decoder hiện đại thực sự gồm những phép toán ma trận nào, và mỗi phép toán đóng vai trò gì trong việc xử lý ngôn ngữ?**
+- **Tại sao kiến trúc Transformer gốc năm 2017 của Vaswani và cộng sự lại được tinh chỉnh thành "công thức chuẩn hiện đại" (Pre-RMSNorm, RoPE, SwiGLU) dùng trong Llama-3 và hầu hết các LLM ngày nay?**
+
+<Note title="Tập dữ liệu & Công cụ" emoji="📖" variant="info">
+Trong chương này, trọng tâm của chúng ta là **giải phẫu kiến trúc và kiểm chứng toán học**, nên mọi bài tập đều chạy tức thời trên CPU chỉ với thư viện `torch` (PyTorch) mà không cần tải các tập dữ liệu lớn:
+- **PyTorch (`torch`, `torch.nn`, `torch.nn.functional`)**: dùng để cài đặt trực tiếp các phép biến đổi tensor 3 chiều `(B, L, d_model)` và 4 chiều `(B, H, L, d_head)`.
+- **Các cấu hình mô hình thực tế**: chúng ta sẽ đối chiếu trực tiếp mã nguồn của mình với thông số kiến trúc của **GPT-2 Small (124M)**, **Llama-3 8B** và **Llama-3 70B** [@dubey2024llama3].
+</Note>
+
+---
+
+## 1. Cơ chế Chú ý Tích vô hướng có Tỷ lệ và Mặt nạ Nhân quả
+
+Hãy nhớ lại điểm dừng ở cuối Chương 0: trong mạng RNN/LSTM, thông tin phải đi tuần tự qua từng từ $t-1 \to t$, khiến GPU không thể tính toán song song trên toàn câu và đạo hàm bị suy giảm khi khoảng cách giữa hai từ quá xa. Tháng 6 năm 2017, nhóm nghiên cứu của Vaswani và cộng sự tại Google đã đặt một câu hỏi táo bạo: *Điều gì xảy ra nếu ta vứt bỏ hoàn toàn cấu trúc truy hồi, và chỉ giữ lại cơ chế chú ý?* [@vaswani2017].
+
+<PaperNote id="vaswani2017" look="Hình 2 (trang 4): sơ đồ Scaled Dot-Product Attention và Multi-Head Attention; Mục 3.2.1 giải thích lý do phải chia cho căn bậc hai của d_k.">
+
+Bài báo kinh điển *"Attention Is All You Need"* được công bố tại NeurIPS 2017. Bằng cách thay thế hoàn toàn các tầng RNN bằng *Self-Attention*, mô hình Transformer Base (65M tham số) và Big (213M tham số) đã thiết lập kỷ lục mới về dịch máy Anh–Đức (28.4 BLEU) và Anh–Pháp (41.8 BLEU) trên tập WMT'14, đồng thời chỉ mất 3.5 ngày huấn luyện trên 8 GPU P100 — giảm hàng chục lần chi phí tính toán so với các hệ thống RNN/CNN tốt nhất thời bấy giờ.
+</PaperNote>
+
+### 1.1 Trực giác truy xuất mềm: Truy vấn (Query), Khóa (Key) và Giá trị (Value)
+
+Hãy xét câu tiếng Việt: *"Con mèo ngồi trên chiếu vì nó buồn ngủ"*. Khi đọc đến đại từ *"nó"*, làm thế nào một mạng nơ-ron biết *"nó"* đang chỉ *"con mèo"* chứ không phải *"chiếu"*?
+
+Trong cơ chế **Tự chú ý (Self-Attention)**, mỗi token ở vị trí $i$ có vector biểu diễn đầu vào $x_i \in \mathbb{R}^{d_{\text{model}}}$. Để các từ giao tiếp với nhau, mỗi từ đóng đồng thời ba vai trò khác nhau thông qua ba phép chiếu tuyến tính học được:
+
+1. **Truy vấn (Query — $q_i = x_i W_Q$)**: Vector thể hiện *"thông tin mà vị trí $i$ đang đi tìm"* (ví dụ: đại từ *"nó"* phát ra một truy vấn tìm danh từ chỉ động vật đứng trước).
+2. **Khóa (Key — $k_j = x_j W_K$)**: Vector thể hiện *"nhãn nhận diện của vị trí $j$"* để trả lời các truy vấn (từ *"mèo"* giơ cao tấm biển: *"tôi là danh từ chỉ con vật"*).
+3. **Giá trị (Value — $v_j = x_j W_V$)**: Vector chứa *"nội dung ngữ nghĩa mà vị trí $j$ sẽ truyền đi"* nếu được chú ý tới.
+
+Khi xếp toàn bộ $L$ token của một chuỗi thành ma trận $X \in \mathbb{R}^{L \times d_{\text{model}}}$, ta tính được cả ba ma trận cho mọi vị trí cùng một lúc bằng ba phép nhân ma trận:
+
+$$
+Q = X W_Q, \qquad K = X W_K, \qquad V = X W_V,
+$$
+
+trong đó $W_Q, W_K \in \mathbb{R}^{d_{\text{model}} \times d_k}$ và $W_V \in \mathbb{R}^{d_{\text{model}} \times d_v}$.
+
+### 1.2 Tại sao phải chia cho $\sqrt{d_k}$? Bài toán phương sai và bão hòa Softmax
+
+Để đo mức độ khớp nhau giữa truy vấn $q_i$ và khóa $k_j$, cách tự nhiên nhất là lấy tích vô hướng $q_i \cdot k_j = \sum_{r=1}^{d_k} q_{i,r} k_{j,r}$. Nhưng tại sao công thức của Vaswani et al. [@vaswani2017] lại bắt buộc phải chia tích vô hướng này cho $\sqrt{d_k}$?
+
+Hãy làm một phép tính xác suất nhỏ. Giả sử các thành phần của $q_i$ và $k_j$ là các biến ngẫu nhiên độc lập có trung bình bằng $0$ và phương sai bằng $1$. Khi đó, mỗi tích $q_{i,r} k_{j,r}$ có trung bình bằng $0$ và phương sai bằng $1$. Tổng của $d_k$ số hạng độc lập như vậy sẽ có:
+
+$$
+\mathbb{E}[q_i \cdot k_j] = 0, \qquad \mathrm{Var}(q_i \cdot k_j) = d_k.
+$$
+
+Nếu $d_k = 64$ hoặc $128$, độ lệch chuẩn của tích vô hướng sẽ là $\sqrt{d_k} = 8$ hoặc $11.3$. Điều này có nghĩa là một số phần tử trong tích $QK^\top$ sẽ vọt lên $+20$ hoặc tụt xuống $-20$. Khi đưa các con số chênh lệch lớn như vậy vào hàm $\text{softmax}(z)_j = \frac{e^{z_j}}{\sum_{n} e^{z_n}}$, phần tử lớn nhất sẽ nuốt trọn xác suất $\approx 1.0$, còn mọi phần tử khác nhận xác suất $\approx 0.0$. Trong vùng bão hòa (saturation) này, đạo hàm của hàm Softmax gần như bằng $0$, làm đóng băng quá trình học! Chia cho $\sqrt{d_k}$ đưa phương sai của điểm số trở lại bằng $1$ bất kể số chiều $d_k$ lớn đến đâu.
+
+### 1.3 Mặt nạ Nhân quả (Causal Mask) cho mô hình sinh văn bản tự hồi quy
+
+Trong một mô hình ngôn ngữ tự hồi quy (Decoder-only như GPT hay Llama), nhiệm vụ tại vị trí $i$ là dự đoán token $i+1$. Do đó, khi tính biểu diễn tại vị trí $i$, mô hình **tuyệt đối không được phép nhìn thấy các token tương lai ở vị trí $j > i$**.
+
+Làm thế nào để vừa tính toàn bộ ma trận $QK^\top \in \mathbb{R}^{L \times L}$ song song trong một bước duy nhất trên GPU, vừa ngăn thông tin rò rỉ từ tương lai về quá khứ? Ta cộng thêm một **ma trận mặt nạ nhân quả (Causal Mask)** $M \in \mathbb{R}^{L \times L}$ trước khi lấy hàm Softmax:
+
+$$
+\mathrm{Attention}(Q, K, V) = \mathrm{softmax}\!\left(\frac{Q K^\top}{\sqrt{d_k}} + M\right) V, \qquad \text{với } M_{i,j} = \begin{cases} 0 & \text{nếu } j \le i \\ -\infty & \text{nếu } j > i. \end{cases}
+$$
+
+Vì $e^{-\infty} = 0$, sau khi đi qua hàm Softmax theo từng hàng, mọi trọng số chú ý $\alpha_{i,j}$ ở vùng tam giác trên ($j > i$) đều bằng $0$ tuyệt đối, còn các trọng số hợp lệ ở quá khứ và hiện tại ($j \le i$) tự động được chuẩn hóa sao cho tổng bằng $1$.
+
+<HtmlEmbed
+  src="d3-ch2-qkv-attention.html"
+  title="Mô phỏng tương tác: Scaled Dot-Product Attention & Mặt nạ Nhân quả"
+  desc="Khám phá ma trận điểm trước Softmax (trái) và trọng số chú ý sau Softmax (phải) trên một câu tiếng Việt. Hãy thử tắt nút 'Chia √d_k' để quan sát hiện tượng bão hòa Softmax (một từ chiếm gần 100% trọng số, entropy tụt giảm), hoặc tắt 'Causal Mask' để so sánh Attention một chiều (Decoder) với Attention hai chiều (Encoder)."
+/>
+
+Hãy kiểm chứng trực tiếp cơ chế này bằng PyTorch trong Bài tập 2.1.
+
+<Exercise number="2.1" title="Cài đặt Causal Self-Attention và kiểm chứng tính nhân quả" data="PyTorch Tensors" nb="ch2-01-causal-attention">
+
+Viết hàm `causal_attention(q, k, v)` nhận vào ba tensor $Q, K, V$ có kích thước `(B, L, d_k)` và trả về cặp `(out, weights)` theo đúng phương trình Scaled Dot-Product Causal Attention.
+
+Sau đó, hãy thực hiện hai phép kiểm tra quan trọng:
+1. Kiểm tra tổng trọng số trên mỗi hàng của `weights` bằng `1.0`, và tổng trọng số ở vùng tam giác trên ($j > i$) bằng `0.0`.
+2. **Kiểm chứng tính nhân quả (Causality test)**: Tạo bản sao `Q2, K2, V2` và thay toàn bộ các vector ở vị trí tương lai $t \in \{4, 5\}$ bằng số ngẫu nhiên mới. Chạy lại hàm và chứng minh rằng các vector đầu ra ở vị trí quá khứ $k \in \{0, 1, 2\}$ không thay đổi dù chỉ một bit (`sai khác = 0.00e+00`)!
+
+<Starter nb="ch2-01-causal-attention" />
+
+<Hints>
+
+<Hint>
+
+Dùng `q @ k.transpose(-2, -1)` để nhân ma trận trên hai chiều cuối cùng, trả về kích thước `(B, L, L)`, rồi chia cho `math.sqrt(q.size(-1))`.
+
+</Hint>
+
+<Hint>
+
+Tạo mặt nạ tam giác trên bằng `mask = torch.triu(torch.ones(L, L, dtype=torch.bool, device=q.device), diagonal=1)`. Dùng `scores.masked_fill(mask, float("-inf"))` trước khi gọi `F.softmax(scores, dim=-1)`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch2-01-causal-attention">
+
+Đầu ra `out` giữ nguyên kích thước `(2, 6, 16)`. Khi sửa đổi các token ở vị trí 4 và 5, sai số lớn nhất tại các vị trí $k \le 2$ bằng đúng `0.00e+00`, trong khi đầu ra tại các vị trí $k \ge 4$ thay đổi rõ rệt.
+
+</Checkpoint>
+
+<Solution nb="ch2-01-causal-attention" />
+
+<WhatToNotice>
+
+Phép thử nhân quả vừa rồi giải thích tại sao Transformer có thể **huấn luyện dự đoán toàn bộ $L$ vị trí trong câu cùng một lúc** mà không hề gian lận! Nhờ mặt nạ tam giác trên $-\infty$, phép tính tại hàng thứ $k$ của ma trận hoàn toàn độc lập với mọi hàng và cột đứng sau $k$. Khi huấn luyện, GPU thực hiện một phép nhân ma trận lớn cho cả câu; còn khi sinh văn bản từng từ lúc suy luận, kết quả tại bước $k$ khớp chính xác tuyệt đối với lúc huấn luyện.
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 2. Chú ý Đa đầu (Multi-Head Attention) và Luồng Thặng dư
+
+Một phép tự chú ý đơn lẻ (Single-Head Attention) buộc mỗi token phải gộp mọi mối quan hệ ngữ pháp, ngữ nghĩa, quy chiếu vào chung một bộ trọng số trung bình $\alpha_{i,1} v_1 + \dots + \alpha_{i,i} v_i$. Nhưng trong ngôn ngữ tự nhiên, tại cùng một thời điểm, một từ cần chú ý đến nhiều khía cạnh khác nhau: đầu chú ý này tìm chủ ngữ của động từ, đầu chú ý kia nối tính từ với danh từ, đầu thứ ba theo dõi dấu câu.
+
+### 2.1 Tách không gian thành $H$ đầu chú ý song song
+
+Thay vì thực hiện một phép chú ý duy nhất trên không gian $d_{\text{model}}$ chiều, Vaswani et al. [@vaswani2017] chia $d_{\text{model}}$ thành $H$ không gian con (subspaces) độc lập, mỗi không gian con có số chiều:
+
+$$
+d_{\text{head}} = \frac{d_{\text{model}}}{H}.
+$$
+
+Với mỗi đầu $h \in \{1, \dots, H\}$, ta có bộ ma trận chiếu riêng $W_Q^{(h)}, W_K^{(h)}, W_V^{(h)} \in \mathbb{R}^{d_{\text{model}} \times d_{\text{head}}}$ để tính:
+
+$$
+\mathrm{head}_h = \mathrm{Attention}\!\left(X W_Q^{(h)},\, X W_K^{(h)},\, X W_V^{(h)}\right) \in \mathbb{R}^{L \times d_{\text{head}}}.
+$$
+
+Sau đó, đầu ra của cả $H$ đầu được ghép nối (concatenate) lại dọc theo chiều đặc trưng và nhân với ma trận chiếu đầu ra $W_O \in \mathbb{R}^{d_{\text{model}} \times d_{\text{model}}}$:
+
+$$
+\mathrm{MHA}(X) = \mathrm{Concat}(\mathrm{head}_1, \dots, \mathrm{head}_H) W_O.
+$$
+
+<Inset title="Thủ thuật cài đặt: Một phép nhân ma trận cho cả H đầu chú ý">
+Trong thực tế, không ai dùng vòng lặp `for h in range(H)` vì sẽ làm chậm GPU. Thay vào đó, ta gộp cả $H$ ma trận $W_Q^{(h)}$ thành một ma trận duy nhất $W_Q \in \mathbb{R}^{d_{\text{model}} \times d_{\text{model}}}$, nhân $X W_Q$ để được tensor `(B, L, d_model)`, rồi dùng `.view(B, L, H, d_head).transpose(1, 2)` để đưa chiều `H` lên trước thành `(B, H, L, d_head)`. Khi đó, phép nhân `q @ k.transpose(-2, -1)` tự động chạy song song trên mọi batch `B` và mọi đầu `H` cùng lúc!
+</Inset>
+
+### 2.2 Góc nhìn Mạch Cơ học (Mechanistic Interpretability): Luồng Thặng dư là một Kênh Giao tiếp Chung
+
+Năm 2021, nhóm nghiên cứu của Nelson Elhage và Chris Olah tại Anthropic đã đề xuất một cách viết lại phương trình Multi-Head Attention giúp làm sáng tỏ bản chất hoạt động của Transformer [@elhage2021].
+
+<PaperNote id="elhage2021" look="Mục 'Residual Stream as a Communication Channel' và phân tích ma trận QK-circuit / OV-circuit.">
+
+Công trình *"A Mathematical Framework for Transformer Circuits"* (2021) của Elhage, Nanda, Olah và cộng sự đã đặt nền móng cho lĩnh vực giải thích cơ học (Mechanistic Interpretability). Bằng cách biểu diễn ma trận $W_O$ thành tổng của các khối con từ từng đầu chú ý, bài báo chỉ ra rằng các đầu chú ý trong cùng một tầng thực chất hoạt động hoàn toàn độc lập và cộng kết quả trực tiếp vào một đường truyền trung tâm gọi là *Luồng Thặng dư (Residual Stream)*.
+</PaperNote>
+
+Nếu ta tách ma trận đầu ra $W_O \in \mathbb{R}^{(H \cdot d_{\text{head}}) \times d_{\text{model}}}$ thành $H$ khối hàng $W_O^{(h)} \in \mathbb{R}^{d_{\text{head}} \times d_{\text{model}}}$, thì phép ghép nối rồi nhân $W_O$ hoàn toàn tương đương với **tổng của $H$ đầu chú ý độc lập**:
+
+$$
+\mathrm{Concat}(\mathrm{head}_1, \dots, \mathrm{head}_H) W_O = \sum_{h=1}^{H} \underbrace{\mathrm{softmax}\!\left(\frac{X W_Q^{(h)} (W_K^{(h)})^\top X^\top}{\sqrt{d_{\text{head}}}} + M\right)}_{\text{Mạch QK (Đọc từ đâu?)}} \underbrace{X W_V^{(h)} W_O^{(h)}}_{\text{Mạch OV (Ghi thông tin gì?)}}.
+$$
+
+Kết hợp với nhánh cộng thặng dư $x_\ell = x_{\ell-1} + \mathrm{MHA}(\mathrm{Norm}(x_{\ell-1}))$, ta nhận ra:
+- **Luồng Thặng dư (Residual Stream)** là một dải băng chuyền có kích thước cố định $(B, L, d_{\text{model}})$ chạy xuyên suốt từ tầng đầu tiên đến tầng cuối cùng.
+- Mỗi đầu chú ý $h$ đọc một không gian con từ luồng thặng dư, di chuyển thông tin giữa các vị trí (nhờ **mạch QK** $W_Q^{(h)} (W_K^{(h)})^\top$), biến đổi nội dung (nhờ **mạch OV** $W_V^{(h)} W_O^{(h)}$), rồi **cộng đè** kết quả của nó trở lại vào luồng thặng dư!
+
+<Exercise number="2.2" title="Cài đặt Causal Multi-Head Attention với Tensor 4 chiều" data="PyTorch Tensors" nb="ch2-02-multihead-attention">
+
+Xây dựng lớp `CausalMultiHeadAttention(d_model, n_heads)` kế thừa từ `nn.Module` (không dùng `bias` trong các lớp `nn.Linear`, theo đúng chuẩn Llama hiện đại).
+
+Trong hàm `forward(self, x)`:
+1. Chiếu `x` có kích thước `(B, L, d_model)` qua `w_q, w_k, w_v` và biến đổi hình dạng thành `(B, n_heads, L, d_head)`.
+2. Tính ma trận chú ý nhân quả `attn` kích thước `(B, n_heads, L, L)`.
+3. Nhân `attn @ v`, hoán vị chiều ngược lại về `(B, L, d_model)` và chiếu qua `w_o`.
+4. Kiểm tra tổng số tham số của lớp bằng đúng $4 d_{\text{model}}^2$.
+
+<Starter nb="ch2-02-multihead-attention" />
+
+<Hints>
+
+<Hint>
+
+Sau khi gọi `self.w_q(x)`, dùng `.view(B, L, self.n_heads, self.d_head).transpose(1, 2)` để đổi thứ tự chiều từ `(B, L, H, d_head)` sang `(B, H, L, d_head)`.
+
+</Hint>
+
+<Hint>
+
+Sau khi tính `attn @ v` (có kích thước `(B, H, L, d_head)`), đừng quên gọi `.transpose(1, 2).contiguous().view(B, L, D)` trước khi đưa vào `self.w_o`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch2-02-multihead-attention">
+
+Với `d_model = 64` và `n_heads = 4`, mỗi head làm việc trên vector `d_head = 16` chiều. Tổng số tham số của cả 4 đầu chú ý vẫn bằng đúng $4 \times 64^2 = 16{,}384$ — không tốn thêm một tham số hay phép nhân nào so với Attention 1 đầu có kích thước 64!
+
+</Checkpoint>
+
+<Solution nb="ch2-02-multihead-attention" />
+
+<WhatToNotice>
+
+Hãy chú ý con số `16384` tham số: việc chia 64 chiều thành 4 đầu 16 chiều **hoàn toàn miễn phí về mặt số lượng tham số và FLOPs**, nhưng lại cho phép mô hình tạo ra $H = 4$ bản đồ chú ý `(L, L)` hoàn toàn khác nhau trong cùng một tầng (khoảng cách trung bình giữa head 0 và head 1 là `0.2841`). Đó là lý do mọi mô hình Transformer từ năm 2017 đến nay đều dùng Multi-Head Attention.
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 3. Mã hóa Vị trí: Từ Sinusoidal đến Rotary Position Embedding (RoPE)
+
+Hãy nhìn lại phương trình Self-Attention: nếu không có mặt nạ nhân quả và ta tráo đổi vị trí của hai từ trong câu đầu vào, các vector đầu ra cũng chỉ đổi chỗ tương ứng mà giá trị không hề thay đổi (tính chất *đồng biến với phép hoán vị — permutation equivariance*). Nói cách khác, bản thân phép chú ý không hề có khái niệm về thứ tự từ!
+
+### 3.1 Hạn chế của Mã hóa Vị trí Tuyệt đối (Absolute Positional Encoding)
+
+Trong bài báo gốc năm 2017 [@vaswani2017] và trong GPT-2, thông tin vị trí được đưa vào bằng cách **cộng** một vector vị trí tuyệt đối $p_m \in \mathbb{R}^{d_{\text{model}}}$ vào vector nhúng của token ở vị trí $m$ ngay tại tầng đầu vào: $x_m = e_m + p_m$.
+
+Cách tiếp cận cộng trực tiếp này có hai nhược điểm lớn:
+1. **Nhiễm bẩn ngữ nghĩa trên luồng thặng dư**: Vector vị trí $p_m$ bị trộn lẫn với vector ngữ nghĩa $e_m$ và bị biến đổi qua nhiều tầng phi tuyến.
+2. **Kém linh hoạt với khoảng cách tương đối**: Trong ngôn ngữ, điều quan trọng nhất giữa hai từ không phải là chúng đứng ở từ thứ $5$ và từ thứ $2$ kể từ đầu văn bản, mà là chúng **cách nhau $m - n = 3$ từ**!
+
+Làm thế nào để thiết kế một phép biến đổi vị trí $f(q, m)$ và $f(k, n)$ sao cho tích vô hướng chú ý $\langle f(q, m), f(k, n) \rangle$ **chỉ phụ thuộc vào vector $q, k$ và hiệu vị trí tương đối $m - n$**?
+
+### 3.2 Phép quay vị trí RoPE trên mặt phẳng phức
+
+Năm 2021, Jianlin Su và cộng sự đã giải bài toán này một cách tuyệt đẹp bằng hình học thông qua **Rotary Position Embedding (RoPE)** [@su2024].
+
+<PaperNote id="su2024" look="Hình 1 (trang 4): minh họa trực quan phép quay từng cặp tọa độ 2D theo góc m*theta_i, và chứng minh bằng số phức ở Mục 3.1.">
+
+Bài báo *"RoFormer: Enhanced Transformer with Rotary Position Embedding"* (Su et al., đăng arXiv tháng 4/2021 và xuất bản trên tạp chí Neurocomputing năm 2024) đã trở thành tiêu chuẩn mã hóa vị trí cho hầu hết các LLM hiện đại (Llama 1/2/3, PaLM, Mistral, Qwen, Gemma, DeepSeek). RoPE mã hóa vị trí tuyệt đối bằng một ma trận quay trực giao, nhưng tích vô hướng của nó tự động rút gọn thành hàm của vị trí tương đối $m - n$.
+</PaperNote>
+
+Xét trước hết trường hợp vector $q, k \in \mathbb{R}^2$ có 2 chiều. Nếu tại vị trí $m$, ta **quay** vector $q$ một góc $m\theta$ trên mặt phẳng 2D bằng ma trận quay trực giao $R_{m\theta}$:
+
+$$
+R_{m\theta} = \begin{pmatrix} \cos(m\theta) & -\sin(m\theta) \\ \sin(m\theta) & \cos(m\theta) \end{pmatrix},
+$$
+
+thì khi tính tích vô hướng giữa $R_{m\theta} q$ (ở vị trí $m$) và $R_{n\theta} k$ (ở vị trí $n$), nhờ tính chất của ma trận quay $R_{m\theta}^\top R_{n\theta} = R_{(n-m)\theta}$, ta có ngay:
+
+$$
+\langle R_{m\theta} q,\, R_{n\theta} k \rangle = q^\top R_{m\theta}^\top R_{n\theta} k = q^\top R_{(n-m)\theta} k = \langle R_{(m-n)\theta} q,\, k \rangle.
+$$
+
+Tích vô hướng này **chỉ phụ thuộc vào góc lệch tương đối $(m - n)\theta$**! Dù hai từ nằm ở vị trí $(5, 2)$ hay bị dịch đi $1000$ token tới vị trí $(1005, 1002)$, góc giữa hai vector sau khi quay vẫn giữ nguyên không đổi!
+
+Với vector nhiều chiều $d_{\text{head}}$ (là một số chẵn), RoPE đơn giản chia $d_{\text{head}}$ tọa độ thành $d_{\text{head}}/2$ cặp 2 chiều độc lập $(x_{2i}, x_{2i+1})$, và quay mỗi cặp $i \in \{0, 1, \dots, d_{\text{head}}/2 - 1\}$ với tốc độ góc (tần số) giảm dần theo cấp số nhân:
+
+$$
+\theta_i = \text{base}^{-2i / d_{\text{head}}} \qquad (\text{thường chọn } \text{base} = 10{,}000 \text{ hoặc } 500{,}000 \text{ trong Llama-3}).
+$$
+
+- Các cặp chiều đầu tiên ($i$ nhỏ, $\theta_i \approx 1$) quay rất nhanh — đóng vai trò như **kim giây** đồng hồ, giúp phân biệt sắc nét các từ đứng sát cạnh nhau.
+- Các cặp chiều cuối cùng ($i$ lớn, $\theta_i \ll 1$) quay cực chậm — đóng vai trò như **kim giờ**, giúp mô hình nắm bắt cấu trúc ngữ cảnh dài hàng nghìn token.
+
+<HtmlEmbed
+  src="d3-ch2-rope-rotation.html"
+  title="Trực quan hóa Phép quay Vị trí Tương đối RoPE trên Mặt phẳng 2D"
+  desc="Kéo thanh trượt vị trí Query m và Key n để quan sát cách các cặp tọa độ quay với tần số θ_i khác nhau. Hãy nhấn nút 'Dịch cả hai vị trí (m+1, n+1)': cả hai mũi tên đều quay sang góc mới trên đường tròn, nhưng góc lệch tương đối Δφ và tổng tích vô hướng ⟨R_m q, R_n k⟩ hoàn toàn bất biến!"
+/>
+
+<Optional title="Các giải pháp thay thế RoPE: ALiBi (Attention with Linear Biases)">
+Ngoài RoPE, một hướng tiếp cận thanh lịch khác là **ALiBi** của Press, Smith & Lewis (2021) [@press2021]: không hề quay hay cộng bất kỳ vector vị trí nào vào $Q, K$, mà chỉ trừ thẳng một hình phạt tuyến tính tỷ lệ với khoảng cách $m \cdot |i - j|$ vào điểm chú ý trước Softmax:
+
+$$
+\mathrm{softmax}\!\left(\frac{q_i k_j^\top}{\sqrt{d_k}} - m \cdot (i - j)\right),
+$$
+
+trong đó hệ số góc $m$ cố định theo từng head. Mặc dù ALiBi giúp ngoại suy độ dài khá tốt, RoPE vẫn chiến thắng trong hầu hết các mô hình thế hệ mới vì khả năng biểu diễn quan hệ vị trí phong phú hơn (không bị ép phải giảm đơn điệu theo khoảng cách).
+</Optional>
+
+Hãy cài đặt trực tiếp phép quay RoPE và kiểm nghiệm tính bất biến dịch chuyển bằng thực nghiệm trong Bài tập 2.3.
+
+<Exercise number="2.3" title="Cài đặt RoPE và kiểm chứng bất biến dịch chuyển tương đối" data="PyTorch Tensors" nb="ch2-03-rope">
+
+Viết hàm `apply_rope_1d(vec, pos, base=10000.0)` nhận vào một vector `vec` có số chiều chẵn `d_head = 16` và vị trí nguyên `pos`:
+1. Tính vector tần số $\theta_i = 10000^{-2i/d}$ với $2i \in \{0, 2, \dots, d-2\}$.
+2. Tách `vec` thành các tọa độ chẵn `x_even = vec[..., 0::2]` và tọa độ lẻ `x_odd = vec[..., 1::2]`, áp dụng phép quay 2D theo góc `pos * theta`, rồi ghép xen kẽ trở lại.
+3. Kiểm chứng rằng phép quay RoPE bảo toàn chuẩn độ dài L2 của vector ($\|R_m q\|_2 = \|q\|_2$), và điểm chú ý $\langle R_{m+\Delta} q, R_{n+\Delta} k \rangle$ luôn bằng $\langle R_m q, R_n k \rangle$ với mọi độ dịch $\Delta \in \{1, \dots, 20\}$.
+
+<Starter nb="ch2-03-rope" />
+
+<Hints>
+
+<Hint>
+
+Tạo chỉ số chẵn bằng `i = torch.arange(0, d, 2, dtype=vec.dtype)` rồi tính `theta = base ** (-i / d)` và `angles = pos * theta`.
+
+</Hint>
+
+<Hint>
+
+Sau khi tính `rot_even = x_even * cos - x_odd * sin` và `rot_odd = x_even * sin + x_odd * cos`, dùng `torch.stack([rot_even, rot_odd], dim=-1).flatten(-2)` để ghép các cặp `(chẵn, lẻ)` liền kề nhau trở lại chiều ban đầu.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch2-03-rope">
+
+Chuẩn L2 của `q` trước và sau khi quay ở vị trí $m=5$ đều bằng `3.7483`. Tích vô hướng tại $(m=5, n=2)$ và tại $(m=17, n=14)$ trùng khớp tới chữ số thập phân thứ sáu (`2.184937`), với sai số dấu phẩy động cực đại chỉ ở mức `9.54e-07`!
+
+</Checkpoint>
+
+<Solution nb="ch2-03-rope" />
+
+<WhatToNotice>
+
+Chú ý hai tính chất toán học quý giá bạn vừa chứng minh bằng code:
+1. **Bảo toàn năng lượng (Isometry)**: Khác với việc cộng thêm một vector vị trí làm thay đổi độ lớn của $x$, phép nhân với ma trận trực giao $R_m$ giữ nguyên độ dài $\|R_m q\|_2 = \|q\|_2$, giúp tích vô hướng chú ý không bị bùng nổ.
+2. **Chỉ tác động lên $Q$ và $K$ ở mỗi tầng**: Trong kiến trúc hiện đại, RoPE được áp dụng trực tiếp lên $Q$ và $K$ ngay sau phép chiếu tuyến tính ở *mọi tầng* Transformer, trong khi vector $V$ không cần quay.
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 4. Mạng Feed-Forward, Chuẩn hóa và Công thức Llama Hiện đại
+
+Nếu Self-Attention là nơi **các token trao đổi thông tin với nhau across positions**, thì nửa còn lại của mỗi khối Transformer — mạng **Feed-Forward (FFN / MLP)** — lại tác động **độc lập lên từng token một** để xử lý thông tin vừa thu thập được và tra cứu tri thức lưu trong trọng số.
+
+Từ kiến trúc Transformer gốc năm 2017 [@vaswani2017] đến kiến trúc chuẩn của dòng mô hình LLaMA [@touvron2023llama] và Llama-3 [@dubey2024llama3], cộng đồng nghiên cứu đã thực hiện ba cải tiến quyết định về chuẩn hóa và mạng FFN.
+
+### 4.1 Từ Post-LayerNorm sang Pre-RMSNorm: Đường cao tốc cho Đạo hàm
+
+Trong bài báo gốc năm 2017, lớp chuẩn hóa LayerNorm [@ba2016layernorm] được đặt **sau** phép cộng thặng dư (**Post-LN**):
+
+$$
+x_\ell^{\text{Post-LN}} = \mathrm{LayerNorm}\!\left(x_{\ell-1} + F_\ell(x_{\ell-1})\right).
+$$
+
+Năm 2020, Xiong và cộng sự [@xiong2020] đã chứng minh bằng giải tích rằng thiết kế Post-LN khiến đạo hàm truyền ngược qua mỗi lớp LayerNorm bị chia nhỏ theo hệ số $\frac{1}{\sqrt{1 + \sigma^2}}$, làm đạo hàm ở các tầng đầu tiên suy giảm theo hàm mũ theo độ sâu $L$, còn đạo hàm ở tầng cuối lại quá lớn. Đó là lý do Transformer gốc bắt buộc phải có giai đoạn khởi động tốc độ học (learning-rate warmup) rất nhạy cảm, nếu không mô hình sẽ phân kỳ ngay từ những bước đầu.
+
+Giải pháp hiện đại là chuyển lớp chuẩn hóa lên **trước** nhánh con (**Pre-Norm**), giữ cho luồng thặng dư hoàn toàn thông suốt từ đầu đến cuối:
+
+$$
+x_\ell^{\text{Pre-Norm}} = x_{\ell-1} + F_\ell\big(\mathrm{Norm}(x_{\ell-1})\big).
+$$
+
+Khi lấy đạo hàm từ tầng cuối $x_L = x_0 + \sum_{\ell=1}^L F_\ell(\mathrm{Norm}(x_{\ell-1}))$ về bất kỳ tầng $\ell$ nào, luôn có số hạng đạo hàm đơn vị $I$ truyền thẳng không bị cản trở!
+
+Hơn nữa, năm 2019, Biao Zhang và Rico Sennrich [@zhang2019] nhận thấy rằng phép trừ trung bình $\mu$ trong LayerNorm không đóng góp gì cho hiệu năng của Transformer mà chỉ tốn thêm phép tính. Họ đề xuất **RMSNorm (Root Mean Square Layer Normalization)** — chỉ chuẩn hóa theo căn bậc hai của trung bình bình phương:
+
+$$
+\mathrm{RMSNorm}(x) = \frac{x}{\sqrt{\frac{1}{d}\sum_{i=1}^{d} x_i^2 + \varepsilon}} \odot \gamma,
+$$
+
+trong đó $\gamma \in \mathbb{R}^d$ là vector hệ số tỷ lệ học được (không có hệ số dịch $\beta$).
+
+<PaperNote id="zhang2019" look="Bảng 1 & Hình 2: so sánh thời gian chạy và điểm BLEU giữa LayerNorm và RMSNorm trên các mô hình Transformer.">
+
+Bài báo *"Root Mean Square Layer Normalization"* (NeurIPS 2019) của Zhang & Sennrich đặt giả thuyết rằng sự bất biến với phép co giãn (re-scaling invariance) mới là yếu tố giúp LayerNorm ổn định huấn luyện, chứ không phải sự bất biến với phép dịch trung bình (re-centering invariance). Loại bỏ bước tính trung bình giúp RMSNorm giảm từ 7% đến 64% thời gian tính toán của tầng chuẩn hóa mà giữ nguyên chất lượng hội tụ.
+</PaperNote>
+
+### 4.2 Từ ReLU và GELU sang Cổng Tuyến tính SwiGLU
+
+Trong Transformer năm 2017, mạng FFN gồm hai phép chiếu tuyến tính kẹp giữa một hàm kích hoạt ReLU (hoặc GELU [@hendrycks2016gelu] trong GPT-2):
+
+$$
+\mathrm{FFN}_{\text{ReLU}}(x) = \max(0,\, x W_1 + b_1) W_2 + b_2, \qquad \text{với } d_{\text{ff}} = 4 d_{\text{model}}.
+$$
+
+Năm 2020, Noam Shazeer (một trong các đồng tác giả của Transformer gốc) đã thử nghiệm thay thế hàm kích hoạt đơn lẻ bằng cơ chế **Đơn vị Tuyến tính có Cổng (Gated Linear Units — GLU)**, cụ thể là biến thể **SwiGLU** sử dụng hàm $\mathrm{SiLU}(z) = z \cdot \sigma(z)$ (còn gọi là hàm Swish) [@shazeer2020]:
+
+$$
+\mathrm{SwiGLU}(x) = \Big(\mathrm{SiLU}(x W_{\text{gate}}) \odot (x W_{\text{up}})\Big) W_{\text{down}},
+$$
+
+trong đó $\odot$ là phép nhân từng phần tử (element-wise product), $W_{\text{gate}}, W_{\text{up}} \in \mathbb{R}^{d_{\text{model}} \times d_{\text{ff}}}$ và $W_{\text{down}} \in \mathbb{R}^{d_{\text{ff}} \times d_{\text{model}}}$.
+
+<PaperNote id="shazeer2020" look="Bảng 1 & Bảng 2: so sánh Perplexity tiền huấn luyện và điểm GLUE/SuperGLUE của ReLU, GELU, GeGLU và SwiGLU ở cùng ngân sách tham số.">
+
+Trong báo cáo kỹ thuật ngắn chỉ 4 trang *"GLU Variants Improve Transformer"* (2020), Noam Shazeer chứng minh rằng khi giữ nguyên tổng số tham số và FLOPs (bằng cách giảm chiều ẩn $d_{\text{ff}}$ từ $4d$ xuống $\frac{8}{3}d$), việc sử dụng cổng nhân hai nhánh **SwiGLU** hoặc **GeGLU** luôn cho độ hỗn loạn (perplexity) thấp hơn rõ rệt so với FFN dùng ReLU hay GELU truyền thống.
+</PaperNote>
+
+Tại sao SwiGLU cần tới **3 ma trận** ($W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$) thay vì 2 ma trận? Vì nhánh $x W_{\text{gate}}$ đi qua hàm kích hoạt mượt $\mathrm{SiLU}$ đóng vai trò như một **cánh cổng mềm** quyết định cho bao nhiêu thông tin từ nhánh tuyến tính $x W_{\text{up}}$ đi qua, tạo thành tích bậc hai giữa các đặc trưng đầu vào. Để tổng số tham số $3 \cdot d_{\text{model}} \cdot d_{\text{ff}}$ xấp xỉ bằng $2 \cdot d_{\text{model}} \cdot (4 d_{\text{model}}) = 8 d_{\text{model}}^2$ của FFN cũ, chiều trung gian $d_{\text{ff}}$ trong SwiGLU thường được chọn bằng:
+
+$$
+d_{\text{ff}} \approx \frac{8}{3} d_{\text{model}} \approx 2.67\, d_{\text{model}} \qquad (\text{làm tròn thành bội số của } 256 \text{ để tối ưu nhân Tensor Core trên GPU}).
+$$
+
+<HtmlEmbed
+  src="d3-ch2-norm-activations.html"
+  title="Tương tác 2 Tab: Hàm kích hoạt (ReLU, GELU, SiLU, SwiGLU) & Luồng Đạo hàm (Pre-RMSNorm vs Post-LN)"
+  desc="Ở Tab 1, chuyển đổi giữa đồ thị hàm số f(x) và đạo hàm f'(x) để thấy vùng đạo hàm âm mượt của GELU/SiLU so với vùng 'chết' của ReLU. Ở Tab 2, kéo thanh trượt độ sâu tầng L để xem Pre-RMSNorm giữ chuẩn đạo hàm ổn định ra sao so với Post-LN."
+/>
+
+### 4.3 Bảng đối chiếu: Kiến trúc Transformer 2017 vs GPT-2 vs Llama-3
+
+Bảng dưới đây tóm tắt sự tiến hóa từ kiến trúc Transformer gốc đến công thức chuẩn hiện đại [@touvron2023llama; @dubey2024llama3]:
+
+<WrapTable>
+
+| Thành phần | Transformer gốc (2017) | GPT-2 (2019) | Công thức hiện đại (Llama-3, Qwen, Mistral) |
+| :--- | :--- | :--- | :--- |
+| **Cấu trúc tổng thể** | Encoder–Decoder | Decoder-only | Decoder-only |
+| **Vị trí chuẩn hóa** | Post-Norm (sau nhánh cộng) | Pre-Norm (trước nhánh con) | **Pre-Norm** (luồng thặng dư thông suốt) |
+| **Công thức chuẩn hóa** | LayerNorm (trừ $\mu$, chia $\sigma$) | LayerNorm (có $\gamma, \beta$) | **RMSNorm** (chỉ chia RMS, không có $\beta$) |
+| **Mã hóa vị trí** | Sinusoidal cộng vào đầu vào | Học được (Learned Absolute) | **RoPE** (quay phức $Q, K$ ở mọi tầng) |
+| **Hàm kích hoạt FFN** | ReLU ($2$ ma trận, $d_{\text{ff}} = 4d$) | GELU ($2$ ma trận, $d_{\text{ff}} = 4d$) | **SwiGLU** ($3$ ma trận, $d_{\text{ff}} \approx \frac{8}{3}d$ đến $3.5d$) |
+| **Hệ số dịch (Bias)** | Có bias ở mọi lớp Linear | Có bias | **Bỏ toàn bộ bias** (`bias=False`) |
+
+</WrapTable>
+
+---
+
+## 5. Giải phẫu Tham số và Độ phức tạp Tính toán (FLOPs)
+
+Trước khi bắt tay lắp ráp một mô hình hoàn chỉnh, một kỹ năng không thể thiếu của kỹ sư LLM là **nhẩm tính chính xác số lượng tham số ($N$) và số phép tính dấu phẩy động (FLOPs)** chỉ từ vài con số cấu hình.
+
+<PaperNote id="dubey2024llama3" look="Bảng 3 (trang 7): thông số kiến trúc chi tiết của Llama-3 8B, 70B và 405B (số tầng, d_model, d_ff, số đầu Q/KV, kích thước từ vựng 128,256).">
+
+Báo cáo *"The Llama 3 Herd of Models"* (Dubey et al., 2024) là minh chứng tiêu biểu nhất cho sức mạnh của kiến trúc Decoder chuẩn: thay vì dùng các kiến trúc phức tạp khó mở rộng, nhóm tác giả sử dụng một kiến trúc Transformer đặc (dense) với Pre-RMSNorm, SwiGLU, RoPE ($\text{base} = 500{,}000$) và từ vựng 128K token, huấn luyện trên 15.6 nghìn tỷ token để tạo ra các mô hình mở từ 8B đến 405B tham số ngang ngửa GPT-4.
+</PaperNote>
+
+### 5.1 Công thức đếm tham số của một mô hình ngôn ngữ
+
+Giả sử mô hình có $L_{\text{layers}}$ tầng, chiều mô hình $d_{\text{model}} = d$, chiều ẩn FFN là $d_{\text{ff}}$, và từ vựng có $|V|$ token:
+
+1. **Nhúng đầu vào ($W_E$) và Đầu dự đoán ($W_{\text{LM}}$)**: Mỗi ma trận có kích thước $|V| \times d$. Nếu không chia sẻ trọng số (untied embeddings như Llama-3), chúng chiếm $2 |V| d$ tham số.
+2. **Mỗi khối Multi-Head Attention**: Gồm 4 ma trận $W_Q, W_K, W_V, W_O$. Với MHA tiêu chuẩn, mỗi ma trận có kích thước $d \times d$, tổng cộng là $4 d^2$ tham số mỗi tầng (hoặc $d(d + 2 d_{\text{kv}}) + d^2$ nếu dùng Grouped-Query Attention như Llama-3, chúng ta sẽ học kỹ ở Chương 5).
+3. **Mỗi khối FFN**:
+   - Với FFN truyền thống ($d_{\text{ff}} = 4d$, 2 ma trận): $2 \cdot d \cdot 4d = 8 d^2$ tham số.
+   - Với SwiGLU ($3$ ma trận $W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$): $3 \cdot d \cdot d_{\text{ff}}$ tham số (nếu $d_{\text{ff}} \approx \frac{8}{3}d$, con số này cũng bằng $8 d^2$).
+4. **Hai lớp RMSNorm mỗi tầng**: Chỉ chiếm $2 d$ tham số mỗi tầng (rất nhỏ so với $12 d^2$).
+
+Như vậy, tổng số tham số truyền qua các tầng tuyến tính (không tính bảng tra cứu Embedding) của toàn mô hình là:
+
+$$
+N_{\text{non-emb}} = L_{\text{layers}} \times \left(\text{Tham số Attention} + 3 d \cdot d_{\text{ff}} + 2d\right) \approx 12 L_{\text{layers}} d^2.
+$$
+
+### 5.2 Tại sao quy tắc $C \approx 6 N D$ lại đúng?
+
+Khi nhân một vector $1 \times d_{\text{in}}$ với một ma trận trọng số $W \in \mathbb{R}^{d_{\text{in}} \times d_{\text{out}}}$ (chứa $P = d_{\text{in}} d_{\text{out}}$ tham số), mỗi phần tử đầu ra cần $d_{\text{in}}$ phép nhân và $d_{\text{in}}$ phép cộng, tức là **mỗi tham số trong ma trận đóng góp đúng $2$ FLOPs cho mỗi token đi qua**!
+- **Lượt truyền tiến (Forward pass)**: Đi qua toàn bộ $N$ tham số của mô hình một lần cho mỗi token tốn $\approx 2N$ FLOPs/token.
+- **Lượt truyền ngược (Backward pass)**: Để tính đạo hàm theo kích hoạt đầu vào ($\frac{\partial \mathcal{L}}{\partial x} = \frac{\partial \mathcal{L}}{\partial y} W^\top$, tốn $2N$ FLOPs) và đạo hàm theo trọng số ($\frac{\partial \mathcal{L}}{\partial W} = x^\top \frac{\partial \mathcal{L}}{\partial y}$, tốn thêm $2N$ FLOPs), lượt truyền ngược tốn gấp đôi lượt truyền tiến, tức là $\approx 4N$ FLOPs/token.
+
+Cộng cả hai lượt lại, chi phí huấn luyện một mô hình có $N$ tham số trên một tập dữ liệu gồm $D$ token tuân theo công thức vàng mà chúng ta sẽ dùng xuyên suốt Chương 3:
+
+$$
+C_{\text{train}} \approx (2N + 4N) \times D = 6 N D \quad \text{(FLOPs)}.
+$$
+
+<HtmlEmbed
+  src="d3-ch2-param-flops.html"
+  title="Máy tính tương tác: Phân rã Tham số (N) và FLOPs của GPT-2, Llama-3 8B & Llama-3 70B"
+  desc="Chọn một mô hình thực tế để xem tỷ lệ tham số giữa Embedding, Attention và FFN. Hãy để ý khi mô hình phóng to từ 124M (GPT-2) lên 70B (Llama-3), tỷ trọng của lớp Embedding giảm từ 31% xuống chỉ còn 3%, trong khi khối SwiGLU FFN chiếm tới 80% tổng số tham số!"
+/>
+
+Bây giờ, hãy kết hợp toàn bộ kiến thức trong chương này để lắp ráp hoàn chỉnh một khối `LlamaBlock` từ đầu trong Bài tập 2.5!
+
+<Exercise number="2.5" title="Lắp ráp khối Transformer kiểu Llama (RMSNorm + Causal MHA + SwiGLU)" data="PyTorch Module" nb="ch2-04-gpt-block">
+
+Hãy cài đặt ba lớp `RMSNorm`, `SwiGLU` và `LlamaBlock` để tạo thành một khối Transformer Decoder hiện đại hoàn chỉnh với cấu hình `d_model = 64, n_heads = 4, d_ff = 172` (tất cả các lớp `nn.Linear` đều đặt `bias=False`):
+1. `RMSNorm(d, eps=1e-6)`: chuẩn hóa đầu vào theo $\text{RMS}(x)$ và nhân với tham số `self.weight` khởi tạo bằng `torch.ones(d)`.
+2. `SwiGLU(d_model, d_ff)`: cài đặt phép tính `w_down(F.silu(w_gate(x)) * w_up(x))`.
+3. `LlamaBlock(d_model, n_heads, d_ff)`: thực hiện hai nhánh cộng thặng dư liên tiếp `h = x + attn(norm1(x))` và `out = h + ffn(norm2(h))`.
+4. Tính số tham số lý thuyết $2d + 4d^2 + 3 d \cdot d_{\text{ff}}$ và đối chiếu với `sum(p.numel() for p in block.parameters())`.
+
+<Starter nb="ch2-04-gpt-block" />
+
+<Hints>
+
+<Hint>
+
+Trong `RMSNorm.forward`, dùng `torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)` để tính nghịch đảo căn bậc hai trung bình bình phương một cách nhanh và ổn định số học.
+
+</Hint>
+
+<Hint>
+
+Trong `SwiGLU.forward`, hàm $\mathrm{SiLU}(z) = z \sigma(z)$ đã có sẵn trong PyTorch dưới tên `F.silu(...)`. Nhân kết quả của `F.silu(self.w_gate(x))` với `self.w_up(x)` rồi đưa qua `self.w_down`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch2-04-gpt-block">
+
+Đầu ra của `LlamaBlock` giữ nguyên kích thước luồng thặng dư `(2, 12, 64)`. Tổng số tham số thực tế khớp chính xác 100% với công thức lý thuyết: `128 (RMSNorm) + 16,384 (Attention) + 33,024 (SwiGLU) = 49,536 tham số`!
+
+</Checkpoint>
+
+<Solution nb="ch2-04-gpt-block" />
+
+<WhatToNotice>
+
+Chúc mừng bạn! Chỉ với chưa đầy 45 dòng mã PyTorch thuần túy, bạn đã viết xong khối kiến trúc cốt lõi của **Llama-3**, **Mistral** và **Qwen**. Một mô hình ngôn ngữ 8 tỷ hay 70 tỷ tham số thực chất chỉ là một lớp `nn.Embedding`, nối tiếp bởi một danh sách `nn.ModuleList([LlamaBlock(...) for _ in range(L)])`, kết thúc bằng một lớp `RMSNorm` và một lớp `nn.Linear(d_model, vocab_size)`. Khi đã nắm vững từng tensor trong 45 dòng mã này, không còn bất kỳ "hộp đen" nào trong kiến trúc LLM đối với bạn nữa!
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+Nếu muốn đào sâu hơn nữa vào cơ học bên trong khối Transformer, bạn có thể thử sức với các bài tập mở rộng dưới đây trước khi bước sang **Chương 3: Tiền huấn luyện (Pre-training)**.
+
+<Bonus>
+
+**Đầu chú ý Quy nạp (Induction Heads).** Trong bài báo về mạch Transformer [@elhage2021], các tác giả phát hiện một cơ chế hai tầng rất thú vị gọi là *Induction Head*: khi mô hình có ít nhất 2 tầng Attention, tầng 1 dùng RoPE để chép thông tin của token $A$ sang token đứng ngay sau nó là $B$; sau đó ở tầng 2, khi gặp lại token $A$ ở cuối văn bản, một đầu chú ý sẽ tìm vị trí nào trong quá khứ có "dấu vết đứng sau $A$" và chép token $B$ ra làm dự đoán tiếp theo ($[A][B] \dots [A] \to [B]$). Hãy khởi tạo một mô hình gồm 2 tầng `LlamaBlock` và huấn luyện nó trên các chuỗi lặp ngẫu nhiên để quan sát bản đồ chú ý của tầng 2 hội tụ vào đúng vị trí $B$!
+
+</Bonus>
+
+<Bonus>
+
+**Mở rộng ngữ cảnh với RoPE Scaling (NTK-Aware / YaRN).** Trong Bài tập 2.3, chúng ta đã dùng cơ số chuẩn `base = 10000.0`. Điều gì xảy ra với các tần số $\theta_i = \text{base}^{-2i/d}$ khi ta tăng `base` lên `500000.0` như trong Llama-3 [@dubey2024llama3]? Hãy vẽ biểu đồ bước sóng $\lambda_i = \frac{2\pi}{\theta_i}$ theo chỉ số chiều $i$ cho cả hai giá trị `base` để giải thích tại sao tăng cơ số `base` cho phép mô hình mở rộng cửa sổ ngữ cảnh từ $4\text{K}$ lên $128\text{K}$ token.
+
+</Bonus>
+
+<Bonus>
+
+**Khi độ dài ngữ cảnh $L$ vượt xa $d_{\text{model}}$.** Trong Mục 5.2, ta đã bỏ qua chi phí của phép tính ma trận chú ý $QK^\top V$ vì khi $L$ nhỏ, nó nhỏ hơn rất nhiều so với $6ND$. Hãy viết công thức chính xác cho số FLOPs của phép nhân $QK^\top$ và $\text{Attn} \cdot V$ trên một chuỗi dài $L$ token, và tìm ngưỡng độ dài $L^*$ mà tại đó chi phí bậc hai của Attention bắt đầu bằng đúng chi phí của toàn bộ các lớp tuyến tính trong một tầng Llama-3 8B ($d_{\text{model}} = 4096, d_{\text{ff}} = 14336$).
+
+</Bonus>
+
+---
+
+## Tài liệu tham khảo
+
+<ReferenceList chapter={2} />

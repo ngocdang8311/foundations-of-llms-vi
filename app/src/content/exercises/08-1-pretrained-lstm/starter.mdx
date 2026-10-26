@@ -8,9 +8,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Giữ lại 5.000 bài đánh giá huấn luyện làm tập xác thực và
+# thay thế các thẻ ngắt dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -28,24 +28,24 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# The vocabulary of exercise 3.2: the 10,000 most frequent words
-# of the training reviews. build_analyzer() returns the function
-# that CountVectorizer uses to cut a text into words.
-# [Copied from the starter of 7.2b]
+# Từ vựng của bài 3.2: 10.000 từ phổ biến nhất trong các bài đánh
+# giá huấn luyện. build_analyzer() trả về hàm mà CountVectorizer
+# dùng để tách văn bản thành các từ.
+# [Sao chép từ phần khởi đầu bài 7.2b]
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
                              token_pattern=r"\b\w+\b")
 vectorizer.fit(train_texts)
 split_words = vectorizer.build_analyzer()
-word_index = {word: int(i)   # word -> index, from 0 to V - 1
+word_index = {word: int(i)   # từ -> chỉ số, từ 0 đến V - 1
               for word, i in vectorizer.vocabulary_.items()}
 V = len(word_index)
 
-# Turn a review into the list of the indices of its words, in
-# order. The words outside the vocabulary get the index V. Keep
-# only the last 400 words of the long reviews.
-# [Copied from the starter of 7.2b]
+# Chuyển mỗi bài đánh giá thành danh sách chỉ số các từ theo đúng
+# thứ tự. Các từ ngoài từ vựng nhận chỉ số V. Chỉ giữ lại 400 từ
+# cuối cùng đối với các bài đánh giá dài.
+# [Sao chép từ phần khởi đầu bài 7.2b]
 max_length = 400
 
 def to_indices(text):
@@ -57,13 +57,12 @@ val_sequences = [to_indices(text) for text in val_texts]
 test_sequences = [to_indices(text) for text in test_texts]
 
 
-# (1) The model: the embeddings of the words (one more for the
-# unknown words), an LSTM that reads them in order, and a head
-# that reads its last state. The reviews of a batch have different
-# lengths: pad them with zeros to the same length, and pack them
-# with their lengths, so that the LSTM stops at the last word of
-# each review and never reads the padding.
-# [Copied from the solution of 7.2b, step (1)]
+# (1) Mô hình: tầng nhúng từ (thêm một hàng cho từ chưa biết), một
+# mạng LSTM đọc chúng theo thứ tự, và một đầu phân loại đọc trạng
+# thái cuối cùng. Các bài đánh giá trong cùng một lô có độ dài khác
+# nhau: đệm thêm các số 0 để có cùng độ dài và đóng gói kèm độ dài
+# thực để LSTM dừng ở từ cuối của mỗi bài mà không đọc phần đệm.
+# [Sao chép từ lời giải bài 7.2b, bước (1)]
 import torch
 from torch import nn
 
@@ -72,7 +71,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 class LSTMClassifier(nn.Module):
     def __init__(self, V, D, H):
         super().__init__()
-        self.embedding = nn.Embedding(V + 1, D)   # + unknown
+        self.embedding = nn.Embedding(V + 1, D)   # + từ chưa biết
         self.lstm = nn.LSTM(D, H, batch_first=True)
         self.head = nn.Linear(H, 1)   # p(positive) = sigmoid
 
@@ -84,17 +83,17 @@ class LSTMClassifier(nn.Module):
         packed = nn.utils.rnn.pack_padded_sequence(
             x, lengths, batch_first=True, enforce_sorted=False)
         _, (h, c) = self.lstm(packed)   # h: (1, batch, H)
-        return self.head(h[0])[:, 0]   # the score of each review
+        return self.head(h[0])[:, 0]   # điểm số của mỗi bài đánh giá
 
 torch.manual_seed(0)
 model = LSTMClassifier(V, D=100, H=128).to(device)
 
 
 # ----------------------
-#  New in this exercise
+#  Mới trong bài tập này
 # ----------------------
-# The 50,000 unlabeled reviews of IMDB, turned into lists of word
-# indices in the same way
+# 50.000 bài đánh giá không gán nhãn của IMDB, được chuyển thành
+# danh sách chỉ số từ theo cùng một cách
 unlabeled_texts = clean(imdb["unsupervised"]["text"])
 unlabeled_sequences = [to_indices(text) for text in unlabeled_texts]
 n_words = sum(len(sequence) for sequence in unlabeled_sequences)

@@ -1,0 +1,419 @@
+<div class="d3-ch4-sft-masking"></div>
+<style>
+  .d3-ch4-sft-masking {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch4-sft-masking__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 3%, var(--page-bg));
+  }
+  .d3-ch4-sft-masking__mode-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .d3-ch4-sft-masking__btn {
+    padding: 5px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch4-sft-masking__btn.is-active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+  }
+  .d3-ch4-sft-masking__summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-ch4-sft-masking__stream {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 4px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--page-bg);
+    margin-bottom: 14px;
+    line-height: 1.4;
+  }
+  .d3-ch4-sft-masking__tok {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 7px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    font-family: var(--font-mono, monospace);
+    font-size: 11.5px;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  .d3-ch4-sft-masking__tok:hover,
+  .d3-ch4-sft-masking__tok.is-selected {
+    transform: translateY(-2px);
+    border-color: var(--text-color);
+  }
+  .d3-ch4-sft-masking__tok-str {
+    font-weight: 600;
+    white-space: pre;
+  }
+  .d3-ch4-sft-masking__tok-mask {
+    font-size: 9.5px;
+    margin-top: 2px;
+    opacity: 0.85;
+  }
+  .d3-ch4-sft-masking__tok.is-masked {
+    background: color-mix(in oklab, var(--muted-color) 12%, transparent);
+    color: var(--muted-color);
+    border-style: dashed;
+  }
+  .d3-ch4-sft-masking__line-break {
+    flex-basis: 100%;
+    height: 2px;
+  }
+  .d3-ch4-sft-masking svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 740px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch4-sft-masking__inspector {
+    margin-top: 10px;
+    padding: 9px 13px;
+    border-radius: 7px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    font-size: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 16px;
+    font-family: var(--font-mono, monospace);
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const TOKENS = [
+      // Turn 0: System
+      { t: '<|im_start|>', role: 'system', special: true, loss: 0.05, brAfter: false },
+      { t: 'system\\n', role: 'system', special: true, loss: 0.08, brAfter: false },
+      { t: 'Bạn', role: 'system', special: false, loss: 1.85, brAfter: false },
+      { t: ' là', role: 'system', special: false, loss: 0.62, brAfter: false },
+      { t: ' trợ', role: 'system', special: false, loss: 1.10, brAfter: false },
+      { t: ' lý', role: 'system', special: false, loss: 0.14, brAfter: false },
+      { t: ' AI.', role: 'system', special: false, loss: 0.95, brAfter: false },
+      { t: '<|im_end|>\\n', role: 'system', special: true, loss: 0.12, brAfter: true },
+      // Turn 1: User
+      { t: '<|im_start|>', role: 'user', special: true, loss: 0.06, brAfter: false },
+      { t: 'user\\n', role: 'user', special: true, loss: 0.09, brAfter: false },
+      { t: 'Thủ', role: 'user', special: false, loss: 3.40, brAfter: false },
+      { t: ' đô', role: 'user', special: false, loss: 0.25, brAfter: false },
+      { t: ' của', role: 'user', special: false, loss: 0.42, brAfter: false },
+      { t: ' Pháp?', role: 'user', special: false, loss: 2.90, brAfter: false },
+      { t: '<|im_end|>\\n', role: 'user', special: true, loss: 0.15, brAfter: true },
+      // Turn 2: Assistant (Target!)
+      { t: '<|im_start|>', role: 'header', special: true, loss: 0.04, brAfter: false },
+      { t: 'assistant\\n', role: 'header', special: true, loss: 0.07, brAfter: false },
+      { t: 'Thủ', role: 'assistant', special: false, loss: 0.78, brAfter: false },
+      { t: ' đô', role: 'assistant', special: false, loss: 0.11, brAfter: false },
+      { t: ' của', role: 'assistant', special: false, loss: 0.15, brAfter: false },
+      { t: ' Pháp', role: 'assistant', special: false, loss: 0.18, brAfter: false },
+      { t: ' là', role: 'assistant', special: false, loss: 0.22, brAfter: false },
+      { t: ' Paris.', role: 'assistant', special: false, loss: 0.45, brAfter: false },
+      { t: '<|im_end|>\\n', role: 'assistant', special: true, loss: 0.19, brAfter: true },
+      // Turn 3: User follow-up
+      { t: '<|im_start|>', role: 'user', special: true, loss: 0.06, brAfter: false },
+      { t: 'user\\n', role: 'user', special: true, loss: 0.08, brAfter: false },
+      { t: 'Dân', role: 'user', special: false, loss: 3.15, brAfter: false },
+      { t: ' số?', role: 'user', special: false, loss: 2.65, brAfter: false },
+      { t: '<|im_end|>\\n', role: 'user', special: true, loss: 0.14, brAfter: true },
+      // Turn 4: Assistant follow-up (Target!)
+      { t: '<|im_start|>', role: 'header', special: true, loss: 0.04, brAfter: false },
+      { t: 'assistant\\n', role: 'header', special: true, loss: 0.06, brAfter: false },
+      { t: 'Khoảng', role: 'assistant', special: false, loss: 0.92, brAfter: false },
+      { t: ' 2,1', role: 'assistant', special: false, loss: 0.64, brAfter: false },
+      { t: ' triệu', role: 'assistant', special: false, loss: 0.28, brAfter: false },
+      { t: ' người.', role: 'assistant', special: false, loss: 0.35, brAfter: false },
+      { t: '<|im_end|>', role: 'assistant', special: true, loss: 0.16, brAfter: false }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch4-sft-masking'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch4-sft-masking'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let maskedMode = true; // true = standard SFT masking; false = unmasked
+      let selectedIdx = 22; // " Paris."
+      let activeColor = '#e18727';
+      let mutedColor = '#768390';
+
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 3);
+            if (cat && cat.length >= 2) {
+              activeColor = cat[1];
+              mutedColor = cat[0];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const controls = document.createElement('div');
+      controls.className = 'd3-ch4-sft-masking__controls';
+      const modeGroup = document.createElement('div');
+      modeGroup.className = 'd3-ch4-sft-masking__mode-group';
+
+      const btnMasked = document.createElement('button');
+      btnMasked.type = 'button';
+      btnMasked.className = 'd3-ch4-sft-masking__btn is-active';
+      btnMasked.textContent = 'Chuẩn SFT: Bật Loss Mask (chỉ học Assistant)';
+
+      const btnUnmasked = document.createElement('button');
+      btnUnmasked.type = 'button';
+      btnUnmasked.className = 'd3-ch4-sft-masking__btn';
+      btnUnmasked.textContent = 'Tắt Loss Mask (tính loss cả System & User)';
+
+      modeGroup.append(btnMasked, btnUnmasked);
+      const summary = document.createElement('div');
+      summary.className = 'd3-ch4-sft-masking__summary';
+      controls.append(modeGroup, summary);
+
+      const stream = document.createElement('div');
+      stream.className = 'd3-ch4-sft-masking__stream';
+
+      const W = 740, H = 175;
+      const svgWrap = document.createElement('div');
+      const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+
+      const inspector = document.createElement('div');
+      inspector.className = 'd3-ch4-sft-masking__inspector';
+
+      container.append(controls, stream, svgWrap, inspector);
+
+      const isTokenActive = (tok) => {
+        if (!maskedMode) return true;
+        return tok.role === 'assistant';
+      };
+
+      const render = () => {
+        btnMasked.classList.toggle('is-active', maskedMode);
+        btnUnmasked.classList.toggle('is-active', !maskedMode);
+
+        const activeTokens = TOKENS.filter(isTokenActive);
+        const totalLoss = d3.sum(activeTokens, (d) => d.loss);
+        const meanLoss = activeTokens.length ? totalLoss / activeTokens.length : 0;
+
+        summary.innerHTML = `
+          <span>Token tính đạo hàm: <strong>${activeTokens.length} / ${TOKENS.length}</strong></span>
+          <span>Hàm mất mát trung bình $\\mathcal{L}_{\\text{SFT}}$: <strong style="color:${activeColor}">${meanLoss.toFixed(3)}</strong></span>
+        `;
+
+        stream.innerHTML = '';
+        TOKENS.forEach((tok, idx) => {
+          const active = isTokenActive(tok);
+          const chip = document.createElement('div');
+          chip.className = 'd3-ch4-sft-masking__tok'
+            + (active ? '' : ' is-masked')
+            + (idx === selectedIdx ? ' is-selected' : '');
+          if (active) {
+            chip.style.background = `color-mix(in oklab, ${activeColor} 16%, var(--surface-bg))`;
+            chip.style.borderColor = activeColor;
+          }
+
+          const sStr = document.createElement('span');
+          sStr.className = 'd3-ch4-sft-masking__tok-str';
+          sStr.textContent = tok.t;
+
+          const sMask = document.createElement('span');
+          sMask.className = 'd3-ch4-sft-masking__tok-mask';
+          sMask.textContent = active ? `m=1 | ℓ=${tok.loss.toFixed(2)}` : 'm=0 (-100)';
+          if (active) sMask.style.color = activeColor;
+
+          chip.append(sStr, sMask);
+          chip.addEventListener('mouseenter', () => {
+            selectedIdx = idx;
+            renderInspectorAndChart();
+          });
+          chip.addEventListener('click', () => {
+            selectedIdx = idx;
+            renderInspectorAndChart();
+          });
+          stream.appendChild(chip);
+
+          if (tok.brAfter) {
+            const br = document.createElement('div');
+            br.className = 'd3-ch4-sft-masking__line-break';
+            stream.appendChild(br);
+          }
+        });
+
+        renderInspectorAndChart();
+      };
+
+      const renderInspectorAndChart = () => {
+        const chips = stream.querySelectorAll('.d3-ch4-sft-masking__tok');
+        chips.forEach((c, i) => c.classList.toggle('is-selected', i === selectedIdx));
+
+        svg.selectAll('*').remove();
+        const padL = 46, padR = 16, padT = 22, padB = 34;
+        const plotW = W - padL - padR;
+        const plotH = H - padT - padB;
+
+        const x = d3.scaleBand()
+          .domain(d3.range(TOKENS.length))
+          .range([padL, W - padR])
+          .padding(0.18);
+
+        const y = d3.scaleLinear()
+          .domain([0, 3.6])
+          .range([padT + plotH, padT]);
+
+        // Gridlines
+        [0, 1, 2, 3].forEach((tick) => {
+          svg.append('line')
+            .attr('x1', padL)
+            .attr('x2', W - padR)
+            .attr('y1', y(tick))
+            .attr('y2', y(tick))
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', tick === 0 ? null : '3,3');
+
+          svg.append('text')
+            .attr('x', padL - 6)
+            .attr('y', y(tick) + 4)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 10.5)
+            .attr('fill', 'var(--muted-color)')
+            .text(tick.toFixed(1));
+        });
+
+        svg.append('text')
+          .attr('x', padL)
+          .attr('y', 13)
+          .attr('font-size', 11)
+          .attr('font-weight', 700)
+          .attr('fill', 'var(--muted-color)')
+          .text('Cross-Entropy từng vị trí token −log P(x_t | x_<t) và luồng đạo hàm ngược (∇θ)');
+
+        TOKENS.forEach((tok, i) => {
+          const active = isTokenActive(tok);
+          const bx = x(i);
+          const bw = x.bandwidth();
+          const bh = plotH - (y(tok.loss) - padT);
+
+          svg.append('rect')
+            .attr('x', bx)
+            .attr('y', y(tok.loss))
+            .attr('width', bw)
+            .attr('height', Math.max(2, bh))
+            .attr('rx', 2)
+            .attr('fill', active ? activeColor : 'var(--muted-color)')
+            .attr('opacity', active ? (i === selectedIdx ? 1.0 : 0.82) : 0.25)
+            .attr('stroke', i === selectedIdx ? 'var(--text-color)' : 'none')
+            .attr('stroke-width', 1.5)
+            .style('cursor', 'pointer')
+            .on('mouseenter click', () => {
+              selectedIdx = i;
+              renderInspectorAndChart();
+            });
+
+          if (active) {
+            svg.append('text')
+              .attr('x', bx + bw / 2)
+              .attr('y', padT + plotH + 14)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', 10)
+              .attr('font-weight', 700)
+              .attr('fill', activeColor)
+              .text('↑∇');
+          } else {
+            svg.append('text')
+              .attr('x', bx + bw / 2)
+              .attr('y', padT + plotH + 14)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', 9.5)
+              .attr('fill', 'var(--muted-color)')
+              .text('×');
+          }
+        });
+
+        const sel = TOKENS[selectedIdx];
+        const selActive = isTokenActive(sel);
+        inspector.innerHTML = `
+          <span>Vị trí <strong>t = ${selectedIdx}</strong> | Token: <strong>"${sel.t}"</strong> (vai trò: ${sel.role})</span>
+          <span>Nhãn mục tiêu <code>labels[${selectedIdx}]</code>: <strong>${selActive ? `ID("${sel.t}")` : '-100 (bị bỏ qua)'}</strong></span>
+          <span>Đóng góp vào đạo hàm $\\nabla_\\theta$: <strong style="color:${selActive ? activeColor : 'var(--muted-color)'}">${selActive ? `+${sel.loss.toFixed(2)} nats (CÓ cập nhật)` : '0.00 (KHÔNG cập nhật)'}</strong></span>
+        `;
+      };
+
+      btnMasked.addEventListener('click', () => {
+        maskedMode = true;
+        render();
+      });
+      btnUnmasked.addEventListener('click', () => {
+        maskedMode = false;
+        render();
+      });
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readPalette();
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

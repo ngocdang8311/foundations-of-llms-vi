@@ -8,9 +8,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Giữ lại 5.000 bài đánh giá huấn luyện làm tập xác thực và
+# thay thế các thẻ ngắt dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -28,10 +28,10 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# (2) Count the words of each review, over the 10,000 most
-# frequent words of the training reviews. The pattern makes every
-# run of letters or digits a word, even a single letter like "a".
-# [Copied from the solution of 3.2, step (2)]
+# (2) Đếm từ của mỗi bài đánh giá trên 10.000 từ phổ biến nhất
+# của tập huấn luyện. Mẫu biểu thức coi mỗi chuỗi chữ cái hoặc
+# chữ số là một từ, kể cả một chữ cái đơn như "a".
+# [Sao chép từ lời giải bài 3.2, bước (2)]
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
@@ -41,12 +41,12 @@ X_val = vectorizer.transform(val_texts)
 X_test = vectorizer.transform(test_texts)
 
 
-# The GloVe vectors of Pennington et al., trained on 6 billion
-# words of Wikipedia and news (Gigaword), in the copy of
-# sentence-transformers on the Hub: 400,000 words in lower case,
-# sorted from the most frequent to the least frequent, with 300
-# dimensions. Row 0 of the file is a padding token: drop it.
-# [Copied from the starter of 5.4]
+# Các vector GloVe của Pennington và cộng sự, huấn luyện trên 6 tỷ
+# từ Wikipedia và tin tức (Gigaword), từ bản sao của
+# sentence-transformers trên Hub: 400.000 từ chữ thường, xếp từ
+# phổ biến nhất đến ít phổ biến nhất, 300 chiều.
+# Hàng 0 của tệp là token đệm: bỏ hàng này đi.
+# [Sao chép từ phần khởi đầu bài 5.4]
 import json
 
 from huggingface_hub import hf_hub_download

@@ -1,0 +1,548 @@
+---
+title: "Bộ tách từ (Tokenizers): Từ chuỗi byte thô đến từ vựng của LLM"
+chapter: 1
+banner: "banner-1.html"
+description: "Tại sao mô hình ngôn ngữ không đọc từng từ hay từng ký tự, và cách các thuật toán BPE, WordPiece, Unigram định hình khả năng hiểu đa ngôn ngữ của LLM."
+authors:
+  - name: "David Louapre"
+    url: "https://huggingface.co/dlouapre"
+    affiliations: [1]
+affiliations:
+  - name: "Hugging Face"
+    url: "https://huggingface.co"
+published: "Oct. 21, 2026"
+template: "article"
+licence: >
+  Sơ đồ và nội dung văn bản được cấp phép theo <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC‑BY 4.0</a>, trừ khi có ghi chú khác.
+  Các hình ảnh sử dụng lại từ nguồn khác được loại trừ và ghi rõ trong chú thích (“Hình từ …”).
+tableOfContentsAutoCollapse: true
+showPdf: true
+---
+
+import Note from '../components/Note.astro';
+import HtmlEmbed from '../components/HtmlEmbed.astro';
+import PaperNote from '../components/post/PaperNote.astro';
+import Exercise from '../components/post/Exercise.astro';
+import Starter from '../components/post/Starter.astro';
+import Hints from '../components/post/Hints.astro';
+import Hint from '../components/post/Hint.astro';
+import Checkpoint from '../components/post/Checkpoint.astro';
+import Solution from '../components/post/Solution.astro';
+import WhatToNotice from '../components/post/WhatToNotice.astro';
+import Bonus from '../components/post/Bonus.astro';
+import Optional from '../components/post/Optional.astro';
+import Inset from '../components/post/Inset.astro';
+import WrapTable from '../components/post/WrapTable.astro';
+import ReferenceList from '../components/post/ReferenceList.astro';
+
+<Note variant="success">
+Đây là **Chương 1** trong chuỗi bài giảng tương tác *"Nền tảng Mô hình Ngôn ngữ Lớn (Foundations of LLMs) — Học qua Thực hành"*.
+
+Ở Chương 0, chúng ta đã đi qua toàn bộ lịch sử NLP cổ điển cho đến khoảnh khắc kiến trúc Transformer ra đời. Tuy nhiên, có một mắt xích quan trọng mà ta đã tạm coi là hiển nhiên: **trước khi bất kỳ mạng nơ-ron nào có thể nhân ma trận hay tính trọng số chú ý (attention), văn bản thô phải được biến đổi thành một chuỗi các số nguyên.** Thành phần đảm nhiệm bước chuyển đổi đó được gọi là **Bộ tách từ (Tokenizer)**.
+
+Đúng với tinh thần **học qua thực hành**, chương này bao gồm 4 bài tập lập trình cốt lõi giúp bạn tự tay cài đặt thuật toán Byte-Pair Encoding (BPE) từ con số 0 bằng Python thuần, xây dựng bộ tách sơ bộ bằng biểu thức chính quy (Regex pre-tokenizer) theo chuẩn GPT-4, và đo lường sự bất bình đẳng chi phí token trên tiếng Việt.
+</Note>
+
+Một mạng nơ-ron không biết đọc chữ cái, từ vựng hay dấu câu; nó chỉ biết cộng và nhân các vector số thực. Vì vậy, cửa ngõ đầu tiên của mọi mô hình ngôn ngữ lớn (LLM) luôn là một quy trình hai bước:
+1. **Tách từ (Tokenization)**: Cắt chuỗi văn bản đầu vào thành các mảnh rời rạc gọi là *token*, rồi ánh xạ mỗi mảnh sang một mã số nguyên $x_i \in \{0, 1, \dots, |V|-1\}$ trong bộ từ vựng $V$.
+2. **Tra cứu vector nhúng (Embedding lookup)**: Lấy dòng thứ $x_i$ trong ma trận nhúng $E \in \mathbb{R}^{|V| \times d}$ để đưa vào các tầng Transformer.
+
+Nghe có vẻ chỉ là một bước tiền xử lý kỹ thuật đơn giản, nhưng như Andrej Karpathy từng nhận xét nổi tiếng: *"Rất nhiều hành vi kỳ quặc, lỗi suy luận số học và giới hạn đa ngôn ngữ của LLM thực chất bắt nguồn từ chính bộ tách từ"*. Trong chương này, chúng ta sẽ trả lời hai câu hỏi nền tảng:
+
+- **Tại sao mô hình ngôn ngữ không làm việc trực tiếp trên từng từ nguyên vẹn hay từng ký tự/byte thô, mà lại hội tụ về mức từ phụ (subwords)?**
+- **Làm thế nào để thiết kế một bộ từ vựng con vừa nén chuỗi ngắn gọn cho cơ chế Self-Attention, vừa biểu diễn trọn vẹn mọi ngôn ngữ (kể cả tiếng Việt có dấu, tiếng Trung, mã nguồn Python và công thức toán) mà không bao giờ gặp lỗi từ lạ `<unk>`?**
+
+<Note title="Tập dữ liệu & Công cụ" emoji="📖" variant="info" id="datasets">
+- **Python chuẩn (`utf-8`, `re`)**: Các bài tập 1.2a, 1.2b và 1.3 chỉ sử dụng thư viện chuẩn của Python để bạn nắm vững bản chất thuật toán BPE và biểu thức chính quy mà không phụ thuộc vào hộp đen thư viện.
+- **tiktoken**: Thư viện tách từ BPE tốc độ cao bằng Rust của OpenAI, cung cấp bộ từ vựng `gpt2` ($|V| = 50{,}257$) và `cl100k_base` của GPT-4 ($|V| = 100{,}277$), dùng trong Bài tập 1.5 để đo hệ số phân mảnh (fertility) trên văn bản song ngữ Anh–Việt.
+</Note>
+
+---
+
+## 1. Bài toán biểu diễn văn bản đầu vào: Từ, Ký tự hay Từ phụ?
+
+Khi thiết kế bộ tách từ cho một mô hình ngôn ngữ, quyết định đầu tiên chúng ta phải đưa ra là chọn **độ mịn (granularity)** của đơn vị cơ sở: một token sẽ đại diện cho cả một từ, một ký tự đơn lẻ, hay một mảnh trung gian giữa hai thái cực đó?
+
+### 1.1 Mức từ (Word-level) và lời nguyền của token `<unk>`
+
+Trong phần lớn Chương 0, chúng ta đã sử dụng cách tiếp cận tự nhiên nhất với con người: tách văn bản theo khoảng trắng và dấu câu để mỗi từ là một token. Trên tập dữ liệu WikiText-2 (khoảng 2 triệu từ huấn luyện), cách này tạo ra một bộ từ vựng gồm $|V| = 33{,}277$ từ.
+
+Tuy nhiên, khi mở rộng sang quy mô dữ liệu web hàng nghìn tỷ từ, mô hình mức từ lập tức vấp phải ba rào cản không thể vượt qua:
+
+1. **Bùng nổ kích thước từ vựng và bảng nhúng**: Nếu giữ lại mọi từ xuất hiện trên Internet (bao gồm tên riêng, thuật ngữ chuyên ngành, từ viết sai chính tả, mã định danh lập trình), $|V|$ sẽ vượt quá hàng triệu từ. Với chiều ẩn $d = 4{,}096$, riêng ma trận nhúng đầu vào $E \in \mathbb{R}^{|V| \times d}$ và ma trận dự đoán đầu ra $U \in \mathbb{R}^{d \times |V|}$ của một từ vựng 1 triệu từ đã tiêuốn tới $2 \times 10^6 \times 4{,}096 \approx 8.2$ tỷ tham số!
+2. **Mất mát thông tin vì token `<unk>`**: Để khống chế $|V|$ (ví dụ chỉ giữ $50{,}000$ từ phổ biến nhất), mọi từ nằm ngoài danh sách khi suy luận đều bị quy về một token duy nhất là `<unk>` (*unknown*). Khi người dùng hỏi về một tên riêng hiếm gặp như `"Zendaya"` hay một hàm Python như `"calc_loss"`, mô hình chỉ nhìn thấy `<unk>` và hoàn toàn mù tịt về nội dung chữ viết bên trong.
+3. **Không chia sẻ được cấu trúc hình thái học (Morphology)**: Trong mô hình mức từ, `"learn"`, `"learned"`, `"learning"`, `"learner"` và `"unlearned"` là 5 chỉ số nguyên hoàn toàn độc lập. Mô hình phải học 5 vector nhúng riêng rẽ từ đầu mà không hề biết chúng cùng chia sẻ gốc từ `"learn"`. Điều này càng trầm trọng hơn với các ngôn ngữ giàu biến tố (như tiếng Đức, tiếng Nga, tiếng Thổ Nhĩ Kỳ), nơi một gốc động từ có thể biến đổi thành hàng chục dạng thức khác nhau.
+
+### 1.2 Mức ký tự (Character-level) và nút cổ chai chiều dài chuỗi
+
+Để xóa sổ hoàn toàn lỗi `<unk>`, ta có thể đi tới thái cực ngược lại: lấy từng ký tự (hoặc từng byte) làm đơn vị token, như mô hình LSTM mức ký tự trên tập TinyShakespeare ở mục 7.3 của Chương 0. Khi đó, bộ từ vựng chỉ gồm vài chục đến vài trăm ký hiệu, bảng nhúng nhỏ gọn tuyệt đối, và mô hình có thể đọc hay拼 viết bất kỳ từ mới nào.
+
+Thế nhưng, cái giá phải trả lại nằm ở **chiều dài chuỗi $L$**:
+- Trong tiếng Anh hoặc tiếng Việt, một từ trung bình dài khoảng 4.5 đến 6 ký tự (tính cả khoảng trắng). Do đó, cùng một văn bản nếu biểu diễn ở mức ký tự sẽ tạo ra chuỗi dài gấp $4\text{–}6$ lần so với mức từ.
+- Trong kiến trúc Transformer (mà ta sẽ mổ xẻ ở Chương 2), ma trận tự chú ý (Self-Attention) phải tính điểm tương tác giữa mọi cặp vị trí $(i, j)$ trong chuỗi, có độ phức tạp tính toán và bộ nhớ tỉ lệ bậc hai $\mathcal{O}(L^2)$. Khi chiều dài chuỗi $L$ tăng gấp 5 lần, chi phí tính toán Attention tăng gấp $5^2 = 25$ lần, đồng thời cửa sổ ngữ cảnh hiệu dụng (số lượng từ thực tế mà mô hình "nhìn thấy" được) bị co hẹp đi 5 lần.
+- Hơn nữa, bản thân chữ cái rời rạc như `'t'`, `'h'`, `'e'` không mang ngữ nghĩa độc lập. Mạng nơ-ron phải tiêu tốn các tầng tính toán đầu tiên chỉ để học cách "đánh vần" (ghép các chữ cái thành từ) trước khi có thể suy luận về ngữ pháp và ý nghĩa.
+
+### 1.3 Điểm cân bằng từ phụ (Subword-level) và sự đánh đổi $|V| - L$
+
+Hai thái cực trên dẫn chúng ta đến nguyên lý thiết kế cốt lõi của mọi bộ tách từ hiện đại — **tách từ ở mức từ phụ (Subword Tokenization)**:
+
+> **Nguyên lý từ phụ:** Các từ xuất hiện thường xuyên (`"the"`, `"model"`, `"ngôn"`, `"ngữ"`) cần được giữ nguyên làm một token duy nhất để chuỗi ngắn gọn; trong khi các từ hiếm hoặc từ phức (`"tokenization"`, `"autoregressive"`, `"불가사의"`) được phân rã thành các mảnh từ phụ nhỏ hơn có tần suất cao (`"token"` + `"ization"`, `"auto"` + `"regress"` + `"ive"`).
+
+Nhờ đó, kích thước bộ từ vựng $|V|$ được giữ ở mức vừa phải (thường từ $32{,}000$ đến $128{,}000$ token trong các LLM hiện nay), không có bất kỳ từ nào bị biến thành `<unk>`, các từ cùng gốc chia sẻ được mảnh gốc từ, và độ dài chuỗi $L$ chỉ dài hơn mức từ khoảng $15\%\text{–}30\%$.
+
+Bạn có thể khám phá trực tiếp sự đánh đổi toán học giữa kích thước từ vựng $|V|$, độ dài chuỗi $L$ và chi phí Attention $\mathcal{O}(L^2)$ trên biểu đồ tương tác dưới đây.
+
+<HtmlEmbed
+  src="d3-ch1-granularity.html"
+  title="Sự đánh đổi giữa Kích thước từ vựng |V| và Độ dài chuỗi L"
+  desc="Kéo thanh trượt hoặc chọn các mốc cấu hình thực tế (ByT5, BERT, GPT-2, Llama-3, Word-level) để quan sát cách độ dài chuỗi L giảm dần khi mở rộng |V|, và vùng cân bằng tối ưu (30K–150K tokens) giữa số tham số bảng nhúng 2|V|d và chi phí Self-Attention O(L²)."
+/>
+
+---
+
+## 2. Byte-Pair Encoding (BPE): Từ thuật toán nén dữ liệu đến từ vựng của LLM
+
+Làm thế nào để máy tính tự động tìm ra danh sách các mảnh từ phụ tối ưu từ một kho văn bản thô mà không cần nhà ngôn ngữ học ngồi viết quy tắc tách gốc từ và hậu tố cho từng ngôn ngữ? Giải pháp phổ biến nhất hiện nay là thuật toán **Byte-Pair Encoding (BPE)**.
+
+### 2.1 Bảng mã Unicode, UTF-8 và biểu diễn mức byte
+
+Trước khi đi vào thuật toán BPE, ta cần hiểu văn bản thực sự được lưu trữ trong bộ nhớ máy tính như thế nào.
+
+Trong chuẩn **Unicode**, mỗi ký tự của mọi ngôn ngữ trên thế giới (từ chữ cái Latin, chữ tiếng Việt có dấu, chữ Hán, chữ Ả Rập cho đến biểu tượng cảm xúc emoji `🚀`) được gán một mã số nguyên duy nhất gọi là *code point* (ví dụ: `'A'` là `U+0041` $= 65$, `'ă'` là `U+0103` $= 259$, `'ử'` là `U+1EED` $= 7917$). Hiện có hơn $150{,}000$ ký tự Unicode đã được định nghĩa.
+
+Nếu lấy trực tiếp toàn bộ hơn $150{,}000$ ký tự Unicode làm bảng chữ cái cơ sở ban đầu cho bộ tách từ, từ vựng cơ sở sẽ quá lớn và vẫn có nguy cơ gặp ký tự mới chưa từng xuất hiện trong tập huấn luyện. Thay vào đó, các LLM hiện đại (từ GPT-2 trở đi) làm việc trực tiếp trên chuỗi **byte** theo chuẩn mã hóa **UTF-8**.
+
+<Inset title="Tại sao UTF-8 dùng từ 1 đến 4 byte cho mỗi ký tự?">
+UTF-8 là một chuẩn mã hóa có độ dài thay đổi (variable-length encoding), chuyển mỗi code point Unicode thành một chuỗi từ **1 đến 4 byte** (mỗi byte là một số nguyên từ `0` đến `255`):
+- **1 byte** (`0xxxxxxx`, giá trị `0..127`): Toàn bộ bảng chữ cái tiếng Anh không dấu, chữ số và dấu câu cơ bản (ASCII).
+- **2 bytes** (`110xxxxx 10xxxxxx`): Các chữ cái Latin có một dấu phụ đơn giản (như tiếng Pháp `é`, `à`, hoặc một số nguyên âm tiếng Việt chỉ có một dấu như `á`, `ì`, `ô`, `ê`, `ý`).
+- **3 bytes** (`1110xxxx 10xxxxxx 10xxxxxx`): Các chữ cái tiếng Việt có dấu mũ/râu hoặc dấu thanh phức hợp (như `ă`, `ư`, `ơ`, `ử`, `ữ`, `ự`, `ớ`, `ệ` nằm trong khối *Latin Extended Additional*), cùng toàn bộ chữ Hán, Nhật, Hàn (CJK).
+- **4 bytes** (`11110xxx 10xxxxxx 10xxxxxx 10xxxxxx`): Các ký tự hiếm và biểu tượng cảm xúc (Emoji).
+
+Vì mọi văn bản số hóa đều là một dãy các byte trong tập $\{0, 1, \dots, 255\}$, một bộ tách từ khởi đầu từ **256 byte cơ sở** có thể biểu diễn 100% văn bản trên thế giới mà không bao giờ sinh ra `<unk>`.
+</Inset>
+
+Hãy kiểm chứng sự khác biệt giữa độ dài ký tự và độ dài byte UTF-8 của tiếng Việt so với tiếng Anh, cũng như điều gì xảy ra khi một ký tự đa byte bị cắt ngang trong bài tập đầu tiên dưới đây.
+
+<Exercise number="1.2a" title="Khám phá bảng mã UTF-8 và ký tự đa byte tiếng Việt" data="Python chuẩn" nb="ch1-01-char-byte">
+Cho hai câu tiếng Anh (`en_text`) và tiếng Việt (`vi_text`) có độ dài ký tự gần bằng nhau trong mã khởi tạo:
+1. Chuyển cả hai câu sang chuỗi byte UTF-8 bằng `.encode("utf-8")`. In ra số ký tự, số byte và tỷ lệ số byte trung bình trên mỗi ký tự của từng câu.
+2. Thống kê phân bố số lượng ký tự có độ dài 1 byte, 2 byte và 3 byte trong câu tiếng Việt, đồng thời liệt kê các ký tự tốn 3 byte.
+3. Lấy chuỗi byte UTF-8 của từ `"ngữ"` (`"ngữ".encode("utf-8")`), thử cắt bỏ 1 byte cuối cùng (`[:-1]`) và giải mã ngược lại bằng `.decode("utf-8")` ở hai chế độ `errors="strict"` và `errors="replace"`.
+
+<Starter nb="ch1-01-char-byte" />
+
+<Hints>
+
+<Hint>
+Để biết một ký tự đơn lẻ `ch` tốn bao nhiêu byte trong UTF-8, chỉ cần lấy `len(ch.encode("utf-8"))`. Duyệt qua từng ký tự `for ch in vi_text:` để cập nhật từ điển đếm `byte_dist = {1: 0, 2: 0, 3: 0}`.
+</Hint>
+
+<Hint>
+Dùng khối `try ... except UnicodeDecodeError as e:` khi gọi `truncated.decode("utf-8", errors="strict")` để bắt và in thông báo ngoại lệ. Sau đó gọi `truncated.decode("utf-8", errors="replace")` để xem ký tự thay thế chuẩn của Unicode (`\ufffd`, hiển thị là ``).
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch1-01-char-byte">
+Câu tiếng Anh dài 54 ký tự và tốn đúng 54 bytes (1.00 byte/ký tự). Ngược lại, câu tiếng Việt ngắn hơn về mặt ký tự (52 ký tự) nhưng lại tốn tới **71 bytes** (1.37 byte/ký tự), trong đó có 7 ký tự 2-byte và 6 ký tự 3-byte (`'ử'`, `'ữ'`, `'ự'`, `'ớ'`).
+
+Từ `"ngữ"` gồm 3 ký tự nhưng chiếm 5 bytes `[110, 103, 225, 187, 175]`, trong đó riêng chữ `'ữ'` chiếm 3 bytes cuối `[225, 187, 175]`. Khi cắt mất byte `175`, hai byte mồ côi `[225, 187]` không tạo thành chuỗi UTF-8 hợp lệ, gây lỗi `UnicodeDecodeError` (hoặc biến thành ký tự lỗi `ng`).
+</Checkpoint>
+
+<Solution nb="ch1-01-char-byte" />
+
+<WhatToNotice>
+Bài tập nhỏ này hé lộ hai hệ quả thực tế quan trọng đối với các LLM đa ngôn ngữ:
+1. Ngay từ tầng biểu diễn byte thô, văn bản tiếng Việt đã "nặng" hơn tiếng Anh khoảng $35\%\text{–}45\%$ số byte cho cùng một số lượng chữ cái vì hệ thống dấu thanh và dấu phụ.
+2. Trong các mô hình dùng Byte-level BPE (như GPT-2 hay Llama), một ký tự tiếng Việt hiếm hoặc một emoji có thể bị tách làm nhiều token mức byte riêng lẻ. Khi sinh văn bản từng token một (streaming), nếu mô hình mới chỉ sinh ra byte đầu tiên `225` của chữ `'ữ'`, giao diện người dùng chưa thể giải mã ngay thành chữ cái mà phải đợi đủ 3 byte, hoặc dùng `errors="replace"` để tránh sập chương trình!
+</WhatToNotice>
+
+</Exercise>
+
+### 2.2 Thuật toán gộp cặp BPE của Gage (1994) và Sennrich et al. (2016)
+
+Năm 1994, Philip Gage giới thiệu **Byte-Pair Encoding (BPE)** như một thuật toán nén dữ liệu không mất mát đơn giản [@gage1994]: tìm cặp hai byte đứng cạnh nhau xuất hiện nhiều nhất trong tệp tin, thay thế tất cả các vị trí của cặp đó bằng một byte mới chưa sử dụng, và lặp lại quá trình này cho đến khi không còn cặp nào xuất hiện nhiều hơn 1 lần.
+
+Hai mươi hai năm sau, Rico Sennrich, Barry Haddow và Alexandra Birch nhận ra rằng chính ý tưởng nén cặp ký tự thường xuyên này là chìa khóa giải quyết bài toán từ hiếm cho Dịch máy Nơ-ron (NMT) [@sennrich2016]. Thay vì nén tệp tin, họ dùng BPE để **xây dựng bộ từ vựng từ phụ (subword vocabulary)** từ kho văn bản huấn luyện.
+
+<PaperNote id="sennrich2016" look="Algorithm 1 (trang 1718): toàn bộ thuật toán BPE viết gọn trong 14 dòng mã Python!">
+Trước bài báo này (ACL 2016), các hệ thống dịch máy nơ-ron (như Bahdanau et al. 2014 ở Chương 0) chỉ giới hạn từ vựng ở $30{,}000\text{–}50{,}000$ từ và phải dùng cơ chế sao chép từ điển phức tạp cho các từ `<unk>`. Sennrich et al. chỉ ra rằng nhiều từ "lạ" thực chất là tên riêng được phiên âm, từ mượn hoặc từ ghép hình thái học (như tiếng Đức *Abwasserbehandlungsanlage* = *Abwasser* + *behandlung* + *s* + *anlage*). Áp dụng BPE với $32{,}000\text{–}60{,}000$ lượt gộp giúp cải thiện điểm dịch tự động tới $+1.1$ đến $+1.3$ BLEU trên tác vụ dịch Anh–Đức và Anh–Nga của WMT'15 mà hoàn toàn loại bỏ token `<unk>`.
+</PaperNote>
+
+Quy trình huấn luyện bộ tách từ BPE với số lượt gộp $M$ (tương ứng kích thước từ vựng đích $|V| = |V_{\text{base}}| + M$) diễn ra hoàn toàn tất định qua từng bước:
+
+1. **Khởi tạo bộ từ vựng cơ sở $V_0$**: Tập hợp tất cả các đơn vị sơ cấp (các ký tự phân biệt hoặc 256 giá trị byte cơ sở). Biểu diễn toàn bộ kho văn bản huấn luyện dưới dạng chuỗi các đơn vị sơ cấp này:
+   $$
+   \mathcal{C}_0 = (u_1, u_2, \dots, u_N), \quad u_i \in V_0.
+   $$
+2. **Lặp qua từng bước $t = 1, 2, \dots, M$**:
+   - **Đếm tần suất cặp kề nhau**: Với mọi cặp hai token liên tiếp $(a, b) \in V_{t-1} \times V_{t-1}$, tính tổng số lần chúng xuất hiện cạnh nhau trong chuỗi hiện tại $\mathcal{C}_{t-1}$:
+     $$
+     (a^*, b^*) = \arg\max_{(a, b)} \sum_{i=1}^{|\mathcal{C}_{t-1}| - 1} \mathbf{1}\big[\mathcal{C}_{t-1}[i] = a \;\wedge\; \mathcal{C}_{t-1}[i+1] = b\big].
+     $$
+   - **Tạo token mới và ghi nhận luật gộp**: Gộp hai token $(a^*, b^*)$ thành một token mới $v_{\text{new}} = a^* \circ b^*$, thêm $v_{\text{new}}$ vào từ vựng:
+     $$
+     V_t = V_{t-1} \cup \{v_{\text{new}}\},
+     $$
+     đồng thời lưu luật gộp thứ $t$: $(a^*, b^*) \to v_{\text{new}}$.
+   - **Cập nhật kho văn bản**: Thay thế mọi vị trí xuất hiện của cặp $(a^*, b^*)$ kề nhau trong $\mathcal{C}_{t-1}$ bằng token đơn $v_{\text{new}}$ để thu được chuỗi ngắn hơn $\mathcal{C}_t$.
+
+Trong bài báo gốc của Sennrich et al. [@sennrich2016], mỗi từ trong kho văn bản được gắn thêm ký hiệu kết thúc từ `</w>` (để phân biệt tiền tố như `"st"` trong `"star"` với hậu tố `"st</w>"` ở cuối từ `"newest"` và `"widest"`). Hãy bấm nút **Chạy tự động** hoặc kéo thanh trượt trong mô phỏng dưới đây để theo dõi chính xác ví dụ kinh điển trong bài báo gốc!
+
+<HtmlEmbed
+  src="d3-ch1-bpe-merges.html"
+  title="Mô phỏng từng bước thuật toán gộp cặp BPE"
+  desc="Kho từ vựng mẫu từ bài báo Sennrich et al. (2016) gồm 4 từ: 'low' (5 lần), 'lower' (2 lần), 'newest' (6 lần) và 'widest' (3 lần). Ở mỗi bước, cặp ký hiệu kề nhau có tổng tần suất cao nhất (viền nét đứt) được gộp lại thành một token mới và bổ sung vào bộ từ vựng."
+/>
+
+Quan sát quá trình gộp 9 bước trên biểu đồ, bạn sẽ thấy một điều kỳ diệu: mặc dù thuật toán hoàn toàn "mù" về ngôn ngữ học (nó chỉ đếm số!), các token mới sinh ra lại trùng khớp với cấu trúc hình thái học của tiếng Anh:
+- Bước 1–3 gộp `'e'` + `'s'` $\to$ `'es'`, rồi `'es'` + `'t'` $\to$ `'est'`, và `'est'` + `'</w>'` $\to$ `'est</w>'` (hậu tố so sánh nhất xuất hiện ở cả `"newest"` và `"widest"`).
+- Bước 4–5 gộp `'l'` + `'o'` $\to$ `'lo'`, rồi `'lo'` + `'w'` $\to$ `'low'` (gốc từ chung của `"low"` và `"lower"`).
+- Nhờ đó, khi gặp một từ chưa từng xuất hiện trong tập huấn luyện như `"lowest"`, bộ tách từ sẽ tự động phân tách thành hai mảnh đầy ý nghĩa: `"low"` + `"est</w>"`!
+
+### 2.3 Giải mã và mã hóa một văn bản mới với danh sách luật gộp
+
+Sau khi quá trình huấn luyện kết thúc, bộ tách từ BPE lưu trữ hai cấu trúc dữ liệu:
+1. **Bảng từ vựng (`vocab`)**: Ánh xạ hai chiều giữa mã số nguyên `token_id` và chuỗi byte của token đó.
+2. **Danh sách có thứ tự các luật gộp (`merges`)**: Danh sách $(a_1, b_1) \to v_1, \dots, (a_M, b_M) \to v_M$ theo đúng thứ tự ưu tiên lúc huấn luyện.
+
+Khi cần **mã hóa (`encode`)** một văn bản mới lúc suy luận:
+- Ta khởi đầu bằng việc tách văn bản thành dãy các byte (hoặc ký tự) cơ sở.
+- Trong số tất cả các cặp kề nhau đang tồn tại trong dãy, ta tìm cặp có **thứ tự ưu tiên sớm nhất** (tức có chỉ số bước gộp nhỏ nhất trong danh sách `merges`), gộp chúng lại, và lặp lại cho đến khi không còn cặp kề nhau nào nằm trong `merges`.
+
+Ngược lại, bước **giải mã (`decode`)** từ dãy mã số nguyên về văn bản chỉ đơn giản là nối các chuỗi byte của từng token lại với nhau và giải mã UTF-8.
+
+Hãy tự tay cài đặt toàn bộ quy trình huấn luyện BPE, hàm `encode` và hàm `decode` chỉ với vài chục dòng Python trong bài tập thực hành dưới đây.
+
+<Exercise number="1.2b" title="Cài đặt thuật toán BPE từ đầu bằng Python thuần" data="Python chuẩn" nb="ch1-02-bpe-from-scratch">
+Sử dụng đoạn văn bản `corpus` (dài $1{,}591$ bytes UTF-8) trong mã khởi tạo:
+1. Viết hàm `get_stats(ids)` nhận vào một danh sách các mã số nguyên `ids` và trả về từ điển đếm tần suất xuất hiện của mọi cặp liên tiếp `(ids[i], ids[i+1])`.
+2. Viết hàm `merge_vocab(ids, pair, new_id)` duyệt qua danh sách `ids`, thay thế mọi cặp liên tiếp khớp với `pair` bằng số nguyên `new_id` và trả về danh sách mới.
+3. Khởi tạo từ vựng cơ sở gồm 256 byte (`0..255`). Chạy vòng lặp **200 bước gộp**: ở mỗi bước, tìm cặp có tần suất lớn nhất, gán cho nó mã `new_id = 256 + step`, cập nhật `ids`, lưu luật gộp vào `merges` và chuỗi byte vào `vocab`. Tính **tỷ lệ nén (compression ratio)** bằng số byte ban đầu chia cho số token còn lại sau 200 bước.
+4. Viết hàm `encode(text)` và `decode(token_ids)`, kiểm thử trên câu `"Simple language models read subword tokens."` và xác nhận `decode(encode(sample)) == sample`.
+
+<Starter nb="ch1-02-bpe-from-scratch" />
+
+<Hints>
+
+<Hint>
+Trong `get_stats(ids)`, dùng `for pair in zip(ids, ids[1:]): counts[pair] = counts.get(pair, 0) + 1`. Để lấy cặp có tần suất cao nhất trong vòng lặp huấn luyện, dùng `best_pair = max(stats, key=stats.get)`.
+</Hint>
+
+<Hint>
+Trong `merge_vocab(ids, pair, new_id)`, dùng chỉ số `i = 0` và vòng lặp `while i < len(ids):`. Nếu `i < len(ids) - 1` và `(ids[i], ids[i + 1]) == pair`, thêm `new_id` vào danh sách kết quả và tăng `i += 2`; ngược lại thêm `ids[i]` và tăng `i += 1`.
+</Hint>
+
+<Hint>
+Trong `encode(text)`, khi một chuỗi có nhiều cặp đều nằm trong `merges`, bạn phải gộp cặp được học **sớm hơn** trước: dùng `pair = min(stats, key=lambda p: merges.get(p, float("inf")))`. Nếu `pair not in merges`, thoát vòng lặp `break`.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch1-02-bpe-from-scratch">
+Từ $1{,}591$ bytes ban đầu, sau 200 bước gộp, độ dài chuỗi giảm xuống chỉ còn **561 tokens**, đạt tỷ lệ nén **2.84 bytes/token** (tức độ dài chuỗi giảm đi gần 3 lần!).
+
+Ở bước 1, cặp được gộp nhiều nhất là `(32, 116)` $\to$ `' t'` (39 lần), tiếp theo là `'s '` (35 lần) và `'er'` (27 lần). Khi mã hóa câu mẫu và giải mã ngược lại, kết quả khớp 100% với chuỗi gốc (`True`).
+</Checkpoint>
+
+<Solution nb="ch1-02-bpe-from-scratch" />
+
+<WhatToNotice>
+Hãy nhìn kỹ vào các token được tạo ra ở bước 100 và bước 150 trong kết quả của bạn:
+- Bước 100 tạo ra token `', i'` (dấu phẩy của từ trước gộp xuyên qua khoảng trắng sang chữ `'i'` của từ sau!).
+- Bước 150 tạo ra token `' to explain, i'` (gộp cả cụm 3 từ và dấu phẩy thành một token duy nhất!).
+- Trong câu mẫu được mã hóa, từ `"models"` bị tách thành `'model'` + `'s '` (chữ `'s'` bị dính chặt vào khoảng trắng phía sau).
+
+Nếu cứ để BPE gộp tự do xuyên qua khoảng trắng và dấu câu như vậy trên kho dữ liệu lớn, bộ từ vựng sẽ lãng phí hàng chục nghìn vị trí chỉ để lưu các biến thể trùng lặp như `"model"`, `"model,"`, `"model."`, `"model!"`, `"model?"` và các cụm từ ngẫu nhiên. Đây chính là lý do GPT-2 và GPT-4 phải bổ sung một tầng lọc quan trọng trước khi chạy BPE — chủ đề của Mục 3 ngay sau đây!
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 3. Byte-level BPE và Pre-tokenization: Công thức của GPT-2, GPT-4 và Llama-3
+
+Năm 2019, khi huấn luyện GPT-2 trên tập dữ liệu WebText đa dạng thu thập từ Internet, Alec Radford và các cộng sự tại OpenAI đã định hình kiến trúc chuẩn mực cho hầu hết các bộ tách từ của LLM hiện đại [@radford2019]: kết hợp **Byte-level BPE** với **Tách sơ bộ bằng Biểu thức chính quy (Regex Pre-tokenization)**.
+
+### 3.1 Byte-level BPE: Khởi đầu từ 256 byte cơ sở
+
+Nếu áp dụng BPE trực tiếp trên các *ký tự Unicode* như cách làm ban đầu trong dịch máy, bộ từ vựng cơ sở $V_0$ sẽ phải chứa hàng chục nghìn ký tự từ mọi hệ chữ viết xuất hiện trong dữ liệu web (chữ Hán, chữ Nhật, ký hiệu toán học, emoji), chiếm mất phần lớn dung lượng của một bộ từ vựng $32{,}000$ hay $50{,}000$ token. Ngược lại, nếu chỉ giữ các ký tự phổ biến trong $V_0$, mô hình lại quay về bài toán phải dùng token `<unk>` cho các ký tự hiếm.
+
+GPT-2 giải quyết triệt để mâu thuẫn này bằng cách đặt $V_0$ là tập **256 giá trị byte đơn lẻ** (`0x00` đến `0xFF`). Với $50{,}000$ lượt gộp BPE cộng thêm 1 token đặc biệt `<|endoftext|>` để đánh dấu ranh giới giữa các văn bản, GPT-2 có bộ từ vựng tổng cộng:
+$$
+|V_{\text{GPT-2}}| = 256 + 50{,}000 + 1 = 50{,}257 \text{ tokens}.
+$$
+
+<PaperNote id="radford2019" look="Section 2.2 (Input Representation): giải thích lý do kết hợp Byte-level BPE với luật ngăn gộp xuyên qua các nhóm ký tự.">
+Các tác giả của GPT-2 lưu ý rằng một bộ tách từ mức byte cho phép gán xác suất cho bất kỳ chuỗi Unicode nào mà không cần bất kỳ bước tiền xử lý chữ thường hay lọc ký tự lạ nào. Tuy nhiên, họ phát hiện BPE thuần túy trên mức byte dẫn đến việc phân bổ từ vựng rất kém hiệu quả: *"BPE includes many versions of common words like `dog` since they occur in many variations such as `dog.`, `dog!`, `dog?`"*. Để khắc phục, GPT-2 thêm quy tắc cấm BPE gộp bất kỳ cặp byte nào nằm khác nhóm loại ký tự (chữ cái, chữ số, dấu câu).
+</PaperNote>
+
+Một chi tiết thú vị trong cài đặt của GPT-2 (và RoBERTa) là **không bỏ đi khoảng trắng**: khoảng trắng đứng trước một từ được giữ lại như một phần của từ đó (trong các tệp cấu hình của Hugging Face, byte khoảng trắng `0x20` thường được hiển thị bằng ký tự `Ġ`, ví dụ `" hello"` được viết là `"Ġhello"`). Nhờ vậy, quá trình nối token khi giải mã hoàn toàn bảo toàn khoảng trắng gốc mà không cần đoán xem giữa hai từ có dấu cách hay không.
+
+### 3.2 Tại sao phải tách sơ bộ bằng Biểu thức chính quy (Regex Pre-tokenization)?
+
+Như ta đã thấy trong Bài tập 1.2b và ghi chú của bài báo GPT-2 [@radford2019], nếu chạy BPE trên một chuỗi byte liền mạch, thuật toán sẽ gộp xuyên qua khoảng trắng và gộp dính chữ cái với dấu câu hoặc chữ số.
+
+Để ngăn chặn hiện tượng này, trước khi đưa văn bản vào thuật toán BPE, GPT-2 và GPT-4 (`cl100k_base` trong thư viện `tiktoken`, cũng được Llama-3 sử dụng) dùng một **biểu thức chính quy (Regular Expression)** để cắt văn bản thành các mảnh thô (*pre-tokens* hay *chunks*). Sau đó, **thuật toán BPE chỉ được phép đếm và gộp các cặp byte nằm bên trong cùng một mảnh**, tuyệt đối không bao giờ gộp xuyên qua ranh giới giữa hai mảnh!
+
+Biểu thức chính quy của GPT-4 (`cl100k_base`) được thiết kế rất tinh tế để xử lý 5 nhóm cấu trúc ngôn ngữ và lập trình:
+
+1. **Tách các hậu tố rút gọn tiếng Anh** (`'(?i:[sdmt]|ll|ve|re)`): Tách rời `'s`, `'t`, `'re`, `'ve`, `'m`, `'ll`, `'d` khỏi từ đứng trước (ví dụ `"It's"` $\to$ `["It", "'s"]`, `"don't"` $\to$ `["don", "'t"]`), giúp gốc động từ/danh từ không bị nhân bản.
+2. **Giữ khoảng trắng dẫn đầu gắn với từ chữ cái** (`[^\r\n\p{L}\p{N}]?\p{L}+`): Mỗi từ gồm các chữ cái Unicode (`\p{L}+`) cùng tối đa **1 ký tự đứng ngay trước nó** (thường là 1 dấu cách `' '`) tạo thành một mảnh độc lập (ví dụ `" language"`). Dấu câu theo sau từ đó bị tách sang mảnh khác!
+3. **Tách các chữ số thành từng nhóm tối đa 3 chữ số** (`\p{N}{1,3}`): Trong GPT-2, biểu thức `\p{N}+` cho phép một con số dài bất kỳ đi vào cùng một mảnh, dẫn đến việc một số như `1000` là 1 token nhưng `1001` lại bị cắt thành 2 token khác nhau, làm mô hình rất khó học quy tắc cộng trừ theo hàng đơn vị, hàng chục, hàng trăm. Sang GPT-4 và Llama-3, luật `\p{N}{1,3}` ép mọi chuỗi số phải tách thành từng cụm từ 1 đến 3 chữ số trước khi BPE chạy!
+4. **Cô lập cụm dấu câu và ký hiệu toán học** (` ?[^\s\p{L}\p{N}]+[\r\n]*`): Các dấu `.`, `,`, `!`, `?`, `>=`, `):` đứng riêng thành mảnh dấu câu, không bao giờ bị gộp dính vào từ chữ cái hay con số.
+5. **Gom nhóm khoảng trắng và thụt lề mã nguồn** (`\s*[\r\n]+|\s+(?!\S)|\s+`): Giữ các chuỗi khoảng trắng liên tiếp (như 4 dấu cách hoặc 8 dấu cách thụt đầu dòng trong Python) thành một mảnh riêng để BPE có thể gộp 4 dấu cách `'    '` thành 1 token duy nhất, giúp nén mã nguồn cực kỳ hiệu quả!
+
+Hãy tương tác với biểu đồ dưới đây để so sánh cách BPE ngây thơ và BPE có Regex Pre-tokenization của GPT-4 xử lý dấu câu, chữ số và mã nguồn Python.
+
+<HtmlEmbed
+  src="d3-ch1-regex-splits.html"
+  title="Biểu thức chính quy (Regex Pre-tokenization) bảo vệ ranh giới từ như thế nào?"
+  desc="Chọn các ví dụ mẫu (Dấu câu, Chữ số, Mã nguồn Python) để so sánh kết quả gộp BPE khi không có tiền xử lý (trên) và khi áp dụng bộ tách sơ bộ bằng Regex của GPT-4 cl100k_base (dưới). Mỗi hộp ở phần dưới là một mảnh độc lập mà BPE không được phép gộp vượt ranh giới."
+/>
+
+Hãy kiểm chứng hiệu quả của Regex Pre-tokenization bằng cách nâng cấp bộ huấn luyện BPE của bạn trong Bài tập 1.3.
+
+<Exercise number="1.3" title="Ngăn lỗi gộp xuyên ranh giới bằng Regex Pre-tokenizer kiểu GPT-4" data="Python chuẩn" nb="ch1-03-pretokenization">
+Mã khởi tạo cung cấp văn bản `corpus` chứa nhiều dấu câu (`model,`, `model.`, `model!`, `model?`), dạng viết tắt (`aren't`, `it's`) và con số (`123456`, `2024`), cùng biểu thức chính quy rút gọn `GPT4_PAT`:
+1. Dùng `GPT4_PAT.findall(corpus)` để tách văn bản thành danh sách các mảnh `chunks`.
+2. Viết hàm `train_bpe(chunks_list, num_merges=80)` nhận vào một danh sách các chuỗi văn bản, chuyển mỗi chuỗi thành danh sách byte UTF-8 riêng biệt, và chạy 80 bước gộp BPE sao cho **chỉ đếm và gộp các cặp kề nhau bên trong từng chuỗi con**, không bao giờ đếm cặp nối giữa cuối chuỗi con này với đầu chuỗi con kế tiếp.
+3. Gọi `train_bpe([corpus], 80)` (BPE ngây thơ trên 1 chuỗi liền) và `train_bpe(chunks, 80)` (BPE có Regex pre-tokenizer). Đếm số lượng "token bẩn" (token chứa đồng thời chữ cái và dấu câu `,.!?`, hoặc chứa từ 2 từ cách nhau bởi khoảng trắng trở lên) ở cả hai phương pháp.
+
+<Starter nb="ch1-03-pretokenization" />
+
+<Hints>
+
+<Hint>
+Trong `train_bpe(chunks_list, num_merges=80)`, biểu diễn dữ liệu thành danh sách của các danh sách số nguyên: `seqs = [list(c.encode("utf-8")) for c in chunks_list]`.
+</Hint>
+
+<Hint>
+Ở mỗi bước gộp, để tổng hợp tần suất cặp trên toàn bộ các mảnh, dùng hai vòng lặp lồng nhau:
+`for seq in seqs:` rồi `for pair in zip(seq, seq[1:]): counts[pair] = counts.get(pair, 0) + 1`. Sau khi tìm được `best_pair`, áp dụng bước gộp độc lập trên từng `seq` trong `seqs`.
+</Hint>
+
+<Hint>
+Một token chuỗi `t` bị coi là gộp xuyên ranh giới nếu `(any(p in t for p in ",.!?") and any(c.isalpha() for c in t))` hoặc `len(t.strip().split()) > 1`.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch1-03-pretokenization">
+Biểu thức `GPT4_PAT` cắt câu thử nghiệm `"It's 123456: model., model!"` thành `['It', "'s", ' 123', '456', ':', ' model', '.,', ' model', '!']` và cắt `corpus` thành **203 mảnh**.
+
+Trong 80 token mới học được, BPE ngây thơ sinh ra tới **11 token xuyên ranh giới** (như `'better than'`, `' is better than'`, `'s.\n'`, `', model'`, `'e model'`), trong khi BPE có Regex sinh ra **0 token xuyên ranh giới** (`0/80`) và tập trung ngân sách từ vựng vào các gốc từ chuẩn xác như `' tokeniz'`, `' better'`, `' model'`, `' token'`, `' train'`.
+</Checkpoint>
+
+<Solution nb="ch1-03-pretokenization" />
+
+<WhatToNotice>
+Chỉ với một dòng biểu thức chính quy `GPT4_PAT.findall(corpus)` trước khi chạy BPE, toàn bộ các biến thể `"model,"`, `"model."`, `"model!"`, `"model?"` đều được chuẩn hóa thành cùng một mảnh gốc `' model'` đi kèm token dấu câu riêng biệt! Nhờ đó, mô hình không chỉ tiết kiệm hàng nghìn vị trí trong bộ từ vựng mà còn nhận diện ngay được cùng một vector nhúng của từ `"model"` dù nó đứng giữa câu hay cuối câu cảm thán.
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 4. WordPiece, Unigram LM và SentencePiece: Góc nhìn xác suất
+
+Mặc dù BPE chiếm ưu thế trong các dòng mô hình GPT và Llama, lịch sử phát triển của NLP còn sản sinh ra hai thuật toán tách từ phụ quan trọng khác dựa trên **lý thuyết xác suất và thông tin**: **WordPiece** (dùng trong BERT, DistilBERT, Electra) và **Unigram Language Model** (dùng trong T5, ALBERT, mBART, Gemma).
+
+### 4.1 WordPiece: Gộp cặp theo Điểm thông tin tương hỗ (Pointwise Mutual Information)
+
+Được Mike Schuster và Kaisuke Nakajima phát triển tại Google năm 2012 cho hệ thống tìm kiếm giọng nói tiếng Nhật và tiếng Hàn [@schuster2012], sau đó được chọn làm bộ tách từ cho BERT, **WordPiece** cũng là một thuật toán gộp cặp từ dưới lên (bottom-up) giống BPE, nhưng khác nhau ở hai điểm cốt lõi:
+
+1. **Đánh dấu mảnh nối tiếp bằng tiền tố `##`**: Thay vì giữ khoảng trắng ở đầu từ như GPT-2 (`"Ġization"`), WordPiece tách từ theo khoảng trắng trước rồi gắn ký hiệu `##` vào đầu các mảnh không phải là đầu từ. Ví dụ, từ `"tokenization"` được tách thành `["token", "##ization"]`. Nhờ tiền tố `##`, khi giải mã ta biết ngay `"##ization"` phải nối liền vào `"token"` mà không có dấu cách ở giữa.
+2. **Tiêu chí chọn cặp gộp cực đại hóa Hợp lý (Likelihood)**: Trong BPE, ta chọn cặp $(a, b)$ có tần suất xuất hiện cùng nhau $C(a, b)$ lớn nhất. Tuy nhiên, hai ký tự rất phổ biến (như `'e'` và `'s'`) có thể đứng cạnh nhau nhiều lần chỉ vì bản thân từng ký tự xuất hiện quá nhiều, chứ không phải vì chúng có mối liên kết đặc biệt. WordPiece khắc phục điều này bằng cách chia tần suất cặp cho tích tần suất của từng thành phần đơn lẻ:
+   $$
+   \text{Score}_{\text{WordPiece}}(a, b) = \frac{C(a, b)}{C(a) \cdot C(b)}.
+   $$
+   Nếu lấy logarit của đại lượng này (nhân với kích thước kho văn bản $N$), ta thu được chính xác **Điểm thông tin tương hỗ từng điểm (Pointwise Mutual Information — PMI)**:
+   $$
+   \text{PMI}(a, b) = \log \frac{P(a, b)}{P(a)\,P(b)}.
+   $$
+   Như vậy, WordPiece ưu tiên gộp những cặp mảnh có tần suất đi cùng nhau **cao hơn nhiều so với kỳ vọng ngẫu nhiên** (ví dụ gộp `"q"` với `"u"`, hoặc `"##iz"` với `"##ation"` trước khi gộp hai chữ cái phổ biến ngẫu nhiên).
+
+Khi mã hóa một từ mới lúc suy luận, thay vì áp dụng tuần tự một danh sách luật gộp như BPE, WordPiece sử dụng thuật toán **khớp tiền tố dài nhất từ trái sang phải (Longest-match-first / MaxMatch)**: tìm mảnh tiền tố dài nhất của từ có mặt trong bộ từ vựng $V$, cắt mảnh đó ra, thêm `##` vào phần còn lại và lặp lại.
+
+### 4.2 Unigram Language Model và Subword Regularization
+
+Cả BPE lẫn WordPiece đều xây dựng từ vựng **từ dưới lên (bottom-up)** một cách tham lam: bắt đầu từ bảng chữ cái nhỏ và gộp dần lên. Năm 2018, Taku Kudo đề xuất một hướng tiếp cận ngược lại hoàn toàn và mang tính nguyên lý xác suất chặt chẽ hơn: **Unigram Language Model** [@kudo2018], xây dựng từ vựng **từ trên xuống (top-down)**.
+
+<PaperNote id="kudo2018" look="Section 3 & Table 1: cách lấy mẫu nhiều phương án tách từ khác nhau trong lúc huấn luyện giúp tăng +1.0 đến +2.0 BLEU trên các cặp ngôn ngữ ít tài nguyên.">
+Kudo nhận thấy rằng cùng một từ `"unaffordable"` có thể được tách theo nhiều cách hợp lệ: `["un", "afford", "able"]`, `["una", "fford", "able"]`, hay `["un", "af", "ford", "able"]`. Các bộ tách từ tất định như BPE luôn ép mô hình chỉ nhìn thấy duy nhất một cách tách cố định. Kudo đề xuất mô hình hóa xác suất của từng mảnh $p(x_i)$ bằng một mô hình ngôn ngữ Unigram. Trong quá trình huấn luyện mạng nơ-ron, ở mỗi epoch, câu đầu vào được tách ngẫu nhiên theo phân phối hậu nghiệm của mô hình Unigram (*Subword Regularization*), đóng vai trò như một kỹ thuật tăng cường dữ liệu (data augmentation) giúp mô hình hiểu sâu cấu trúc hình thái của từ!
+</PaperNote>
+
+Trong mô hình Unigram của Kudo [@kudo2018], xác suất của một phương án tách từ $\mathbf{x} = (x_1, \dots, x_M)$ cho chuỗi đầu vào $S$ (với điều kiện nối các mảnh $x_i$ lại đúng bằng $S$) được giả định là tích xác suất độc lập của từng mảnh:
+$$
+P(\mathbf{x}) = \prod_{i=1}^{M} p(x_i), \quad \text{với } \sum_{v \in V} p(v) = 1.
+$$
+Khi đã có bộ từ vựng $V$ và xác suất $p(v)$ của từng token, phương án tách từ tối ưu $\mathbf{x}^*$ cho chuỗi $S$ được tìm một cách chính xác trong thời gian tuyến tính $\mathcal{O}(|S|)$ bằng **thuật toán quy hoạch động Viterbi**:
+$$
+\mathbf{x}^* = \arg\max_{\mathbf{x} \in \mathcal{S}(S)} \sum_{i=1}^{|\mathbf{x}|} \log p(x_i),
+$$
+trong đó $\mathcal{S}(S)$ là tập mọi cách chia chuỗi $S$ thành các mảnh thuộc $V$.
+
+Để **huấn luyện bộ từ vựng Unigram** đạt kích thước đích $|V|$:
+1. **Khởi tạo từ vựng siêu lớn $V_{\text{init}}$**: Thu thập tất cả các chuỗi con xuất hiện thường xuyên trong kho văn bản (ví dụ $1{,}000{,}000$ chuỗi con tìm bằng thuật toán mảng hậu tố Enhanced Suffix Array) cùng toàn bộ các ký tự cơ sở.
+2. **Lặp lại chu trình Cực đại hóa Kỳ vọng (EM) và Cắt tỉa (Pruning)**:
+   - Ước lượng xác suất $p(v)$ cho mọi $v \in V$ bằng thuật toán EM để cực đại hóa tổng log-likelihood $\mathcal{L} = \sum_{s \in \mathcal{D}} \log \sum_{\mathbf{x} \in \mathcal{S}(s)} P(\mathbf{x})$ của kho văn bản $\mathcal{D}$.
+   - Với mỗi token $v \in V$ (trừ các ký tự cơ sở không bao giờ được xóa), tính độ sụt giảm hàm hợp lý $\Delta \mathcal{L}_v$ nếu xóa $v$ khỏi từ vựng $V$.
+   - Loại bỏ $10\%\text{–}20\%$ số token có $\Delta \mathcal{L}_v$ nhỏ nhất (những token dư thừa mà nếu bỏ đi, các mảnh khác vẫn biểu diễn tốt văn bản), rồi lặp lại cho đến khi $|V|$ giảm về đúng kích thước mong muốn.
+
+### 4.3 SentencePiece: Xử lý ngôn ngữ không phân tách từ bằng khoảng trắng
+
+Hầu hết các bộ tách từ đời đầu đều mặc định bước đầu tiên là `text.split(" ")` — giả định rằng các từ trong ngôn ngữ luôn được ngăn cách bởi dấu cách. Nhưng trong tiếng Trung (`自然语言处理`), tiếng Nhật (`自然言語処理`), tiếng Thái hay tiếng Lào, các từ được viết liền nhau hoàn toàn không có khoảng trắng! Hơn nữa, ngay cả trong tiếng Anh hay tiếng Việt, việc tách khoảng trắng trước làm mất thông tin hoàn nguyên chuỗi gốc (ví dụ không biết dấu ngoặc kép hay dấu chấm phẩy có cách chữ trước đó hay không).
+
+Cùng năm 2018, Taku Kudo và John Richardson tại Google ra mắt thư viện **SentencePiece** [@kudo2018sentencepiece] (hỗ trợ cả hai thuật toán BPE và Unigram LM), đưa ra một triết lý thiết kế cực kỳ thanh lịch: **coi khoảng trắng chỉ là một ký tự bình thường như mọi chữ cái khác**.
+
+<PaperNote id="kudo2018sentencepiece" look="Section 2 (System Overview): cơ chếLossless Tokenization bảo đảm nguyên lý decode(encode(normalize(text))) == normalize(text) cho mọi ngôn ngữ.">
+SentencePiece coi văn bản đầu vào là một dòng ký tự Unicode thô chưa qua bất kỳ bộ tách từ phụ thuộc ngôn ngữ nào. Khoảng trắng `' '` được thay thế bằng ký tự gạch dưới thấp `▁` (U+2581, *Lower One Eighth Block*). Ví dụ câu `"Hello world."` được biến đổi thành `"▁Hello▁world."` rồi mới đưa vào thuật toán Unigram hoặc BPE để tách thành `["▁Hello", "▁world", "."]`. Khi giải mã, chỉ cần nối tất cả các mảnh lại và đổi `▁` về khoảng trắng `"".join(tokens).replace("▁", " ")`, đảm bảo tính khả nghịch tuyệt đối trên cả tiếng Nhật, tiếng Trung lẫn tiếng Việt!
+</PaperNote>
+
+Bảng dưới đây tổng hợp toàn cảnh 4 phương pháp tách từ phụ phổ biến nhất trong thế giới LLM:
+
+<WrapTable>
+
+| Đặc điểm | BPE cổ điển (Sennrich 2016) | Byte-level BPE + Regex (`tiktoken`) | WordPiece (Schuster 2012) | Unigram LM (SentencePiece) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Hướng xây dựng $V$** | Từ dưới lên (gộp dần) | Từ dưới lên (từ 256 bytes) | Từ dưới lên (gộp dần) | Từ trên xuống (cắt tỉa dần) |
+| **Tiêu chí chọn token** | Tần suất cặp $\max C(a,b)$ | Tần suất cặp trong từng mảnh Regex | Điểm thông tin $\max \frac{C(a,b)}{C(a)C(b)}$ | Giảm thiểu sụt giảm Likelihood $\Delta \mathcal{L}_v$ |
+| **Thuật toán lúc `encode`** | Áp dụng tuần tự luật gộp ưu tiên | Tách Regex $\to$ gộp BPE theo thứ tự | Khớp tiền tố dài nhất (MaxMatch) | Quy hoạch động Viterbi $\mathcal{O}(L)$ |
+| **Đánh dấu khoảng trắng** | Ký hiệu cuối từ `</w>` | Giữ byte `0x20` ở đầu từ (`Ġ`) | Tiền tố `##` cho mảnh giữa/cuối từ | Ký tự `▁` (U+2581) ở đầu từ |
+| **Mô hình tiêu biểu** | GPT-1, mô hình NMT đời đầu | GPT-2, GPT-4, Llama-3, Qwen | BERT, DistilBERT, Electra | T5, ALBERT, mT5, Gemma, Llama-1/2 |
+
+</WrapTable>
+
+<Optional title="Mô hình không cần bộ tách từ (Tokenizer-free / Byte-level Models)" subtitle="ByT5, MegaByte và Byte Latent Transformer">
+
+Nếu bộ tách từ gây ra nhiều phiền toái đến vậy, liệu chúng ta có thể loại bỏ hoàn toàn bước tách từ và đưa thẳng chuỗi byte UTF-8 (`0..255`) vào mạng Transformer được không?
+
+Năm 2022, Linting Xue và các cộng sự tại Google đã thử nghiệm ý tưởng này với mô hình **ByT5** [@xue2022byt5] — một biến thể của mô hình Encoder–Decoder T5 đọc và sinh trực tiếp từng byte UTF-8 với bộ từ vựng chỉ gồm 256 byte cơ sở (cộng vài token đặc biệt). Họ phát hiện ra một quy luật thú vị:
+- Vì bảng nhúng của ByT5 gần như không tốn tham số ($256 \times d$ thay vì $250{,}000 \times d$ như mT5 đa ngôn ngữ), toàn bộ ngân sách tham số được dồn vào các tầng Transformer (đặc biệt khi làm cho phần Encoder sâu gấp 3 lần phần Decoder).
+- ByT5 vượt trội hoàn toàn so với các mô hình dùng Subword trên các tác vụ có nhiễu chính tả, biến đổi chữ cái, từ hiếm và các ngôn ngữ ít tài nguyên, nhưng phải trả giá bằng thời gian huấn luyện và suy luận chậm hơn khoảng $30\%\text{–}60\%$ do chuỗi byte dài hơn gấp 4 lần.
+
+Gần đây hơn (2023–2025), các kiến trúc phân cấp như **MegaByte** và **Byte Latent Transformer (BLT)** đang mở ra hướng đi mới: dùng một mạng cục bộ nhỏ gom các byte liên tiếp thành các *mảng động (dynamic patches)* dựa trên độ khó dự đoán (entropy) của byte tiếp theo, sau đó chỉ chạy Transformer lớn trên chuỗi các mảng này — đạt tốc độ ngang ngửa BPE mà không cần bộ từ vựng cố định!
+
+</Optional>
+
+---
+
+## 5. Các hệ quả thực tế: Đếm chữ cái, Toán học, Glitch Tokens và Bất bình đẳng Ngôn ngữ
+
+Hiểu rõ cơ chế hoạt động của bộ tách từ giúp chúng ta giải thích ngay lập tức hàng loạt "căn bệnh" kinh điển từng làm đau đầu người dùng LLM trong thực tế.
+
+### 5.1 Tại sao LLM từng đếm sai chữ `'r'` trong `"strawberry"` và tính nhẩm kém?
+
+Khi bạn hỏi một mô hình ngôn ngữ câu hỏi nổi tiếng: *"Có bao nhiêu chữ r trong từ strawberry?"*, con người nhìn thấy một chuỗi gồm 10 chữ cái rời nhau: `s-t-r-a-w-b-e-r-r-y`. Nhưng mô hình ngôn ngữ **không bao giờ nhìn thấy chuỗi 10 chữ cái đó**!
+
+Trong bộ tách từ `cl100k_base` của GPT-4, từ `"strawberry"` được cắt thành 3 mã số nguyên:
+$$
+\text{"strawberry"} \longrightarrow [\text{"str"},\; \text{"aw"},\; \text{"berry"}] \longrightarrow [496,\; 675,\; 15717].
+$$
+Đối với mạng Transformer, đầu vào chỉ là 3 vector số thực $\mathbf{e}_{496}, \mathbf{e}_{675}, \mathbf{e}_{15717}$. Bản thân vector $\mathbf{e}_{15717}$ đại diện cho khái niệm ngữ nghĩa của cả mảnh `"berry"`, chứ không có trường thông tin tường minh nào ghi rằng bên trong nó chứa hai chữ `'r'`. Để đếm đúng, mô hình buộc phải ghi nhớ thông tin chính tả của từng token trong quá trình tiền huấn luyện, hoặc bạn phải yêu cầu nó *"viết tách từng chữ cái ra cách nhau bằng dấu gạch ngang trước khi đếm"* (`s - t - r - a - w - b - e - r - r - y`) — khi đó mỗi chữ cái trở thành một token riêng lẻ và mô hình đếm đúng 100%!
+
+Hệ quả tương tự cũng xảy ra với:
+- **Đảo ngược chuỗi ký tự hoặc chơi chữ (Wordle, nối âm)**: Vì ranh giới token không trùng với ranh giới chữ cái hay âm tiết.
+- **Số học nhiều chữ số**: Trong các bộ tách từ đời cũ (như GPT-2 hay Llama-1/2), số `380` là 1 token nhưng `381` lại bị tách thành `["38", "1"]`, còn `3815` tách thành `["381", "5"]`. Vị trí hàng đơn vị, hàng chục bị xáo trộn tùy theo con số cụ thể khiến thuật toán cộng cột dọc trở nên cực kỳ khó học. Đây là lý do Llama-3 và GPT-4 giới hạn mảnh số tối đa 3 chữ số (`\d{1,3}`), còn các mô hình chuyên toán như Llemma hay DeepSeek thậm chí tách **mỗi chữ số `0..9` thành một token riêng biệt**!
+- **Khoảng trắng cuối chuỗi (Trailing whitespace)**: Nếu bạn đưa một prompt kết thúc bằng `"The answer is: "` (có dấu cách ở cuối), bộ tách từ sẽ tách dấu cách đó thành một token riêng `220` (`" "`). Trong khi đó, lúc huấn luyện, dấu cách luôn được gộp vào đầu từ tiếp theo (ví dụ `" Paris"` là 1 token `12366`). Việc xuất hiện token dấu cách đứng lẻ loi ở cuối prompt đẩy mô hình vào vùng phân phối hiếm gặp, làm giảm đáng kể chất lượng câu trả lời!
+
+### 5.2 Hiện tượng “Glitch Tokens” (Các token dị biệt chưa được huấn luyện)
+
+Năm 2023, cộng đồng nghiên cứu phát hiện ra rằng nếu yêu cầu GPT-2 hoặc GPT-3 lặp lại một số chuỗi ký tự kỳ lạ như `" SolidGoldMagikarp"`, `" petertodd"` hay `" davidjl"`, mô hình đột nhiên trả lời hoàn toàn điên loạn, bịa ra nội dung không liên quan hoặc từ chối một cách khó hiểu!
+
+Nguyên nhân nằm ở sự **lệch pha giữa dữ liệu huấn luyện Tokenizer và dữ liệu huấn luyện LLM**:
+1. Bộ tách từ BPE của GPT-2 được huấn luyện trên dữ liệu Reddit chứa tên tài khoản của những người dùng đăng hàng trăm nghìn bình luận trên diễn đàn đếm số (như tài khoản `SolidGoldMagikarp`). Vì xuất hiện quá nhiều lần, cả cụm `" SolidGoldMagikarp"` được gộp thành một token duy nhất trong bộ từ vựng (ID `42573`).
+2. Sau đó, khi lọc sạch dữ liệu để huấn luyện mạng nơ-ron GPT-2/GPT-3, các trang diễn đàn đếm số rác đó bị xóa bỏ hoàn toàn.
+3. Kết quả là token ID `42573` vẫn nằm trong bảng nhúng $E \in \mathbb{R}^{|V| \times d}$, nhưng **không bao giờ xuất hiện trong suốt quá trình huấn luyện LLM**! Vector nhúng $\mathbf{e}_{42573}$ của nó giữ nguyên giá trị khởi tạo ngẫu nhiên ban đầu (nằm lạc lõng hoàn toàn so với đám mây vector đã được huấn luyện của các từ bình thường). Khi người dùng gõ `" SolidGoldMagikarp"`, vector nhiễu chưa huấn luyện này đi thẳng vào các tầng Attention và làm rối loạn toàn bộ phép tính của mô hình.
+
+### 5.3 Hệ số phân mảnh (Fertility) và “Thuế Token” đối với tiếng Việt
+
+Hệ quả kinh tế và xã hội sâu sắc nhất của bộ tách từ chính là **sự bất bình đẳng giữa các ngôn ngữ** [@petrov2023tokenization]. Để định lượng mức độ một bộ tách từ "ưu ái" hay "phân mảnh" một ngôn ngữ, người ta sử dụng hai chỉ số chuẩn:
+
+1. **Hệ số phân mảnh (Fertility)**: Số lượng token trung bình cần thiết để biểu diễn một từ trong ngôn ngữ đó:
+   $$
+   \text{Fertility} = \frac{N_{\text{tokens}}}{N_{\text{words}}} \ge 1.
+   $$
+   Giá trị lý tưởng gần bằng $1.0\text{–}1.2$ (mỗi từ hầu như là 1 token nguyên vẹn).
+2. **Tỷ lệ nén (Bytes per token)**: Số byte UTF-8 trung bình được nén trong một token:
+   $$
+   \text{Compression Ratio} = \frac{N_{\text{bytes}}}{N_{\text{tokens}}}.
+   $$
+
+<PaperNote id="petrov2023tokenization" look="Figure 1: bản đồ so sánh chi phí độ dài chuỗi được chuẩn hóa trên tập dữ liệu dịch song ngữ FLORES-200 qua hơn 100 ngôn ngữ.">
+Aleksandar Petrov và các cộng sự tại đại học Oxford (NeurIPS 2023) đã đo lường số lượng token cần thiết để mã hóa cùng một nội dung văn bản dịch song ngữ trên tập FLORES-200 qua hàng loạt bộ tách từ thương mại và mã nguồn mở. Kết quả cho thấy cùng một câu văn, một số ngôn ngữ cần số lượng token gấp từ **3 đến 15 lần** so với tiếng Anh! Vì các nhà cung cấp API tính tiền theo từng triệu token, đồng thời thời gian sinh văn bản tỉ lệ thuận với số token đầu ra và chi phí bộ nhớ KV Cache tỉ lệ với độ dài token, người dùng các ngôn ngữ ngoài tiếng Anh đang phải gánh một khoản **"Thuế Token" (Token Tax)** kép: vừa trả tiền đắt hơn gấp nhiều lần, vừa chờ phản hồi chậm hơn, lại vừa bị cắt ngắn cửa sổ ngữ cảnh!
+</PaperNote>
+
+Đối với **tiếng Việt**, sự phân mảnh này bắt nguồn từ hai nguyên nhân cộng hưởng:
+- Thứ nhất, chữ quốc ngữ dùng nhiều dấu phụ và dấu thanh (tốn 2–3 bytes UTF-8 cho mỗi nguyên âm có dấu như ta đã thấy ở Bài tập 1.2a).
+- Thứ hai, trong các bộ tách từ thế hệ cũ như GPT-2 ($|V| = 50{,}257$, huấn luyện chủ yếu trên tiếng Anh), các nguyên âm có dấu tiếng Việt rất ít khi được gộp thành âm tiết hoàn chỉnh. Một từ đơn tiết tiếng Việt như `"nghiêng"` hay `"trường"` có thể bị cắt vụn thành 3–5 token!
+
+Sang thế hệ GPT-4 (`cl100k_base`, $|V| \approx 100\text{K}$) và Llama-3 ($|V| = 128{,}256$), nhờ mở rộng gấp đôi kích thước từ vựng và tăng tỷ trọng dữ liệu đa ngôn ngữ khi huấn luyện BPE, hầu hết các âm tiết tiếng Việt thông dụng đã trở thành 1–2 token. Bạn có thể quan sát trực quan bước tiến này qua biểu đồ tương tác dưới đây.
+
+<HtmlEmbed
+  src="d3-ch1-fertility.html"
+  title="So sánh Hệ số phân mảnh (Fertility) và Chi phí Token đa ngôn ngữ"
+  desc="Chuyển đổi giữa 3 góc nhìn: Fertility (số token/từ), Chi phí tương đối (so với tiếng Anh = 1×) và Hiệu suất nén (bytes/token) trên cùng một đoạn văn bản tương đương bằng tiếng Anh, tiếng Pháp, tiếng Việt, tiếng Trung và mã nguồn Python qua 3 thế hệ bộ tách từ (GPT-2, GPT-4 cl100k, Llama-3)."
+/>
+
+Trong bài tập thực hành cuối cùng của chương, bạn sẽ trực tiếp sử dụng thư viện `tiktoken` để đo hệ số phân mảnh trên một cặp văn bản song ngữ Anh–Việt và thử mở rộng bộ từ vựng BPE cho tiếng Việt.
+
+<Exercise number="1.5" title="Đo hệ số phân mảnh (Fertility) tiếng Việt và mở rộng BPE" data="tiktoken" nb="ch1-04-fertility-vietnamese">
+Mã khởi tạo cung cấp hai đoạn văn bản dịch song ngữ tương đương hoàn toàn về mặt thông tin: `en_doc` (42 từ tiếng Anh) và `vi_doc` (63 từ tiếng Việt):
+1. Sử dụng `tiktoken.get_encoding(name)` với hai bộ tách từ `"gpt2"` và `"cl100k_base"`, mã hóa cả hai đoạn văn bản bằng `.encode()`.
+2. Với mỗi bộ tách từ, tính và in ra tổng số token, hệ số phân mảnh ($\text{Fertility} = N_{\text{tokens}} / N_{\text{words}}$) của tiếng Anh và tiếng Việt, cùng tỷ số chi phí token giữa bản tiếng Việt và bản tiếng Anh ($N_{\text{tokens, VI}} / N_{\text{tokens, EN}}$).
+3. Tách các từ trong `vi_doc` thành danh sách các từ có khoảng trắng dẫn đầu `vi_chunks`, chuyển sang mức byte UTF-8 và chạy **60 lượt gộp BPE** dành riêng cho tiếng Việt. So sánh tổng số token và hệ số phân mảnh trước và sau 60 lượt gộp.
+
+<Starter nb="ch1-04-fertility-vietnamese" />
+
+<Hints>
+
+<Hint>
+`enc = tiktoken.get_encoding(name)` tải bộ tách từ của OpenAI, và `enc.encode(text)` trả về danh sách các mã số nguyên `token_ids`. Độ dài `len(enc.encode(text))` chính là số lượng token.
+</Hint>
+
+<Hint>
+Tạo danh sách các từ tiếng Việt kèm khoảng trắng dẫn đầu bằng `vi_chunks = [" " + w if i > 0 else w for i, w in enumerate(vi_words)]`. Trước khi gộp, tổng số token mức byte là `sum(len(s) for s in seqs)`.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch1-04-fertility-vietnamese">
+Trên bộ tách từ `gpt2`, đoạn văn tiếng Anh chỉ tốn **51 tokens** (fertility `1.21`), trong khi bản dịch tiếng Việt tốn tới **251 tokens** (fertility `3.98`) — tức người dùng tiếng Việt phải trả chi phí đắt gấp **4.92 lần** cho cùng một nội dung!
+
+Khi chuyển sang `cl100k_base` (GPT-4), số token tiếng Anh giữ nguyên ở mức **50 tokens** (`1.19`), còn tiếng Việt giảm gần một nửa xuống **135 tokens** (fertility `2.14`, tỷ lệ `2.70x`). Khi huấn luyện bổ sung chỉ 60 lượt gộp BPE trực tiếp trên từ vựng tiếng Việt từ mức byte, fertility giảm mạnh từ `5.87` xuống `2.57`.
+</Checkpoint>
+
+<Solution nb="ch1-04-fertility-vietnamese" />
+
+<WhatToNotice>
+Kết quả thực nghiệm này giải thích tại sao khi phát triển các mô hình ngôn ngữ chuyên biệt cho tiếng Việt (như PhoGPT, VinaLLaMA) trên nền tảng các mô hình mã nguồn mở (như Llama-2 vốn chỉ có 32K token tiếng Anh), bước đầu tiên mà các nhóm kỹ sư thực hiện luôn là **Vocabulary Expansion (Mở rộng từ vựng)**: huấn luyện thêm $10{,}000\text{–}20{,}000$ token BPE tiếng Việt, ghép nối vào ma trận nhúng $E$ và tiếp tục tiền huấn luyện (continual pre-training). Việc giảm tỷ lệ token tiếng Việt từ $\sim 4\times$ xuống $\sim 1.5\times$ đồng nghĩa với việc tăng tốc độ suy luận và mở rộng cửa sổ ngữ cảnh tiếng Việt lên gấp hơn 2.5 lần mà không cần thay đổi kiến trúc mạng nơ-ron!
+</WhatToNotice>
+
+</Exercise>
+
+Nếu bạn muốn đào sâu hơn nữa, dưới đây là một số bài tập thử thách mở rộng.
+
+<Bonus>
+**Tìm các Glitch Tokens hoặc token dài nhất trong GPT-4.** Dùng `tiktoken.get_encoding("cl100k_base")`, duyệt qua toàn bộ các mã token từ `0` đến `100255`, dùng `enc.decode_single_token_bytes(i)` để lấy chuỗi byte của từng token, và in ra 20 token dài nhất trong bộ từ vựng của GPT-4. Bạn có nhận ra các từ khóa lập trình hay chuỗi ký tự đặc biệt nào không?
+</Bonus>
+
+<Bonus>
+**Tại sao `" SolidGoldMagikarp"` là 1 token trong GPT-2?** Kiểm tra `tiktoken.get_encoding("gpt2").encode(" SolidGoldMagikarp")` và `tiktoken.get_encoding("cl100k_base").encode(" SolidGoldMagikarp")`. Trong GPT-2 nó gồm bao nhiêu token, và sang GPT-4 nó đã được tách thành những mảnh nào?
+</Bonus>
+
+<Bonus>
+**Cài đặt thuật toán mã hóa WordPiece (MaxMatch).** Viết hàm `wordpiece_encode(word, vocab)` nhận vào một từ và tập hợp từ vựng `vocab` (ví dụ `{"un", "aff", "ord", "##ord", "##able", "##a", "<unk>"}`), dùng thuật toán tham lam tìm tiền tố dài nhất từ trái sang phải để tách từ `"unaffordable"`. Nếu tại một bước không tìm được tiền tố nào có trong `vocab`, trả về `["<unk>"]`.
+</Bonus>
+
+<Bonus>
+**Subword Regularization với quy hoạch động Viterbi.** Cho một bộ từ vựng nhỏ kèm log-xác suất của từng mảnh `log_p = {"n": -3.0, "e": -2.5, "w": -3.2, "s": -2.8, "t": -2.7, "ne": -2.2, "new": -1.4, "est": -1.6, "west": -1.8, "newest": -1.9}`. Viết hàm quy hoạch động Viterbi tìm cách tách có tổng `log_p` lớn nhất cho từ `"newest"`, và liệt kê 3 cách tách có xác suất cao nhất.
+</Bonus>
+
+---
+
+## Tài liệu tham khảo
+
+<ReferenceList chapter={1} />

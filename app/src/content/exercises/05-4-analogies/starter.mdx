@@ -3,11 +3,11 @@
 export const cells = 1;
 
 ```python
-# The GloVe vectors of Pennington et al., trained on 6 billion
-# words of Wikipedia and news (Gigaword), in the copy of
-# sentence-transformers on the Hub: 400,000 words in lower case,
-# sorted from the most frequent to the least frequent, with 300
-# dimensions. Row 0 of the file is a padding token: drop it.
+# Các vector GloVe của Pennington và cộng sự, huấn luyện trên 6 tỷ
+# từ Wikipedia và tin tức (Gigaword), từ bản lưu của
+# sentence-transformers trên Hub: 400.000 từ viết thường, sắp xếp
+# từ phổ biến nhất đến ít phổ biến nhất, kích thước 300 chiều.
+# Hàng 0 của tệp là token đệm (padding): bỏ qua hàng này.
 import json
 
 from huggingface_hub import hf_hub_download
@@ -21,13 +21,14 @@ words_path = hf_hub_download(
 glove_vectors = load_file(weights_path)["emb_layer.weight"][1:]
 glove_words = json.load(open(words_path))["vocab"][1:]
 
-# Keep the 30,000 most frequent words
+# Giữ lại 30.000 từ phổ biến nhất
 words = glove_words[:30000]
 vectors = glove_vectors[:30000]
 word_index = {word: i for i, word in enumerate(words)}
 
-# The analogy test set of Mikolov et al.: each row reads "Word1 is to
-# Word2 as Word3 is to Word4", and Subject is its category
+# Tập kiểm tra phép loại suy của Mikolov và cộng sự: mỗi dòng có
+# dạng "Word1 đối với Word2 như Word3 đối với Word4", và Subject
+# là nhóm chủ đề của nó
 from datasets import load_dataset
 
 analogies = load_dataset("almogtavor/google-analogy-dataset")["train"]

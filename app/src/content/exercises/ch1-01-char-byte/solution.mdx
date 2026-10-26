@@ -1,0 +1,50 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+en_text = "Natural language processing with large language models"
+vi_text = "Xử lý ngôn ngữ tự nhiên với các mô hình ngôn ngữ lớn"
+
+print(f"EN ({len(en_text)} ký tự): {en_text}")
+print(f"VI ({len(vi_text)} ký tự): {vi_text}")
+```
+
+<section className="code-output"><pre>{"EN (54 ký tự): Natural language processing with large language models\nVI (52 ký tự): Xử lý ngôn ngữ tự nhiên với các mô hình ngôn ngữ lớn"}</pre></section>
+
+```python
+# (1) So sánh độ dài byte UTF-8 và phân bố số byte trên mỗi ký tự
+en_bytes = en_text.encode("utf-8")
+vi_bytes = vi_text.encode("utf-8")
+
+print(f"EN: {len(en_text)} ký tự -> {len(en_bytes)} bytes "
+      f"({len(en_bytes)/len(en_text):.2f} byte/ký tự)")
+print(f"VI: {len(vi_text)} ký tự -> {len(vi_bytes)} bytes "
+      f"({len(vi_bytes)/len(vi_text):.2f} byte/ký tự)")
+
+byte_dist = {1: 0, 2: 0, 3: 0}
+three_byte_chars = []
+for ch in vi_text:
+    n_b = len(ch.encode("utf-8"))
+    byte_dist[n_b] += 1
+    if n_b == 3 and ch not in three_byte_chars:
+        three_byte_chars.append(ch)
+
+print(f"Phân bố độ dài byte (VI): {byte_dist}")
+print(f"Các ký tự 3-byte trong câu VI: {three_byte_chars}")
+
+# (2) Kiểm tra hiện tượng đứt gãy ký tự đa byte trên từ "ngữ"
+word_bytes = "ngữ".encode("utf-8")
+print(f"\nTừ 'ngữ' ở dạng UTF-8 bytes: {list(word_bytes)}")
+
+truncated = word_bytes[:-1]
+try:
+    truncated.decode("utf-8", errors="strict")
+except UnicodeDecodeError as e:
+    print(f"Khi cắt mất 1 byte cuối (strict): {type(e).__name__}: {e}")
+
+replaced = truncated.decode("utf-8", errors="replace")
+print(f"Khi cắt mất 1 byte cuối (replace): {replaced}")
+```
+
+<section className="code-output"><pre>{"EN: 54 ký tự -> 54 bytes (1.00 byte/ký tự)\nVI: 52 ký tự -> 71 bytes (1.37 byte/ký tự)\nPhân bố độ dài byte (VI): {1: 39, 2: 7, 3: 6}\nCác ký tự 3-byte trong câu VI: ['ử', 'ữ', 'ự', 'ớ']\n\nTừ 'ngữ' ở dạng UTF-8 bytes: [110, 103, 225, 187, 175]\nKhi cắt mất 1 byte cuối (strict): UnicodeDecodeError: 'utf-8' codec can't decode bytes in position 2-3: unexpected end of data\nKhi cắt mất 1 byte cuối (replace): ng\ufffd"}</pre></section>

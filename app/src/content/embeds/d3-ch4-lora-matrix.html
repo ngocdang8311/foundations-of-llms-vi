@@ -1,0 +1,424 @@
+<div class="d3-ch4-lora-matrix"></div>
+<style>
+  .d3-ch4-lora-matrix {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch4-lora-matrix__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    padding: 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 3%, var(--page-bg));
+    margin-bottom: 14px;
+  }
+  .d3-ch4-lora-matrix__slider-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+  }
+  .d3-ch4-lora-matrix__slider-group input[type="range"] {
+    width: 125px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch4-lora-matrix__val-pill {
+    display: inline-block;
+    min-width: 44px;
+    text-align: center;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: color-mix(in oklab, var(--primary-color) 16%, transparent);
+    color: var(--primary-color);
+    font-family: var(--font-mono, monospace);
+    font-weight: 700;
+  }
+  .d3-ch4-lora-matrix svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 750px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch4-lora-matrix__stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .d3-ch4-lora-matrix__stat-card {
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    text-align: center;
+  }
+  .d3-ch4-lora-matrix__stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted-color);
+    margin-bottom: 4px;
+  }
+  .d3-ch4-lora-matrix__stat-num {
+    font-size: 16px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 680px) {
+    .d3-ch4-lora-matrix__stats {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const RANKS = [2, 4, 8, 16, 32, 64];
+    const DIMS = [
+      { d: 1024, name: 'd = 1024 (~0.5B)' },
+      { d: 2048, name: 'd = 2048 (~1.5B)' },
+      { d: 4096, name: 'd = 4096 (Llama-3 8B)' },
+      { d: 8192, name: 'd = 8192 (Llama-3 70B)' }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch4-lora-matrix'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch4-lora-matrix'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let rIdx = 2; // r = 8
+      let dIdx = 2; // d = 4096
+      let frozenColor = '#4e79a7';
+      let trainColor = '#f28e2b';
+      let qloraColor = '#59a14f';
+
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 3) {
+              frozenColor = cat[0];
+              trainColor = cat[1];
+              qloraColor = cat[2];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const controls = document.createElement('div');
+      controls.className = 'd3-ch4-lora-matrix__controls';
+
+      const rGroup = document.createElement('label');
+      rGroup.className = 'd3-ch4-lora-matrix__slider-group';
+      const rTitle = document.createElement('span');
+      rTitle.innerHTML = 'Hạng cổ chai <strong>r</strong>:';
+      const rInput = document.createElement('input');
+      rInput.type = 'range';
+      rInput.min = '0';
+      rInput.max = String(RANKS.length - 1);
+      rInput.step = '1';
+      rInput.value = String(rIdx);
+      const rPill = document.createElement('span');
+      rPill.className = 'd3-ch4-lora-matrix__val-pill';
+      rGroup.append(rTitle, rInput, rPill);
+
+      const dGroup = document.createElement('label');
+      dGroup.className = 'd3-ch4-lora-matrix__slider-group';
+      const dTitle = document.createElement('span');
+      dTitle.innerHTML = 'Chiều ẩn <strong>d</strong>:';
+      const dInput = document.createElement('input');
+      dInput.type = 'range';
+      dInput.min = '0';
+      dInput.max = String(DIMS.length - 1);
+      dInput.step = '1';
+      dInput.value = String(dIdx);
+      const dPill = document.createElement('span');
+      dPill.className = 'd3-ch4-lora-matrix__val-pill';
+      dGroup.append(dTitle, dInput, dPill);
+
+      controls.append(rGroup, dGroup);
+
+      const W = 750, H = 265;
+      const svgWrap = document.createElement('div');
+      const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+
+      const stats = document.createElement('div');
+      stats.className = 'd3-ch4-lora-matrix__stats';
+
+      container.append(controls, svgWrap, stats);
+
+      const render = () => {
+        const r = RANKS[rIdx];
+        const dObj = DIMS[dIdx];
+        const d = dObj.d;
+
+        rPill.textContent = `r = ${r}`;
+        dPill.textContent = dObj.name;
+
+        const baseParamsLayer = d * d;
+        const loraParamsLayer = 2 * d * r;
+        const ratioPct = (loraParamsLayer / baseParamsLayer) * 100;
+
+        svg.selectAll('*').remove();
+
+        // Left panel: LoRA Architecture diagram (x: 0..380)
+        const cx = 190;
+        const topY = 28;
+        const botY = 230;
+        const midY = (topY + botY) / 2;
+
+        // Input x bar at bottom
+        svg.append('rect')
+          .attr('x', cx - 70).attr('y', botY)
+          .attr('width', 140).attr('height', 20).attr('rx', 4)
+          .attr('fill', 'color-mix(in oklab, var(--text-color) 10%, var(--surface-bg))')
+          .attr('stroke', 'var(--border-color)');
+        svg.append('text')
+          .attr('x', cx).attr('y', botY + 14)
+          .attr('text-anchor', 'middle').attr('font-size', 11.5).attr('font-weight', 700)
+          .text(`Đầu vào x ∈ ℝ^${d}`);
+
+        // Output h bar at top
+        svg.append('rect')
+          .attr('x', cx - 95).attr('y', 6)
+          .attr('width', 190).attr('height', 22).attr('rx', 4)
+          .attr('fill', 'color-mix(in oklab, var(--text-color) 10%, var(--surface-bg))')
+          .attr('stroke', 'var(--border-color)');
+        svg.append('text')
+          .attr('x', cx).attr('y', 21)
+          .attr('text-anchor', 'middle').attr('font-size', 11.5).attr('font-weight', 700)
+          .text(`h = W₀x + (α/r)·B·A·x`);
+
+        // Left branch: Frozen W0
+        const w0X = 36, w0W = 122, w0Y = 72, w0H = 116;
+        svg.append('path')
+          .attr('d', `M${cx - 35},${botY} L${w0X + w0W / 2},${w0Y + w0H}`)
+          .attr('stroke', frozenColor).attr('stroke-width', 1.6).attr('fill', 'none');
+        svg.append('path')
+          .attr('d', `M${w0X + w0W / 2},${w0Y} L${cx - 35},28`)
+          .attr('stroke', frozenColor).attr('stroke-width', 1.6).attr('fill', 'none');
+
+        svg.append('rect')
+          .attr('x', w0X).attr('y', w0Y)
+          .attr('width', w0W).attr('height', w0H).attr('rx', 8)
+          .attr('fill', `color-mix(in oklab, ${frozenColor} 18%, var(--surface-bg))`)
+          .attr('stroke', frozenColor).attr('stroke-width', 1.8);
+
+        svg.append('text')
+          .attr('x', w0X + w0W / 2).attr('y', w0Y + 42)
+          .attr('text-anchor', 'middle').attr('font-weight', 800).attr('font-size', 13)
+          .attr('fill', frozenColor)
+          .text('W₀ (Đóng băng ❄️)');
+        svg.append('text')
+          .attr('x', w0X + w0W / 2).attr('y', w0Y + 62)
+          .attr('text-anchor', 'middle').attr('font-size', 11)
+          .text(`${d} × ${d}`);
+        svg.append('text')
+          .attr('x', w0X + w0W / 2).attr('y', w0Y + 82)
+          .attr('text-anchor', 'middle').attr('font-size', 10.5).attr('fill', 'var(--muted-color)')
+          .text(`${(baseParamsLayer / 1e6).toFixed(2)}M tham số`);
+
+        // Right branch: Low-Rank A and B
+        const loraCenterX = 278;
+        const neckW = Math.max(18, Math.min(92, 14 + Math.log2(r) * 13));
+        const baseW = 122;
+
+        // Trapezoid A (d -> r) at bottom-right
+        const aBotY = 192, aTopY = 148;
+        const aPoints = [
+          [loraCenterX - baseW / 2, aBotY],
+          [loraCenterX + baseW / 2, aBotY],
+          [loraCenterX + neckW / 2, aTopY],
+          [loraCenterX - neckW / 2, aTopY]
+        ].map((p) => p.join(',')).join(' ');
+
+        // Trapezoid B (r -> d) at top-right
+        const bBotY = 112, bTopY = 68;
+        const bPoints = [
+          [loraCenterX - neckW / 2, bBotY],
+          [loraCenterX + neckW / 2, bBotY],
+          [loraCenterX + baseW / 2, bTopY],
+          [loraCenterX - baseW / 2, bTopY]
+        ].map((p) => p.join(',')).join(' ');
+
+        svg.append('path')
+          .attr('d', `M${cx + 35},${botY} L${loraCenterX},${aBotY}`)
+          .attr('stroke', trainColor).attr('stroke-width', 1.8).attr('fill', 'none');
+        svg.append('path')
+          .attr('d', `M${loraCenterX},${aTopY} L${loraCenterX},${bBotY}`)
+          .attr('stroke', trainColor).attr('stroke-width', 2.4).attr('fill', 'none');
+        svg.append('path')
+          .attr('d', `M${loraCenterX},${bTopY} L${cx + 35},28`)
+          .attr('stroke', trainColor).attr('stroke-width', 1.8).attr('fill', 'none');
+
+        svg.append('polygon')
+          .attr('points', aPoints)
+          .attr('fill', `color-mix(in oklab, ${trainColor} 22%, var(--surface-bg))`)
+          .attr('stroke', trainColor).attr('stroke-width', 1.8);
+        svg.append('text')
+          .attr('x', loraCenterX).attr('y', (aBotY + aTopY) / 2 + 4)
+          .attr('text-anchor', 'middle').attr('font-size', 11).attr('font-weight', 700)
+          .text(`A (${r}×${d}) ~ N(0,σ²)`);
+
+        svg.append('polygon')
+          .attr('points', bPoints)
+          .attr('fill', `color-mix(in oklab, ${trainColor} 22%, var(--surface-bg))`)
+          .attr('stroke', trainColor).attr('stroke-width', 1.8);
+        svg.append('text')
+          .attr('x', loraCenterX).attr('y', (bBotY + bTopY) / 2 + 4)
+          .attr('text-anchor', 'middle').attr('font-size', 11).attr('font-weight', 700)
+          .text(`B (${d}×${r}) = 0`);
+
+        // Bottleneck r badge
+        svg.append('text')
+          .attr('x', loraCenterX + neckW / 2 + 8)
+          .attr('y', (aTopY + bBotY) / 2 + 4)
+          .attr('font-size', 11)
+          .attr('font-weight', 800)
+          .attr('fill', trainColor)
+          .text(`cổ chai r = ${r}`);
+
+        // Right panel: VRAM comparison bar chart (x: 415..735)
+        // Assume a 32-layer Transformer where total model params ~ 12 * L * d^2
+        const numLayers = 32;
+        const totalModelParams = 12 * numLayers * d * d; // e.g. for d=4096 -> ~6.44B params
+        const totalLoraParams = 4 * numLayers * (2 * d * r); // applied to Wq, Wk, Wv, Wo
+
+        // VRAM in GB (Weights + Gradients + AdamW m,v states):
+        // Full FT: 2B weights + 2B grads + 12B mixed-precision AdamW = 16 bytes/param
+        const vramFull = (totalModelParams * 16) / 1e9;
+        // LoRA BF16: 2B frozen weights + 16B * totalLoraParams + activation overhead (~1.2 GB)
+        const vramLora = (totalModelParams * 2 + totalLoraParams * 16) / 1e9;
+        // QLoRA NF4: 0.55B quantized weights + 16B * totalLoraParams
+        const vramQlora = (totalModelParams * 0.55 + totalLoraParams * 16) / 1e9;
+
+        const chartX = 425, chartW = 305, chartTop = 36, chartBot = 225;
+        const maxVram = Math.max(vramFull, 10);
+        const yScale = d3.scaleLinear().domain([0, maxVram * 1.08]).range([chartBot, chartTop]);
+
+        svg.append('text')
+          .attr('x', chartX + chartW / 2)
+          .attr('y', 18)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11.5)
+          .attr('font-weight', 700)
+          .text('Bộ nhớ VRAM cần thiết (Trọng số + Đạo hàm + AdamW)');
+
+        const bars = [
+          { label: 'Full Fine-Tune', sub: 'BF16 + AdamW', val: vramFull, col: '#e15759' },
+          { label: 'LoRA (16-bit)', sub: 'W₀ BF16 + BA', val: vramLora, col: frozenColor },
+          { label: 'QLoRA (4-bit)', sub: 'W₀ NF4 + BA', val: vramQlora, col: qloraColor }
+        ];
+
+        const xBand = d3.scaleBand()
+          .domain(bars.map((b) => b.label))
+          .range([chartX, chartX + chartW])
+          .padding(0.32);
+
+        svg.append('line')
+          .attr('x1', chartX).attr('x2', chartX + chartW)
+          .attr('y1', chartBot).attr('y2', chartBot)
+          .attr('stroke', 'var(--border-color)');
+
+        bars.forEach((b) => {
+          const bx = xBand(b.label);
+          const bw = xBand.bandwidth();
+          const by = yScale(b.val);
+          const bh = Math.max(4, chartBot - by);
+
+          svg.append('rect')
+            .attr('x', bx).attr('y', by)
+            .attr('width', bw).attr('height', bh)
+            .attr('rx', 5)
+            .attr('fill', b.col)
+            .attr('opacity', 0.88);
+
+          svg.append('text')
+            .attr('x', bx + bw / 2).attr('y', by - 6)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11.5).attr('font-weight', 800)
+            .attr('fill', b.col)
+            .text(`${b.val.toFixed(1)} GB`);
+
+          svg.append('text')
+            .attr('x', bx + bw / 2).attr('y', chartBot + 15)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11).attr('font-weight', 700)
+            .text(b.label);
+
+          svg.append('text')
+            .attr('x', bx + bw / 2).attr('y', chartBot + 29)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10).attr('fill', 'var(--muted-color)')
+            .text(b.sub);
+        });
+
+        stats.innerHTML = `
+          <div class="d3-ch4-lora-matrix__stat-card">
+            <div class="d3-ch4-lora-matrix__stat-label">Tham số mỗi ma trận W₀ vs BA</div>
+            <div class="d3-ch4-lora-matrix__stat-num">${(loraParamsLayer / 1e3).toFixed(0)}K / ${(baseParamsLayer / 1e6).toFixed(1)}M</div>
+          </div>
+          <div class="d3-ch4-lora-matrix__stat-card">
+            <div class="d3-ch4-lora-matrix__stat-label">Tỷ lệ tham số cần huấn luyện (2r / d)</div>
+            <div class="d3-ch4-lora-matrix__stat-num" style="color:${trainColor}">${ratioPct.toFixed(3)}%</div>
+          </div>
+          <div class="d3-ch4-lora-matrix__stat-card">
+            <div class="d3-ch4-lora-matrix__stat-label">Mức giảm VRAM với QLoRA 4-bit</div>
+            <div class="d3-ch4-lora-matrix__stat-num" style="color:${qloraColor}">Giảm ${((1 - vramQlora / vramFull) * 100).toFixed(0)}% (${vramFull.toFixed(1)} → ${vramQlora.toFixed(1)} GB)</div>
+          </div>
+        `;
+      };
+
+      rInput.addEventListener('input', () => {
+        rIdx = Number(rInput.value);
+        render();
+      });
+      dInput.addEventListener('input', () => {
+        dIdx = Number(dInput.value);
+        render();
+      });
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readPalette();
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

@@ -1,0 +1,37 @@
+export const cells = 1;
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(42)
+
+# Mô hình ngôn ngữ Transformer tự hồi quy thu nhỏ
+class TinyLM(nn.Module):
+    def __init__(self, vocab_size=64, d_model=64, n_heads=4):
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, d_model)
+        self.pos_emb = nn.Embedding(32, d_model)
+        layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=n_heads, dim_feedforward=256,
+            dropout=0.0, batch_first=True, norm_first=True
+        )
+        self.blocks = nn.TransformerEncoder(layer, num_layers=2)
+        self.ln_f = nn.LayerNorm(d_model)
+        self.head = nn.Linear(d_model, vocab_size, bias=False)
+
+    def forward(self, idx):
+        B, L = idx.shape
+        pos = torch.arange(L, device=idx.device).unsqueeze(0)
+        x = self.tok_emb(idx) + self.pos_emb(pos)
+        mask = nn.Transformer.generate_square_subsequent_mask(L)
+        x = self.blocks(x, mask=mask, is_causal=True)
+        return self.head(self.ln_f(x))
+
+model = TinyLM()
+print(f"Tổng số tham số: {sum(p.numel() for p in model.parameters())}")
+```
+
+<section className="code-output"><pre>{"Tổng số tham số: 109440"}</pre></section>

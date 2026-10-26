@@ -70,7 +70,7 @@ export default defineConfig({
       rehypeSlug,
       [rehypeAutolinkHeadings, { behavior: 'wrap' }],
       [rehypeKatex, {
-        trust: true,
+        trust: true, strict: false,
       }],
       [rehypeCitation, {
         bibliography: 'src/content/bibliography.bib',

@@ -59,7 +59,7 @@
       const WORDS = ['This', 'film', 'seemed', 'way', 'too', 'long', 'even', 'at', 'only', '75', 'minutes', '…'];
       // Values of the representation: an illustration, not computed
       const VECTOR = [0.8, 0.1, 0.5, 0.95, 0.3, 0.65, 0.2, 0.75, 0.4, 0.05];
-      const OUTPUT = [['positive', 0.15], ['negative', 0.85]];
+      const OUTPUT = [['tích cực', 0.15], ['tiêu cực', 0.85]];
 
       const W = 640, H = 330;
       const cx = 320;
@@ -73,7 +73,7 @@
       const markerId = `encoder-head-arrow-${uid}`;
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
         .attr('role', 'img')
-        .attr('aria-label', 'A review of any length goes through an encoder, which gives a vector of fixed size; a head turns this vector into the probabilities of the two classes.');
+        .attr('aria-label', 'Một bài đánh giá với độ dài bất kỳ đi qua bộ mã hóa (encoder) để tạo ra một vector có kích thước cố định; đầu phân loại (head) biến đổi vector này thành xác suất của hai lớp.');
       svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
         .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
@@ -106,7 +106,7 @@
       });
       const x1 = x - gap;
       g.append('text').attr('class', 'side').attr('x', cx).attr('y', tokenY + tokenH + 16).attr('text-anchor', 'middle')
-        .text('a text of L words: L changes from one text to the next');
+        .text('văn bản gồm L từ: L thay đổi tùy theo từng văn bản');
 
       // Encoder
       const encW = 300;
@@ -122,13 +122,13 @@
         g.append('rect').attr('class', 'cell').attr('x', cx - vecW / 2 + i * cellW).attr('y', vecY).attr('width', cellW).attr('height', cellH)
           .attr('fill', `color-mix(in oklab, ${MODEL} ${Math.round(10 + 70 * v)}%, transparent)`);
       });
-      g.append('text').attr('class', 'side-strong').attr('x', cx + vecW / 2 + 14).attr('y', vecY + cellH / 2 - 3).text('representation');
-      g.append('text').attr('class', 'side').attr('x', cx + vecW / 2 + 14).attr('y', vecY + cellH / 2 + 11).text('a vector of fixed size');
+      g.append('text').attr('class', 'side-strong').attr('x', cx + vecW / 2 + 14).attr('y', vecY + cellH / 2 - 3).text('biểu diễn (representation)');
+      g.append('text').attr('class', 'side').attr('x', cx + vecW / 2 + 14).attr('y', vecY + cellH / 2 + 11).text('vector kích thước cố định');
 
       // Head
       const headW = 160;
       arrow(cx, vecY - 3, cx, headY + headH + 3);
-      box(cx - headW / 2, headY, headW, headH, 'HEAD', '', MODEL);
+      box(cx - headW / 2, headY, headW, headH, 'ĐẦU PHÂN LOẠI (HEAD)', '', MODEL);
 
       // Probabilities of the classes
       arrow(cx, headY - 3, cx, outBottom + 4);

@@ -10,8 +10,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -20,8 +20,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# (2) Use a nested dict for counting bigrams
-# [Copied from the solution of 2.1, step (2)]
+# (2) Dùng từ điển lồng nhau để đếm các cặp từ (bigram)
+# [Sao chép từ lời giải bài 2.1, bước (2)]
 bigram_counts = {}
 for a, b in zip(train_sequence, train_sequence[1:]):
     if a not in bigram_counts:
@@ -33,10 +33,10 @@ for a, b in zip(train_sequence, train_sequence[1:]):
 print(f"distinct pairs: {sum(len(f) for f in bigram_counts.values())}")
 
 
-# ----------------------
-#  New in this exercise
-# ----------------------
-# The validation and test sequences, built in the same way
+# -------------------------
+#  Phần mới trong bài này
+# -------------------------
+# Chuỗi xác thực (validation) và kiểm tra (test), tạo tương tự
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())
@@ -52,7 +52,7 @@ print(f"test: {len(test_sequence)} words")
 <section className="code-output"><pre>{"text: 2051910 words\nvocabulary: 33277 words\ndistinct pairs: 618405\nvalidation: 213886 words\ntest: 241211 words"}</pre></section>
 
 ```python
-# (1) Count the words of the train sequence
+# (1) Đếm số lần xuất hiện của từng từ trong chuỗi huấn luyện
 unigram_counts = {}
 for word in train_sequence:
     if word not in unigram_counts:
@@ -60,8 +60,8 @@ for word in train_sequence:
     unigram_counts[word] += 1
 
 
-# (2) Perplexity of the unigram model: the exponential of minus
-# the average log-probability of the validation words
+# (2) Độ bối rối (perplexity) của mô hình unigram: hàm mũ của trừ
+# trung bình log-xác suất trên các từ thuộc tập xác thực
 import math
 
 def perplexity(log_probs):
@@ -76,8 +76,8 @@ print(f"unigram perplexity, validation set: "
       f"{perplexity(log_probs):.1f}")
 
 
-# (3) Perplexity of the bigram model. A pair never seen in
-# training has the probability 0, and log(0) is minus infinity.
+# (3) Độ bối rối của mô hình bigram. Một cặp từ chưa từng gặp khi
+# huấn luyện sẽ có xác suất bằng 0, và log(0) bằng âm vô cùng.
 follower_totals = {}
 for a in bigram_counts:
     follower_totals[a] = sum(bigram_counts[a].values())
@@ -98,7 +98,7 @@ print(f"out of {n_pairs}, or {100 * unseen_pairs / n_pairs:.1f}%")
 print(f"bigram perplexity, validation set: {perplexity(log_probs)}")
 
 
-# (4) Perplexity of the unigram model on the test set
+# (4) Độ bối rối của mô hình unigram trên tập kiểm tra (test)
 log_probs = []
 for word in test_sequence:
     log_probs.append(math.log(unigram_counts[word] / n_train))

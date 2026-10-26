@@ -1,5 +1,5 @@
 ---
-// The hints of an exercise. Only the first hint is offered; each one appears once the previous one was opened.
+// Các gợi ý của bài tập. Chỉ hiển thị gợi ý đầu tiên; mỗi gợi ý tiếp theo xuất hiện khi gợi ý trước đó được mở.
 ---
 <div class="exercise__hints"><slot /></div>
 
@@ -15,7 +15,7 @@
           if (hint.open) hint.dataset.seen = "1";
           hint.hidden = !offered;
           const label = hint.querySelector(".exercise__fold-label");
-          if (label) label.textContent = `Hint ${i + 1} of ${hints.length}`;
+          if (label) label.textContent = `Gợi ý ${i + 1} / ${hints.length}`;
           offered = hint.dataset.seen === "1";
         });
       };

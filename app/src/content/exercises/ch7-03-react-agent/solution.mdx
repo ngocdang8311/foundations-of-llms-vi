@@ -1,0 +1,84 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+import re
+
+# Kho tri thức nội bộ và hai công cụ của môi trường
+KB = {
+    "llama3_8b": "Llama-3 8B: layers=32, kv_heads=8, head_dim=128",
+    "qwen2_7b": "Qwen-2.5 7B: layers=28, kv_heads=4, head_dim=128",
+}
+
+def tool_search(query):
+    for key, val in KB.items():
+        if key in query.lower():
+            return val
+    return "No matching document found."
+
+def tool_python_calc(expr):
+    # Chỉ cho phép các phép toán số học cơ bản, bắt lỗi nếu dùng '^'
+    if "^" in expr:
+        raise TypeError("Use '**' for exponentiation in Python, not '^'")
+    return str(eval(expr, {"__builtins__": {}}, {}))
+
+# Mô hình LLM giả lập có khả năng tự sửa lỗi khi thấy Observation báo lỗi
+def mock_llm(prompt):
+    if "Observation:" not in prompt:
+        return (
+            "Thought: Tra cứu thông số của llama3_8b.\n"
+            "Action: search[llama3_8b]"
+        )
+    if "TypeError" not in prompt and "layers=32" in prompt and "4.0" not in prompt:
+        return (
+            "Thought: Tính GB KV cache cho 32768 token (nhầm toán tử ^).\n"
+            "Action: python_calc[2*2*32*8*128*32768 / (1024^3)]"
+        )
+    if "TypeError" in prompt and "4.0" not in prompt:
+        return (
+            "Thought: Sửa lỗi TypeError bằng cách thay ^ thành **.\n"
+            "Action: python_calc[2*2*32*8*128*32768 / (1024**3)]"
+        )
+    return "Thought: Đã có kết quả.\nAnswer: 4.0 GiB"
+
+print("Environment tools ready: search, python_calc")
+```
+
+<section className="code-output"><pre>{"Environment tools ready: search, python_calc"}</pre></section>
+
+```python
+# (1) Hàm tách lệnh Action: tool_name[arg] hoặc Answer: ...
+TOOLS = {"search": tool_search, "python_calc": tool_python_calc}
+
+def parse_llm_output(text):
+    if "Answer:" in text:
+        return ("answer", text.split("Answer:", 1)[1].strip())
+    m = re.search(r"Action:\s*(\w+)\[(.*?)\]", text)
+    if m:
+        return ("action", (m.group(1), m.group(2)))
+    return ("error", "Invalid format")
+
+
+# (2) Vòng lặp điều phối ReAct + bắt ngoại lệ để tự sửa lỗi (Reflexion)
+def run_react_agent(question, max_turns=6):
+    context = f"Question: {question}\n"
+    for turn in range(1, max_turns + 1):
+        out = mock_llm(context)
+        kind, payload = parse_llm_output(out)
+        if kind == "answer":
+            print(f"Final  -> {payload} (completed in {turn} turns)")
+            return payload
+        tool_name, arg = payload
+        try:
+            obs = TOOLS[tool_name](arg)
+        except Exception as e:
+            obs = f"Error: {type(e).__name__}: {e}"
+        print(f"Step {turn} -> Action: {tool_name}('{arg}')")
+        print(f"          Obs   : {obs}")
+        context += f"{out}\nObservation: {obs}\n"
+
+run_react_agent("KV cache size of llama3_8b at 32768 tokens?")
+```
+
+<section className="code-output"><pre>{"Step 1 -> Action: search('llama3_8b')\n          Obs   : Llama-3 8B: layers=32, kv_heads=8, head_dim=128\nStep 2 -> Action: python_calc('2*2*32*8*128*32768 / (1024^3)')\n          Obs   : Error: TypeError: Use '**' for exponentiation in Python, not '^'\nStep 3 -> Action: python_calc('2*2*32*8*128*32768 / (1024**3)')\n          Obs   : 4.0\nFinal  -> 4.0 GiB (completed in 4 turns)"}</pre></section>

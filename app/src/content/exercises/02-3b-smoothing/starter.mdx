@@ -8,8 +8,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -18,8 +18,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# The validation and test sequences, built in the same way
-# [Copied from the starter of 2.2]
+# Chuỗi xác thực (validation) và kiểm tra (test), tạo tương tự
+# [Sao chép từ mã khởi đầu bài 2.2]
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())
@@ -32,11 +32,11 @@ print(f"validation: {len(val_sequence)} words")
 print(f"test: {len(test_sequence)} words")
 
 
-# (1) For each n, count the n-grams in a nested dict:
-# counts[n][context][word] is the number of times `word` follows
-# `context`, the tuple of the n - 1 words before it.
-# For n = 1, the context is the empty tuple ().
-# [Copied from the solution of 2.3a, step (1)]
+# (1) Với mỗi n, đếm các n-gram trong một từ điển lồng nhau:
+# counts[n][context][word] là số lần `word` xuất hiện ngay sau
+# `context` (tuple gồm n - 1 từ đứng trước nó).
+# Với n = 1, ngữ cảnh là tuple rỗng ().
+# [Sao chép từ lời giải bài 2.3a, bước (1)]
 counts = {}
 for n in range(1, 6):
     counts[n] = {}

@@ -8,9 +8,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Giữ lại 5.000 bài đánh giá huấn luyện làm tập xác thực và
+# thay thế các thẻ ngắt dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -28,15 +28,15 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# The hard reviews: (review, label), with 1 for positive
-# [Copied from the starter of 3.4]
+# Các bài đánh giá khó: (bài đánh giá, nhãn), với 1 là tích cực
+# [Sao chép từ phần khởi đầu bài 3.4]
 hard_reviews = [
-    # Negation
+    # Phủ định
     ("Not bad at all, actually.", 1),
     ("Nothing about this movie is good.", 0),
     ("I wouldn't call it a masterpiece, but I didn't regret "
      "a minute.", 1),
-    # Contrast
+    # Tương phản
     ("Great acting, great lighting and a flabbergasting soundtrack, "
      "but not even Zendaya could save this boring, boring plot.", 0),
     ("The first hour is slow and the dialogue is clumsy, but the "
@@ -44,20 +44,20 @@ hard_reviews = [
     ("Everyone told me it would be the film of the year: great "
      "cast, amazing trailer, brilliant director. What a "
      "disappointment.", 0),
-    # Sarcasm
+    # Mỉa mai
     ("Wow, what a masterpiece. Two hours of pure brilliance, and I "
      "only checked my watch twenty times. The acting was so "
      "convincing that I truly believed the actors wanted to be "
      "somewhere else. A perfect film if you love naps.", 0),
     ("Brilliant. Another sequel nobody asked for, with the same "
      "jokes as the first one.", 0),
-    # The same words in a different order
+    # Cùng các từ nhưng khác thứ tự
     ("I expected it to be terrible, but it was great.", 1),
     ("I expected it to be great, but it was terrible.", 0),
-    # Synonyms, no word in common
+    # Từ đồng nghĩa, không có từ chung
     ("Excellent movie, awesome soundtrack.", 1),
     ("Superb film, wonderful score.", 1),
-    # Rare words
+    # Từ hiếm
     ("A flabbergasting, mesmerizing tour de force.", 1),
 ]
 
@@ -65,24 +65,24 @@ print(f"{len(hard_reviews)} hard reviews")
 
 
 # ----------------------
-#  New in this exercise
+#  Mới trong bài tập này
 # ----------------------
-# The vocabulary of exercise 3.2: the 10,000 most frequent words
-# of the training reviews. build_analyzer() returns the function
-# that CountVectorizer uses to cut a text into words.
+# Từ vựng của bài 3.2: 10.000 từ phổ biến nhất trong các bài đánh
+# giá huấn luyện. build_analyzer() trả về hàm mà CountVectorizer
+# dùng để tách văn bản thành các từ.
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
                              token_pattern=r"\b\w+\b")
 vectorizer.fit(train_texts)
 split_words = vectorizer.build_analyzer()
-word_index = {word: int(i)   # word -> index, from 0 to V - 1
+word_index = {word: int(i)   # từ -> chỉ số, từ 0 đến V - 1
               for word, i in vectorizer.vocabulary_.items()}
 V = len(word_index)
 
-# Turn a review into the list of the indices of its words, in
-# order. The words outside the vocabulary get the index V. Keep
-# only the last 400 words of the long reviews.
+# Chuyển mỗi bài đánh giá thành danh sách chỉ số các từ theo đúng
+# thứ tự. Các từ ngoài từ vựng nhận chỉ số V. Chỉ giữ lại 400 từ
+# cuối cùng đối với các bài đánh giá dài.
 max_length = 400
 
 def to_indices(text):

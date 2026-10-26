@@ -10,8 +10,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -20,8 +20,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# The validation and test sequences, built in the same way
-# [Copied from the starter of 2.2]
+# Chuỗi xác thực (validation) và kiểm tra (test), tạo tương tự
+# [Sao chép từ mã khởi đầu bài 2.2]
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())
@@ -34,15 +34,15 @@ print(f"validation: {len(val_sequence)} words")
 print(f"test: {len(test_sequence)} words")
 
 
-# ----------------------
-#  New in this exercise
-# ----------------------
-# Give each word of the vocabulary an index
+# -------------------------
+#  Phần mới trong bài này
+# -------------------------
+# Gán một chỉ số (index) cho mỗi từ trong từ vựng
 vocabulary = sorted(set(train_sequence))
 word_index = {word: i for i, word in enumerate(vocabulary)}
 
-# Turn a sequence into (context, next word) pairs of indices:
-# row i of contexts holds the 3 words before the word targets[i]
+# Chuyển chuỗi từ thành các cặp chỉ số (ngữ cảnh, từ tiếp theo):
+# hàng i của contexts chứa 3 từ đứng trước từ targets[i]
 import torch
 
 context_size = 3
@@ -66,34 +66,33 @@ print(f"example: {context} -> {vocabulary[train_targets[30]]}")
 <section className="code-output"><pre>{"text: 2051910 words\nvocabulary: 33277 words\nvalidation: 213886 words\ntest: 241211 words\ntrain: 2051907 pairs\nexample: ['Valkyria', 'Chronicles', 'III'] -> outside"}</pre></section>
 
 ```python
-# (1) Build the model: look up the embeddings of the 3 words of
-# the context, concatenate them, then a hidden layer (tanh) and
-# one score per word of the vocabulary. Start from small
-# embeddings: with the default initialization, of size 1, the
-# rare words would keep their random vectors.
+# (1) Xây dựng mô hình: tra cứu vector nhúng của 3 từ ngữ cảnh,
+# ghép nối chúng lại, đi qua tầng ẩn (tanh) và xuất ra một điểm
+# cho mỗi từ trong từ vựng. Khởi tạo các vector nhúng nhỏ: nếu
+# dùng mặc định (cỡ 1), các từ hiếm sẽ giữ nguyên vector ngẫu nhiên.
 from torch import nn
 
 V = len(vocabulary)
-D = 100   # size of the embeddings
-H = 200   # size of the hidden layer
+D = 100   # kích thước vector nhúng
+H = 200   # kích thước tầng ẩn
 torch.manual_seed(0)
 model = nn.Sequential(
     nn.Embedding(V, D),   # (batch, 3) -> (batch, 3, D)
-    nn.Flatten(),         # concatenation: (batch, 3 * D)
+    nn.Flatten(),         # ghép nối: (batch, 3 * D)
     nn.Linear(context_size * D, H),
     nn.Tanh(),
-    nn.Linear(H, V),      # one score per word
+    nn.Linear(H, V),      # mỗi từ một điểm số
 )
 nn.init.normal_(model[0].weight, std=0.1)
 
-# Run on the GPU if there is one
+# Chạy trên GPU nếu có
 device = "cuda" if torch.cuda.is_available() else "cpu"
 model = model.to(device)
 
 
-# (2) The perplexity of a model on a set of pairs: the exponential
-# of the average cross-entropy loss. F.cross_entropy applies the
-# softmax to the scores, then computes the loss of section 2.2.
+# (2) Độ bối rối của mô hình trên tập các cặp từ: hàm mũ của
+# hàm mất mát entropy chéo trung bình. F.cross_entropy áp dụng
+# softmax lên điểm số rồi tính độ mất mát như ở mục 2.2.
 import math
 import torch.nn.functional as F
 
@@ -108,16 +107,15 @@ def perplexity(model, contexts, targets):
     return math.exp(total_loss / len(targets))
 
 
-# (3) Train with Adam on batches of 512 pairs. After each epoch,
-# measure the validation perplexity, and keep a copy of the best
-# model.
+# (3) Huấn luyện bằng Adam trên từng lô 512 cặp. Sau mỗi epoch,
+# đo độ bối rối trên tập xác thực và lưu bản sao mô hình tốt nhất.
 import copy
 
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 batch_size = 512
 best_perplexity = math.inf
 for epoch in range(4):
-    order = torch.randperm(len(train_targets))   # shuffled pairs
+    order = torch.randperm(len(train_targets))   # xáo trộn các cặp
     for start in range(0, len(order), batch_size):
         batch = order[start:start + batch_size]
         scores = model(train_contexts[batch].to(device))
@@ -134,14 +132,14 @@ for epoch in range(4):
         best_model = copy.deepcopy(model)
 
 
-# (4) Test perplexity of the best model
+# (4) Độ bối rối trên tập kiểm tra của mô hình tốt nhất
 test_perplexity = perplexity(best_model, test_contexts, test_targets)
 print(f"\ntest perplexity, epoch {best_epoch}: {test_perplexity:.1f}")
 
 
-# (5) The nearest neighbors of a few words. nn.Embedding stores W
-# transposed: row i is the embedding of word i. Divide each row by
-# its length, so that a dot product is a cosine similarity.
+# (5) Các láng giềng gần nhất của một vài từ. nn.Embedding lưu W
+# ở dạng chuyển vị: hàng i là vector nhúng của từ i. Chia mỗi hàng
+# cho độ dài của nó để tích vô hướng trở thành độ tương đồng cosine.
 embeddings = best_model[0].weight.detach().cpu()
 embeddings = embeddings / embeddings.norm(dim=1, keepdim=True)
 
@@ -149,7 +147,7 @@ print()
 for word in ["three", "he", "city", "film", "excellent", "terrible"]:
     similarities = embeddings @ embeddings[word_index[word]]
     ranking = similarities.argsort(descending=True).tolist()
-    nearest = [vocabulary[i] for i in ranking[1:6]]   # [0]: the word
+    nearest = [vocabulary[i] for i in ranking[1:6]]   # [0]: chính từ đó
     print(f"{word}: {', '.join(nearest)}")
 ```
 

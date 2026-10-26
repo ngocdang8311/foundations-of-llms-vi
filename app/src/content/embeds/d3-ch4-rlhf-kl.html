@@ -1,0 +1,361 @@
+<div class="d3-ch4-rlhf-kl"></div>
+<style>
+  .d3-ch4-rlhf-kl {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch4-rlhf-kl__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 18px;
+    padding: 11px 15px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 3%, var(--page-bg));
+    margin-bottom: 12px;
+  }
+  .d3-ch4-rlhf-kl__slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .d3-ch4-rlhf-kl__slider-wrap input[type="range"] {
+    width: 170px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch4-rlhf-kl__pill {
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-family: var(--font-mono, monospace);
+    font-weight: 700;
+    background: color-mix(in oklab, var(--primary-color) 16%, transparent);
+    color: var(--primary-color);
+  }
+  .d3-ch4-rlhf-kl__presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .d3-ch4-rlhf-kl__preset-btn {
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .d3-ch4-rlhf-kl__preset-btn:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-ch4-rlhf-kl svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 740px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch4-rlhf-kl__sample {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+  }
+  .d3-ch4-rlhf-kl__sample-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  .d3-ch4-rlhf-kl__zone-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .d3-ch4-rlhf-kl__sample-text {
+    font-size: 12.8px;
+    line-height: 1.5;
+    font-family: var(--font-mono, monospace);
+    white-space: pre-wrap;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    // Parametric functions of KL divergence D_KL in [0, 25]:
+    // Given penalty coefficient beta, optimal policy lands around D_KL(beta) = 1.8 / beta^0.72
+    const klFromBeta = (beta) => Math.min(25, Math.max(0.2, 0.95 / Math.pow(beta, 0.78)));
+    // Proxy reward r_phi grows sublinearly with sqrt(D_KL)
+    const proxyReward = (kl) => 0.92 * Math.sqrt(kl);
+    // True human reward R_gold peaks around KL = 4.5 and drops due to Goodhart's Law / reward hacking
+    const goldReward = (kl) => 0.92 * Math.sqrt(kl) - 0.019 * Math.pow(kl, 1.85);
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch4-rlhf-kl'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch4-rlhf-kl'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let beta = 0.08;
+      let proxyColor = '#f28e2b';
+      let goldColor = '#2b8a3e';
+      let hackColor = '#e15759';
+
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 3) {
+              proxyColor = cat[1];
+              goldColor = cat[2];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const controls = document.createElement('div');
+      controls.className = 'd3-ch4-rlhf-kl__controls';
+
+      const sliderWrap = document.createElement('label');
+      sliderWrap.className = 'd3-ch4-rlhf-kl__slider-wrap';
+      const sLabel = document.createElement('span');
+      sLabel.innerHTML = 'Hệ số phạt phân kỳ KL <strong>β</strong>:';
+      const sInput = document.createElement('input');
+      sInput.type = 'range';
+      sInput.min = '0.01';
+      sInput.max = '0.40';
+      sInput.step = '0.005';
+      sInput.value = String(beta);
+      const sPill = document.createElement('span');
+      sPill.className = 'd3-ch4-rlhf-kl__pill';
+      sliderWrap.append(sLabel, sInput, sPill);
+
+      const presets = document.createElement('div');
+      presets.className = 'd3-ch4-rlhf-kl__presets';
+      [
+        { label: 'Quá bảo thủ (β = 0.30)', val: 0.30 },
+        { label: 'Vùng cân bằng tối ưu (β = 0.08)', val: 0.08 },
+        { label: 'Hack phần thưởng! (β = 0.015)', val: 0.015 }
+      ].forEach((p) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'd3-ch4-rlhf-kl__preset-btn';
+        b.textContent = p.label;
+        b.addEventListener('click', () => {
+          beta = p.val;
+          sInput.value = String(beta);
+          render();
+        });
+        presets.appendChild(b);
+      });
+
+      controls.append(sliderWrap, presets);
+
+      const W = 740, H = 240;
+      const svgWrap = document.createElement('div');
+      const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+
+      const sampleBox = document.createElement('div');
+      sampleBox.className = 'd3-ch4-rlhf-kl__sample';
+
+      container.append(controls, svgWrap, sampleBox);
+
+      const klGrid = d3.range(0, 25.25, 0.25);
+
+      const render = () => {
+        sPill.textContent = `β = ${beta.toFixed(3)}`;
+        const curKL = klFromBeta(beta);
+        const curProxy = proxyReward(curKL);
+        const curGold = goldReward(curKL);
+
+        svg.selectAll('*').remove();
+        const padL = 52, padR = 24, padT = 26, padB = 38;
+        const x = d3.scaleLinear().domain([0, 25]).range([padL, W - padR]);
+        const y = d3.scaleLinear().domain([-3.0, 5.0]).range([H - padB, padT]);
+
+        // Shaded Reward Hacking zone (KL > 9)
+        svg.append('rect')
+          .attr('x', x(9.5))
+          .attr('y', padT)
+          .attr('width', x(25) - x(9.5))
+          .attr('height', H - padT - padB)
+          .attr('fill', `color-mix(in oklab, ${hackColor} 9%, transparent)`);
+
+        svg.append('text')
+          .attr('x', (x(9.5) + x(25)) / 2)
+          .attr('y', padT + 16)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11)
+          .attr('font-weight', 700)
+          .attr('fill', hackColor)
+          .text('Vùng Hack phần thưởng (Định luật Goodhart: r_φ tăng ảo nhưng chất lượng thực sụp đổ)');
+
+        // Optimal zone highlight (KL in [3, 7])
+        svg.append('rect')
+          .attr('x', x(2.8))
+          .attr('y', padT)
+          .attr('width', x(7.2) - x(2.8))
+          .attr('height', H - padT - padB)
+          .attr('fill', `color-mix(in oklab, ${goldColor} 9%, transparent)`);
+
+        // Axes & grid
+        [-2, 0, 2, 4].forEach((yv) => {
+          svg.append('line')
+            .attr('x1', padL).attr('x2', W - padR)
+            .attr('y1', y(yv)).attr('y2', y(yv))
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', yv === 0 ? null : '3,3');
+          svg.append('text')
+            .attr('x', padL - 8).attr('y', y(yv) + 4)
+            .attr('text-anchor', 'end').attr('font-size', 10.5).attr('fill', 'var(--muted-color)')
+            .text((yv > 0 ? '+' : '') + yv.toFixed(1));
+        });
+
+        [0, 5, 10, 15, 20, 25].forEach((xv) => {
+          svg.append('text')
+            .attr('x', x(xv)).attr('y', H - 18)
+            .attr('text-anchor', 'middle').attr('font-size', 10.5).attr('fill', 'var(--muted-color)')
+            .text(`${xv} nats`);
+        });
+
+        svg.append('text')
+          .attr('x', (padL + W - padR) / 2).attr('y', H - 3)
+          .attr('text-anchor', 'middle').attr('font-size', 11.5).attr('font-weight', 700)
+          .text('Phân kỳ KL: D_KL(π_θ || π_ref) — Khoảng cách rời xa mô hình SFT gốc');
+
+        // Curves
+        const lineProxy = d3.line().x((d) => x(d)).y((d) => y(proxyReward(d)));
+        const lineGold = d3.line().x((d) => x(d)).y((d) => y(goldReward(d)));
+
+        svg.append('path')
+          .datum(klGrid)
+          .attr('fill', 'none')
+          .attr('stroke', proxyColor)
+          .attr('stroke-width', 2.4)
+          .attr('stroke-dasharray', '6,4')
+          .attr('d', lineProxy);
+
+        svg.append('path')
+          .datum(klGrid)
+          .attr('fill', 'none')
+          .attr('stroke', goldColor)
+          .attr('stroke-width', 2.8)
+          .attr('d', lineGold);
+
+        // Curve labels
+        svg.append('text')
+          .attr('x', x(24.2)).attr('y', y(proxyReward(24.2)) - 8)
+          .attr('text-anchor', 'end').attr('font-size', 11).attr('font-weight', 700)
+          .attr('fill', proxyColor)
+          .text('Điểm mô hình phần thưởng r_φ(x,y) (Proxy)');
+
+        svg.append('text')
+          .attr('x', x(7.5)).attr('y', y(goldReward(5.0)) - 10)
+          .attr('text-anchor', 'middle').attr('font-size', 11).attr('font-weight', 700)
+          .attr('fill', goldColor)
+          .text('Chất lượng thực tế theo con người R_gold');
+
+        // Current operating vertical line and dots
+        svg.append('line')
+          .attr('x1', x(curKL)).attr('x2', x(curKL))
+          .attr('y1', padT).attr('y2', H - padB)
+          .attr('stroke', 'var(--text-color)')
+          .attr('stroke-width', 1.4)
+          .attr('stroke-dasharray', '2,2');
+
+        svg.append('circle')
+          .attr('cx', x(curKL)).attr('cy', y(curProxy))
+          .attr('r', 5.5).attr('fill', proxyColor).attr('stroke', '#fff').attr('stroke-width', 1.5);
+
+        svg.append('circle')
+          .attr('cx', x(curKL)).attr('cy', y(curGold))
+          .attr('r', 6).attr('fill', goldColor).attr('stroke', '#fff').attr('stroke-width', 1.5);
+
+        // Determine regime and sample output
+        let zoneName = '';
+        let zoneCol = goldColor;
+        let sampleOut = '';
+
+        if (curKL < 2.8) {
+          zoneName = 'Phạt KL quá nặng (β lớn) — Mô hình gần như giữ nguyên SFT';
+          zoneCol = '#4e79a7';
+          sampleOut = 'Prompt: "Giải thích ngắn gọn tại sao bầu trời có màu xanh?"\n'
+            + 'Phản hồi π_θ: "Bầu trời có màu xanh do ánh sáng Mặt Trời bị tán xạ bởi khí quyển Trái Đất."\n'
+            + '→ Nhận xét: Câu trả lời an toàn, rất gần π_ref nhưng hơi cụt lủn, thiếu chiều sâu vật lý (tán xạ Rayleigh).';
+        } else if (curKL <= 9.5) {
+          zoneName = 'Vùng Cân bằng Pareto Tối ưu — Hữu ích, rõ ràng & tự nhiên';
+          zoneCol = goldColor;
+          sampleOut = 'Prompt: "Giải thích ngắn gọn tại sao bầu trời có màu xanh?"\n'
+            + 'Phản hồi π_θ: "Ánh sáng Mặt Trời gồm nhiều màu sắc có bước sóng khác nhau. Khi đi qua khí quyển, các phân tử khí gây ra hiện tượng **tán xạ Rayleigh**, làm ánh sáng xanh (bước sóng ngắn) bị khuếch tán mạnh gấp nhiều lần ánh sáng đỏ về mọi hướng tới mắt ta."\n'
+            + '→ Nhận xét: Cải thiện vượt bậc điểm thưởng thực tế mà không đánh mất cấu trúc ngôn ngữ tự nhiên.';
+        } else {
+          zoneName = 'CẢNH BÁO: Hack phần thưởng (Reward Hacking / Sycophancy)';
+          zoneCol = hackColor;
+          sampleOut = 'Prompt: "Giải thích ngắn gọn tại sao bầu trời có màu xanh?"\n'
+            + 'Phản hồi π_θ: "Câu hỏi tuyệt vời, xuất sắc, cực kỳ thông minh!! 🌟🌟 Dưới đây là câu trả lời chi tiết, toàn diện, hữu ích, an toàn, khoa học nhất: 1) Tán xạ Rayleigh! 2) Bước sóng ngắn! 3) Tuyệt vời, hoàn hảo, chính xác 100%, cảm ơn bạn rất nhiều vì câu hỏi sâu sắc..."\n'
+            + '→ Nhận xét: Mô hình lợi dụng lỗi của Reward Model (thích danh sách đánh số, lời khen nịnh và tính từ mạnh) để đẩy r_φ lên +' + curProxy.toFixed(2) + ', dù văn bản thực tế suy thoái nghiêm trọng!';
+        }
+
+        sampleBox.innerHTML = `
+          <div class="d3-ch4-rlhf-kl__sample-head">
+            <span class="d3-ch4-rlhf-kl__zone-badge" style="background:color-mix(in oklab, ${zoneCol} 16%, transparent);color:${zoneCol}">${zoneName}</span>
+            <span><strong>D_KL = ${curKL.toFixed(1)} nats</strong> · Điểm r_φ = <strong style="color:${proxyColor}">+${curProxy.toFixed(2)}</strong> · Chất lượng thực = <strong style="color:${goldColor}">${(curGold >= 0 ? '+' : '') + curGold.toFixed(2)}</strong></span>
+          </div>
+          <div class="d3-ch4-rlhf-kl__sample-text">${sampleOut}</div>
+        `;
+      };
+
+      sInput.addEventListener('input', () => {
+        beta = Number(sInput.value);
+        render();
+      });
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readPalette();
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

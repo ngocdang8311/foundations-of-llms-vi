@@ -1,85 +1,85 @@
 import HtmlEmbed from '../../components/HtmlEmbed.astro';
 
-## 1. The typical tasks of NLP
+## 1. Các tác vụ điển hình của NLP
 
-Now that we live in a world of LLMs, it's easy to think that autoregressive language modeling is all there is to NLP. But before 2019 and the realization that GPT-2 could generate coherent text and hence do other tasks without being specifically trained for them, language modeling was only one among the many tasks of classical NLP.
+Ngày nay, khi đang sống trong thế giới của các LLM, chúng ta rất dễ mặc định rằng mô hình hóa ngôn ngữ tự hồi quy (*autoregressive language modeling*) là tất cả những gì thuộc về NLP. Thế nhưng trước năm 2019 — thời điểm giới nghiên cứu nhận ra GPT-2 có khả năng sinh văn bản mạch lạc và nhờ đó giải quyết được nhiều bài toán khác mà không cần huấn luyện chuyên biệt cho từng bài toán — mô hình hóa ngôn ngữ chỉ là một trong số rất nhiều tác vụ của NLP cổ điển.
 
-For decades, **text classification, tagging and translation** were the most important challenges that were tackled using the tools of machine learning.
+Suốt nhiều thập kỷ, **phân loại văn bản (text classification), gán nhãn chuỗi (tagging) và dịch máy (translation)** mới là những thách thức quan trọng bậc nhất được giải quyết bằng các công cụ học máy.
 
-Each of these four tasks can be formally represented as **learning certain probability distributions conditioned on an input piece of text** seen as a sequence of words. This is illustrated below.
+Mỗi tác vụ trong số bốn tác vụ này đều có thể được biểu diễn một cách hình thức thành bài toán **học các phân phối xác suất có điều kiện dựa trên một đoạn văn bản đầu vào**, trong đó văn bản được xem như một chuỗi các từ. Minh họa dưới đây thể hiện trực quan góc nhìn này.
 
 <HtmlEmbed
   src="d3-nlp-tasks.html"
-  title="Four NLP tasks"
-  desc="Each task drawn as a model that reads the words of a text and gives probabilities: over the classes (classification), over the words of the vocabulary (language modeling, translation), or over the labels of each word (tagging)."
+  title="Bốn tác vụ điển hình trong NLP"
+  desc="Mỗi tác vụ được minh họa như một mô hình đọc các từ của văn bản và xuất ra phân phối xác suất: trên tập các lớp (phân loại), trên toàn bộ từ vựng (mô hình hóa ngôn ngữ, dịch máy), hoặc trên tập nhãn của từng từ (gán nhãn chuỗi)."
 />
 
-Let's consider these different tasks.
+Hãy cùng điểm qua từng tác vụ này.
 
-### 1.1 Classification
+### 1.1 Phân loại văn bản (Classification)
 
-This is the simplest task to state in NLP: you receive a piece of text and you have to classify it among a predefined list of categories. It can be spam detection, sentiment analysis (*Is this movie review positive or not?*), or classification among topics (*Is this news article about sports, politics, technology...?*).
+Đây là tác vụ dễ phát biểu nhất trong NLP: bạn nhận vào một đoạn văn bản và phải phân loại nó vào một danh sách các danh mục (lớp) đã được định nghĩa trước. Đó có thể là phát hiện thư rác (*spam detection*), phân tích cảm xúc (*sentiment analysis* — *"Bài đánh giá phim này khen hay chê?"*), hoặc phân loại chủ đề (*"Bài báo này viết về thể thao, chính trị hay công nghệ...?"*).
 
-For that, a classifier has to learn the conditional probability
+Để làm được điều đó, bộ phân loại (*classifier*) cần học được xác suất có điều kiện:
 
 $$
 p(C \mid x_1 \dots x_L)
 $$
 
-that a certain sequence of words $x_1 \dots x_L$ belongs to a class $C$, where here **$L$ is not fixed a priori, and depends on the sequence.**
+biểu thị khả năng một chuỗi từ $x_1 \dots x_L$ thuộc về lớp $C$, trong đó **độ dài $L$ không cố định trước (*a priori*) mà thay đổi tùy theo từng chuỗi văn bản.**
 
-As shown in the introductory example at the top of this post (*"Wow, what a masterpiece. [...] A perfect film if you love naps."*), sentiment classification can be subtle and involve detecting things like sarcasm.
+Như đã thấy ở ví dụ mở đầu bài viết (*"Chà, quả là một kiệt tác. [...] Một bộ phim hoàn hảo nếu bạn thích ngủ gật."*), bài toán phân loại cảm xúc có thể rất tinh vi và đòi hỏi mô hình phải nhận diện được những sắc thái như sự mỉa mai, châm biếm (*sarcasm*).
 
-### 1.2 Language modeling
+### 1.2 Mô hình hóa ngôn ngữ (Language modeling)
 
-In principle, modeling a language means learning the probability distribution $p(x_1 \dots x_L)$ of its possible sequences of words. In practice, it is often more convenient to learn the *next-word probability*
+Về mặt nguyên lý, mô hình hóa một ngôn ngữ đồng nghĩa với việc học phân phối xác suất $p(x_1 \dots x_L)$ của mọi chuỗi từ khả dĩ trong ngôn ngữ đó. Tuy nhiên trong thực tế, việc học *xác suất của từ tiếp theo* (*next-word probability*) thường thuận tiện hơn rất nhiều:
 
 $$
 p(x_{L+1} \mid x_1 \dots x_L).
 $$
 
-From this next-word probability, we can simply recover the full probability by using the chain rule, for instance
+Từ xác suất dự đoán từ tiếp theo này, chúng ta có thể dễ dàng khôi phục lại xác suất của toàn bộ chuỗi bằng quy tắc dây chuyền (*chain rule*), chẳng hạn:
 
 $$
 p(x_1 x_2 x_3 x_4) = p(x_1)\, p(x_2 \mid x_1)\, p(x_3 \mid x_1 x_2)\, p(x_4 \mid x_1 x_2 x_3)
 $$
 
-From today's perspective, the main use of such a probability distribution is to generate text using autoregression: *draw a word from the next-word distribution, append it to the text, and repeat*. This is the principle behind LLM chatbots and agents.
+Dưới góc nhìn hiện đại, ứng dụng chính của phân phối xác suất này là sinh văn bản theo cơ chế tự hồi quy (*autoregression*): *lấy mẫu một từ từ phân phối từ tiếp theo, nối từ đó vào cuối văn bản hiện tại, rồi lặp lại quá trình*. Đây chính là nguyên lý vận hành đằng sau các chatbot và tác tử LLM ngày nay.
 
-But knowing the language probability distribution can have other uses, for instance to score the probability of sentences among a list of candidates. Imagine an Automatic Speech Recognition (ASR) model producing two candidate transcriptions that both reasonably fit the audio sample: it can be followed by a post-processing stage using a language model, to score these candidates and help choose the right one. For instance on any reasonable language model, the probability of the sentence *"General relativity was formulated by **Alfred** Einstein"* would certainly rank lower than that of *"General relativity was formulated by **Albert** Einstein"*.
+Thế nhưng việc nắm được phân phối xác suất của ngôn ngữ còn mang lại nhiều ứng dụng khác, ví dụ như chấm điểm xác suất cho các câu ứng viên trong một danh sách. Hãy hình dung một mô hình Nhận dạng Giọng nói Tự động (*Automatic Speech Recognition* — ASR) đưa ra hai bản gỡ băng ứng viên đều khớp khá hợp lý với mẫu âm thanh thu được: ta có thể bổ sung một bước hậu xử lý dùng mô hình ngôn ngữ để chấm điểm hai ứng viên này và chọn ra câu đúng. Chẳng hạn, với bất kỳ mô hình ngôn ngữ hợp lý nào, xác suất của câu *"Thuyết tương đối rộng được xây dựng bởi **Alfred** Einstein"* chắc chắn sẽ thấp hơn nhiều so với câu *"Thuyết tương đối rộng được xây dựng bởi **Albert** Einstein"*.
 
-Although I present them separately, it is important to realize that **next-word prediction is a form of classification task!** Instead of assigning probabilities to a finite set of classes, you assign probabilities to a finite set of words among the pre-defined vocabulary. The main practical difference is the size: generally a few classes in NLP classification tasks, while the vocabulary size in language modeling is often tens of thousands.
+Mặc dù tôi trình bày tách biệt hai mục, nhưng có một nhận thức rất quan trọng cần ghi nhớ: **dự đoán từ tiếp theo thực chất chính là một dạng bài toán phân loại!** Thay vì gán xác suất cho một tập hữu hạn các lớp phân loại, bạn gán xác suất cho một tập hữu hạn các từ nằm trong bộ từ vựng đã định trước. Khác biệt thực tiễn lớn nhất nằm ở quy mô: các bài toán phân loại trong NLP thường chỉ có một vài lớp, trong khi kích thước bộ từ vựng trong mô hình hóa ngôn ngữ thường lên tới hàng chục nghìn từ.
 
-### 1.3 Translation
+### 1.3 Dịch máy (Translation)
 
-Translation from one language to another has long been one of the most important tasks in NLP, but also a hard one.
-Formally, we want to learn the probability of a candidate translation $y_1 \dots y_K$ conditioned on the original sentence $x_1 \dots x_L$. Again, in practice, we seek to estimate the next-word probability of the translated sequence, conditioned on the original sentence and what has been written so far:
+Dịch từ ngôn ngữ này sang ngôn ngữ khác từ lâu đã là một trong những tác vụ quan trọng nhất của NLP, đồng thời cũng là một bài toán vô cùng hóc búa.
+Một cách hình thức, chúng ta muốn học xác suất của một câu dịch ứng viên $y_1 \dots y_K$ khi biết câu gốc $x_1 \dots x_L$. Tương tự như trên, trong thực tế, ta thường tìm cách ước lượng xác suất của từ tiếp theo trong chuỗi dịch, có điều kiện trên câu gốc và những từ đã được dịch ra trước đó:
 
 $$
 p(y_{i+1} \mid y_1 \dots y_i; x_1 \dots x_L)
 $$
 
-Note that learning this probability distribution is far from obvious since the two sentences a priori have different lengths, and the translation is generally not a word-for-word correspondence.
+Lưu ý rằng việc học phân phối xác suất này hoàn toàn không hề hiển nhiên, bởi hai câu ở hai ngôn ngữ vốn không có cùng độ dài, và phép dịch nhìn chung không phải là sự tương ứng một-đối-một giữa từng từ.
 
-On top of that, the word order can be totally different, see a nice example below showing the same sentence in 4 languages...you should try the English vs Turkish comparison!
+Hơn thế nữa, trật tự từ giữa các ngôn ngữ có thể khác biệt hoàn toàn. Hãy xem ví dụ thú vị dưới đây thể hiện cùng một câu trong 4 ngôn ngữ... bạn nhất định nên thử so sánh giữa tiếng Anh và tiếng Thổ Nhĩ Kỳ!
 
 <HtmlEmbed
   src="d3-word-alignment.html"
-  title="Word alignment in different languages"
+  title="Căn chỉnh từ (Word alignment) giữa các ngôn ngữ khác nhau"
   wide
-  desc="An English sentence and its translation into French, German or Turkish, cut into morphemes (the smallest parts of a word that carry a meaning, like the -n of seen). French keeps nearly the same order as English, German moves the verbs to the end of their clause, and Turkish nearly reverses the order. The example sentences come from <a href='https://www.reddit.com/r/interestingasfuck/comments/gekhiv/links_in_sentences_between_languages/'>a picture shared on Reddit</a>."
+  desc="Một câu tiếng Anh cùng bản dịch sang tiếng Pháp, tiếng Đức và tiếng Thổ Nhĩ Kỳ, được tách thành các hình vị (morpheme — đơn vị nhỏ nhất của từ mang ý nghĩa, giống như hậu tố -n trong từ seen). Tiếng Pháp giữ trật tự gần như giống hệt tiếng Anh, tiếng Đức đẩy các động từ xuống cuối mệnh đề, còn tiếng Thổ Nhĩ Kỳ gần như đảo ngược hoàn toàn trật tự câu. Các câu ví dụ được lấy từ <a href='https://www.reddit.com/r/interestingasfuck/comments/gekhiv/links_in_sentences_between_languages/'>một hình ảnh chia sẻ trên Reddit</a>."
 />
 
-### 1.4 Tagging
+### 1.4 Gán nhãn chuỗi (Tagging)
 
-Finally, another typical NLP task is *tagging*. Its goal is to assign a class per word (or group of words). It can be grammar mistake detection, or tagging the grammatical category of each word in a sentence (noun, verb, ...), a task that is known as *part-of-speech* tagging.
+Cuối cùng, một tác vụ tiêu biểu khác trong NLP là *gán nhãn chuỗi (tagging)*. Mục tiêu của bài toán là gán một lớp (nhãn) cho từng từ (hoặc từng cụm từ). Đó có thể là phát hiện lỗi ngữ pháp, hoặc gán nhãn từ loại cho mỗi từ trong câu (danh từ, động từ,...), một tác vụ được gọi là *gán nhãn từ loại* (*part-of-speech tagging* — POS tagging).
 
-It can also be *Named Entity Recognition* (NER), for instance tagging all the names of people (or all places) in a text.
+Đó cũng có thể là bài toán *Nhận diện Thực thể có Tên* (*Named Entity Recognition* — NER), chẳng hạn như đánh dấu tất cả tên người (hoặc tất cả địa danh) xuất hiện trong văn bản.
 
-Tagging can be seen as "a classifier applied to each word", but each taking into account the surrounding context.
+Có thể xem bài toán gán nhãn chuỗi như "một bộ phân loại được áp dụng cho từng từ", nhưng ở mỗi vị trí đều có xét đến ngữ cảnh xung quanh:
 
 $$
 p(t_i \mid x_1 \dots x_L)
 $$
 
-I will not cover much of tagging here.
+Trong khuôn khổ bài viết này, tôi sẽ không đi sâu vào bài toán gán nhãn chuỗi.

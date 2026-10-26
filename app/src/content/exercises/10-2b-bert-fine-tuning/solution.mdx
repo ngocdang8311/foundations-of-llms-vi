@@ -10,9 +10,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Giữ lại 5.000 bài đánh giá huấn luyện làm tập xác thực và
+# thay thế các thẻ ngắt dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -30,15 +30,15 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# The hard reviews: (review, label), with 1 for positive
-# [Copied from the starter of 3.4]
+# Các bài đánh giá khó: (bài đánh giá, nhãn), với 1 là tích cực
+# [Sao chép từ phần khởi đầu bài 3.4]
 hard_reviews = [
-    # Negation
+    # Phủ định
     ("Not bad at all, actually.", 1),
     ("Nothing about this movie is good.", 0),
     ("I wouldn't call it a masterpiece, but I didn't regret "
      "a minute.", 1),
-    # Contrast
+    # Tương phản
     ("Great acting, great lighting and a flabbergasting soundtrack, "
      "but not even Zendaya could save this boring, boring plot.", 0),
     ("The first hour is slow and the dialogue is clumsy, but the "
@@ -46,20 +46,20 @@ hard_reviews = [
     ("Everyone told me it would be the film of the year: great "
      "cast, amazing trailer, brilliant director. What a "
      "disappointment.", 0),
-    # Sarcasm
+    # Mỉa mai
     ("Wow, what a masterpiece. Two hours of pure brilliance, and I "
      "only checked my watch twenty times. The acting was so "
      "convincing that I truly believed the actors wanted to be "
      "somewhere else. A perfect film if you love naps.", 0),
     ("Brilliant. Another sequel nobody asked for, with the same "
      "jokes as the first one.", 0),
-    # The same words in a different order
+    # Cùng các từ nhưng khác thứ tự
     ("I expected it to be terrible, but it was great.", 1),
     ("I expected it to be great, but it was terrible.", 0),
-    # Synonyms, no word in common
+    # Từ đồng nghĩa, không có từ chung
     ("Excellent movie, awesome soundtrack.", 1),
     ("Superb film, wonderful score.", 1),
-    # Rare words
+    # Từ hiếm
     ("A flabbergasting, mesmerizing tour de force.", 1),
 ]
 
@@ -67,16 +67,16 @@ print(f"{len(hard_reviews)} hard reviews")
 
 
 # ----------------------
-#  New in this exercise
+#  Mới trong bài tập này
 # ----------------------
-# The 1,000 labeled reviews of the first draw of exercise 8.1
+# 1.000 bài đánh giá có nhãn từ lần lấy mẫu đầu tiên của bài 8.1
 import random
 
 random.seed(0)
 chosen = random.sample(range(len(train_labels)), 1000)
 
-# The tokenizer of BERT cuts the words that it does not know into
-# known pieces: ## marks a piece that continues a word
+# Bộ tách từ của BERT cắt những từ mà nó không biết thành các mảnh
+# đã biết: ký hiệu ## đánh dấu một mảnh nối tiếp của từ
 from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
@@ -86,10 +86,10 @@ print(f"\n{tokenizer.tokenize(hard_reviews[12][0])}")
 <section className="code-output"><pre>{"train: 20000 reviews\nvalidation: 5000 reviews\ntest: 25000 reviews\n13 hard reviews\n\n['a', 'fl', '##ab', '##berg', '##ast', '##ing', ',', 'me', '##sm', '##eri', '##zing', 'tour', 'de', 'force', '.']"}</pre></section>
 
 ```python
-# (1) The classifier: BERT, and a head that reads the new vector of
-# the token [CLS], at position 0. The tokenizer pads the reviews of
-# a batch to the same length, and keeps the first 256 tokens of the
-# long ones. Its attention mask tells BERT to ignore the padding.
+# (1) Bộ phân loại: BERT cùng một đầu phân loại đọc vector mới của
+# token [CLS] ở vị trí 0. Bộ tách từ đệm các bài đánh giá trong lô
+# về cùng độ dài và giữ lại 256 token đầu tiên của các bài dài. Mặt
+# nạ chú ý (attention mask) báo cho BERT bỏ qua phần đệm.
 import torch
 from torch import nn
 from transformers import AutoModel
@@ -112,9 +112,9 @@ torch.manual_seed(0)
 model = BERTClassifier().to(device)
 
 
-# (2) Fine-tune the whole network on the 1,000 reviews, for 3
-# epochs, in batches of 16, with a small learning rate. train()
-# turns on the dropout of BERT, which eval() turns off.
+# (2) Tinh chỉnh toàn bộ mạng trên 1.000 bài đánh giá trong 3 epoch,
+# theo lô 16 bài với tốc độ học nhỏ. train() bật dropout của BERT,
+# còn eval() tắt nó đi.
 y_train = torch.tensor(train_labels, dtype=torch.float32)
 optimizer = torch.optim.AdamW(model.parameters(), lr=2e-5)
 loss_function = nn.BCEWithLogitsLoss()   # sigmoid + cross-entropy
@@ -133,7 +133,7 @@ for epoch in range(3):
 model.eval()
 
 
-# (3) The test accuracy, 64 reviews at a time
+# (3) Độ chính xác trên tập kiểm tra, tính mỗi lần 64 bài đánh giá
 def predict(texts):
     probabilities = []
     with torch.no_grad():
@@ -147,7 +147,7 @@ test_accuracy = correct.float().mean().item()
 print(f"test accuracy: {test_accuracy:.3f}")
 
 
-# (4) The hard reviews, as in exercise 3.4
+# (4) Các bài đánh giá khó, tương tự bài 3.4
 p_positive = predict([review for review, label in hard_reviews])
 
 names = ["negative", "positive"]

@@ -1,0 +1,104 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+corpus = """Beautiful is better than ugly. Explicit is better than implicit.
+Simple is better than complex. Complex is better than complicated.
+Flat is better than nested. Sparse is better than dense.
+Special cases aren't special enough to break the rules.
+Although practicality beats purity, errors should never pass silently.
+In the face of ambiguity, refuse the temptation to guess.
+Now is better than never, although never is often better than right now.
+If the implementation is hard to explain, it is a bad idea.
+If the implementation is easy to explain, it may be a good idea.
+Language models do not read raw text directly as words or characters.
+Instead, a tokenizer converts text into a sequence of integer token IDs.
+Byte-Pair Encoding starts with individual bytes and repeatedly merges
+the most frequent adjacent pair of tokens into a new vocabulary entry.
+Common words like the, and, model, language quickly become single tokens,
+while rarer words like tokenization, autoregressive, or transformers are
+split into meaningful subword pieces such as token, ization, and transform.
+Subword tokenization helps neural networks generalize across different forms
+of the same root word, such as train, trained, trainer, and training,
+or model, models, modeled, and modeling in natural language processing.
+When a tokenizer splits unseen words into smaller subwords, the language
+model can still understand their meaning from the familiar roots and suffixes.
+Without pre-tokenization, however, merging raw bytes directly across spaces
+can fuse frequent words with punctuation marks or adjacent words."""
+
+raw_bytes = list(corpus.encode("utf-8"))
+print(f"Độ dài ban đầu: {len(raw_bytes)} bytes "
+      f"({len(set(raw_bytes))} byte phân biệt)")
+```
+
+<section className="code-output"><pre>{"Độ dài ban đầu: 1591 bytes (44 byte phân biệt)"}</pre></section>
+
+```python
+# (1) Hàm đếm tần suất cặp kề nhau và hàm gộp cặp thành ID mới
+def get_stats(ids):
+    counts = {}
+    for pair in zip(ids, ids[1:]):
+        counts[pair] = counts.get(pair, 0) + 1
+    return counts
+
+
+def merge_vocab(ids, pair, new_id):
+    new_ids, i = [], 0
+    while i < len(ids):
+        if i < len(ids) - 1 and (ids[i], ids[i + 1]) == pair:
+            new_ids.append(new_id)
+            i += 2
+        else:
+            new_ids.append(ids[i])
+            i += 1
+    return new_ids
+
+
+# (2) Huấn luyện BPE trong 200 bước gộp từ bảng mã 256 byte cơ sở
+ids = list(raw_bytes)
+merges = {}
+vocab = {i: bytes([i]) for i in range(256)}
+
+for step in range(200):
+    stats = get_stats(ids)
+    best_pair = max(stats, key=stats.get)
+    new_id = 256 + step
+    ids = merge_vocab(ids, best_pair, new_id)
+    merges[best_pair] = new_id
+    vocab[new_id] = vocab[best_pair[0]] + vocab[best_pair[1]]
+    if step in (0, 1, 2, 9, 49, 99, 149, 199):
+        s = vocab[new_id].decode("utf-8", errors="replace")
+        freq = stats[best_pair]
+        print(f"Bước {step+1:3d}: gộp {best_pair} -> {new_id} "
+              f"({s!r}, tần suất {freq}), còn {len(ids)} tokens")
+
+ratio = len(raw_bytes) / len(ids)
+print(f"Tỷ lệ nén sau 200 bước: "
+      f"{len(raw_bytes)}/{len(ids)} = {ratio:.2f} bytes/token")
+
+
+# (3) Hàm mã hóa (encode) theo thứ tự ưu tiên gộp và giải mã (decode)
+def encode(text):
+    tokens = list(text.encode("utf-8"))
+    while len(tokens) >= 2:
+        stats = get_stats(tokens)
+        pair = min(stats, key=lambda p: merges.get(p, float("inf")))
+        if pair not in merges:
+            break
+        tokens = merge_vocab(tokens, pair, merges[pair])
+    return tokens
+
+
+def decode(token_ids):
+    raw = b"".join(vocab[idx] for idx in token_ids)
+    return raw.decode("utf-8", errors="replace")
+
+
+sample = "Simple language models read subword tokens."
+enc = encode(sample)
+print("Mã hóa mẫu:", [vocab[i].decode("utf-8") for i in enc])
+print("Khôi phục nguyên bản:", decode(enc) == sample)
+```
+
+<section className="code-output"><pre>{"Bước   1: gộp (32, 116) -> 256 (' t', tần suất 39), còn 1552 tokens\nBước   2: gộp (115, 32) -> 257 ('s ', tần suất 35), còn 1517 tokens\nBước   3: gộp (101, 114) -> 258 ('er', tần suất 27), còn 1490 tokens\nBước  10: gộp (44, 32) -> 265 (', ', tần suất 17), còn 1343 tokens\nBước  50: gộp (101, 115) -> 305 ('es', tần suất 6), còn 983 tokens\nBước 100: gộp (44, 261) -> 355 (', i', tần suất 3), còn 773 tokens\nBước 150: gộp (404, 355) -> 405 (' to explain, i', tần suất 2), còn 661 tokens\nBước 200: gộp (454, 288) -> 455 ('ural ', tần suất 2), còn 561 tokens\nTỷ lệ nén sau 200 bước: 1591/561 = 2.84 bytes/token\nMã hóa mẫu: ['S', 'i', 'mpl', 'e ', 'language ', 'model', 's ', 're', 'ad', ' s', 'ubword', ' token', 's', '.']\nKhôi phục nguyên bản: True"}</pre></section>

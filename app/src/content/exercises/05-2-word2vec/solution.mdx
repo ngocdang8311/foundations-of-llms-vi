@@ -10,8 +10,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -20,8 +20,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# Give each word of the vocabulary an index
-# [Copied from the starter of 4.2]
+# Gán một chỉ số (index) cho mỗi từ trong từ vựng
+# [Sao chép từ mã khởi đầu bài 4.2]
 vocabulary = sorted(set(train_sequence))
 word_index = {word: i for i, word in enumerate(vocabulary)}
 ```
@@ -29,9 +29,9 @@ word_index = {word: i for i, word in enumerate(vocabulary)}
 <section className="code-output"><pre>{"text: 2051910 words\nvocabulary: 33277 words"}</pre></section>
 
 ```python
-# (1) Count the words, then subsample the frequent ones: keep each
-# occurrence of a word of frequency f with probability sqrt(t / f),
-# so that "the" loses most of its occurrences, and a rare word none
+# (1) Đếm các từ rồi lấy mẫu giảm (subsample) các từ phổ biến: giữ
+# lại mỗi lần xuất hiện của từ có tần suất f với xác suất sqrt(t / f),
+# nhờ đó từ "the" bị lược bỏ phần lớn còn từ hiếm thì giữ nguyên
 import math
 import random
 
@@ -43,7 +43,7 @@ for word in train_sequence:
 
 t = 1e-4
 random.seed(0)
-kept = []   # the indices of the words that are kept, in order
+kept = []   # chỉ số các từ được giữ lại theo đúng thứ tự
 for word in train_sequence:
     frequency = counts[word] / len(train_sequence)
     if random.random() < math.sqrt(t / frequency):
@@ -51,10 +51,10 @@ for word in train_sequence:
 print(f"after subsampling: {len(kept)} words")
 
 
-# (2) Build the (center, context) pairs: each word of the subsampled
-# sequence with each of the 2 words before it and after it.
-# sequence[:-offset] and sequence[offset:] pair each word with the
-# word that comes offset positions later.
+# (2) Tạo các cặp (từ trung tâm, từ ngữ cảnh): ghép mỗi từ trong
+# chuỗi đã lọc với từng từ trong 2 từ đứng trước và 2 từ đứng sau.
+# sequence[:-offset] và sequence[offset:] ghép mỗi từ với từ nằm
+# cách nó offset vị trí về phía sau.
 import torch
 
 window = 2
@@ -68,13 +68,13 @@ contexts = torch.cat(contexts)
 print(f"pairs: {len(centers)}")
 
 
-# (3) The model: two embedding matrices, one for the words at the
-# center (the embeddings we keep), one for the words of the context.
-# The score of a pair is the dot product of their two vectors.
+# (3) Mô hình: hai ma trận nhúng, một cho các từ ở trung tâm (vector
+# nhúng ta giữ lại) và một cho các từ ngữ cảnh. Điểm số của một cặp
+# là tích vô hướng của hai vector tương ứng.
 from torch import nn
 
 V = len(vocabulary)
-D = 100   # size of the embeddings
+D = 100   # kích thước vector nhúng
 torch.manual_seed(0)
 center_embeddings = nn.Embedding(V, D)
 context_embeddings = nn.Embedding(V, D)
@@ -82,10 +82,10 @@ nn.init.normal_(center_embeddings.weight, std=0.1)
 nn.init.normal_(context_embeddings.weight, std=0.1)
 
 
-# (4) Train with Adam on batches of 4,096 real pairs. For each real
-# pair, draw k = 5 fake context words from the counts raised to the
-# power 3/4, with torch.multinomial. The loss is the cross-entropy
-# loss for two classes: 1 for the real pairs, 0 for the fake ones.
+# (4) Huấn luyện bằng Adam trên các lô 4.096 cặp thật. Với mỗi cặp
+# thật, lấy mẫu k = 5 từ ngữ cảnh giả theo số đếm lũy thừa 3/4 bằng
+# torch.multinomial. Hàm mất mát là entropy chéo cho hai lớp:
+# 1 cho cặp thật, 0 cho cặp giả.
 import time
 
 noise = torch.tensor([counts[word] for word in vocabulary],
@@ -94,11 +94,11 @@ k = 5
 parameters = (list(center_embeddings.parameters())
               + list(context_embeddings.parameters()))
 optimizer = torch.optim.Adam(parameters, lr=3e-3)
-loss_function = nn.BCEWithLogitsLoss()   # sigmoid + cross-entropy
+loss_function = nn.BCEWithLogitsLoss()   # sigmoid + entropy chéo
 batch_size = 4096
 start_time = time.time()
 for epoch in range(3):
-    order = torch.randperm(len(centers))   # shuffled pairs
+    order = torch.randperm(len(centers))   # xáo trộn các cặp
     for start in range(0, len(order), batch_size):
         batch = order[start:start + batch_size]
         B = len(batch)
@@ -107,12 +107,12 @@ for epoch in range(3):
         fake_words = torch.multinomial(noise, B * k, replacement=True)
         fake = context_embeddings(fake_words).view(B, k, D)
         real_scores = (center * context).sum(dim=1)    # (B,)
-        # center[:, None] has size (B, 1, D): it multiplies each of
-        # the k fake contexts of its pair
+        # center[:, None] có kích thước (B, 1, D): nhân với từng
+        # ngữ cảnh giả trong k ngữ cảnh giả của cặp đó
         fake_scores = (center[:, None] * fake).sum(dim=2)  # (B, k)
         scores = torch.cat([real_scores[:, None], fake_scores], dim=1)
         labels = torch.zeros(B, 1 + k)
-        labels[:, 0] = 1   # the real pair is in column 0
+        labels[:, 0] = 1   # cặp thật nằm ở cột 0
         loss = loss_function(scores, labels)
         optimizer.zero_grad()
         loss.backward()
@@ -122,9 +122,9 @@ for epoch in range(3):
           f"{elapsed:.0f} s since the start")
 
 
-# (5) The nearest neighbors of the words of exercise 4.2, in the
-# matrix of the center words. Divide each row by its length, so
-# that a dot product is a cosine similarity.
+# (5) Các láng giềng gần nhất của các từ ở bài 4.2 trong ma trận
+# từ trung tâm. Chia mỗi hàng cho độ dài của nó để tích vô hướng
+# trở thành độ tương đồng cosine.
 embeddings = center_embeddings.weight.detach()
 embeddings = embeddings / embeddings.norm(dim=1, keepdim=True)
 
@@ -132,7 +132,7 @@ print()
 for word in ["three", "he", "city", "film", "excellent", "terrible"]:
     similarities = embeddings @ embeddings[word_index[word]]
     ranking = similarities.argsort(descending=True).tolist()
-    nearest = [vocabulary[i] for i in ranking[1:6]]   # [0]: the word
+    nearest = [vocabulary[i] for i in ranking[1:6]]   # [0]: chính từ đó
     print(f"{word}: {', '.join(nearest)}")
 ```
 

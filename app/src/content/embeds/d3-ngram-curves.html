@@ -62,18 +62,18 @@
         return ['#4e79a7', '#f28e2b', '#59a14f'];
       })();
       const SERIES = [
-        { key: 'none', label: 'no smoothing (infinite for n > 1)', color: 'var(--muted-color)' },
-        { key: 'add_one', label: 'add-one smoothing', color: cat[1] },
-        { key: 'interpolation', label: 'interpolation', color: cat[0] },
+        { key: 'none', label: 'không làm mịn (vô cực với n > 1)', color: 'var(--muted-color)' },
+        { key: 'add_one', label: 'làm mịn cộng một (add-one)', color: cat[1] },
+        { key: 'interpolation', label: 'nội suy (interpolation)', color: cat[0] },
       ];
 
       container.style.position = 'relative';
       container.innerHTML = `
         <div class="charts">
-          <div><div class="chart-title">Validation n-grams never seen in training</div><div class="left"></div></div>
-          <div><div class="chart-title">Validation perplexity</div><div class="right"></div></div>
+          <div><div class="chart-title">Tỷ lệ n-gram trong tập xác thực chưa từng gặp khi huấn luyện</div><div class="left"></div></div>
+          <div><div class="chart-title">Độ bối rối (Perplexity) trên tập xác thực</div><div class="right"></div></div>
         </div>
-        <div class="legend"><div class="legend-title">Legend</div><div class="items"></div></div>`;
+        <div class="legend"><div class="legend-title">Chú giải</div><div class="items"></div></div>`;
       const items = container.querySelector('.legend .items');
       SERIES.forEach((s) => {
         const el = document.createElement('span');
@@ -97,9 +97,9 @@
       const hideTip = () => { tip.style.opacity = '0'; tip.style.transform = 'translate(-9999px, -9999px)'; };
 
       const leftSvg = d3.select(container.querySelector('.left')).append('svg').attr('width', '100%')
-        .attr('role', 'img').attr('aria-label', 'Fraction of the validation n-grams never seen in training, for n = 1 to 5');
+        .attr('role', 'img').attr('aria-label', 'Tỷ lệ n-gram trong tập xác thực chưa từng xuất hiện khi huấn luyện, với n = 1 đến 5');
       const rightSvg = d3.select(container.querySelector('.right')).append('svg').attr('width', '100%')
-        .attr('role', 'img').attr('aria-label', 'Validation perplexity for n = 1 to 5, without smoothing, with add-one smoothing and with interpolation');
+        .attr('role', 'img').attr('aria-label', 'Độ bối rối trên tập xác thực với n = 1 đến 5, khi không làm mịn, làm mịn cộng một và nội suy');
 
       let data = null;
       const fmtPct = d3.format('.1%');
@@ -142,29 +142,29 @@
         // Left: the fraction of unseen n-grams
         const gl = frame(leftSvg, width, height, margin);
         const yl = d3.scaleLinear().domain([0, 1]).range([ih, 0]);
-        axes(gl, x, yl, iw, ih, d3.format('.0%'), [0, 0.25, 0.5, 0.75, 1], 'never seen in training');
+        axes(gl, x, yl, iw, ih, d3.format('.0%'), [0, 0.25, 0.5, 0.75, 1], 'chưa từng gặp khi huấn luyện');
         const pointsL = ns.map((n, i) => ({ n, v: data.unseen[i] }));
         gl.selectAll('path.line').data([pointsL]).join('path').attr('class', 'line').attr('stroke', cat[0])
           .attr('d', d3.line().x((d) => x(d.n)).y((d) => yl(d.v)));
         gl.selectAll('circle.point').data(pointsL).join('circle').attr('class', 'point').attr('r', 4.5)
           .attr('fill', cat[0]).attr('cx', (d) => x(d.n)).attr('cy', (d) => yl(d.v)).attr('tabindex', 0)
-          .on('mouseenter mousemove', (e, d) => showTip(e, `<b>n = ${d.n}</b><br>${fmtPct(d.v)} of the validation ${d.n}-grams never appear in the training text`))
+          .on('mouseenter mousemove', (e, d) => showTip(e, `<b>n = ${d.n}</b><br>${fmtPct(d.v)} số ${d.n}-gram trong tập xác thực chưa từng xuất hiện trong văn bản huấn luyện`))
           .on('mouseleave blur', hideTip);
 
         // Right: the perplexity, on a log scale
         const gr = frame(rightSvg, width, height, margin);
         const values = SERIES.flatMap((s) => data[s.key].filter((v) => v != null));
         const yr = d3.scaleLog().domain([200, Math.max(40000, d3.max(values) * 1.2)]).range([ih, 0]);
-        axes(gr, x, yr, iw, ih, d3.format(','), [300, 1000, 3000, 10000, 30000], 'perplexity (log scale)');
+        axes(gr, x, yr, iw, ih, d3.format(','), [300, 1000, 3000, 10000, 30000], 'độ bối rối (thang log)');
         const series = SERIES.map((s) => ({ ...s, points: ns.map((n, i) => ({ n, v: data[s.key][i], s })) }));
         gr.selectAll('path.line').data(series, (s) => s.key).join('path').attr('class', 'line')
           .attr('stroke', (s) => s.color)
           .attr('d', (s) => d3.line().defined((d) => d.v != null).x((d) => x(d.n)).y((d) => yr(d.v))(s.points));
         const finitePoints = series.flatMap((s) => s.points.filter((d) => d.v != null));
         const describe = (d) => {
-          const name = d.s.key === 'none' ? 'no smoothing' : d.s.label;
-          const extra = d.s.key === 'interpolation' && d.n > 1 ? `<br>weight of order ${d.n}: ${data.weights[d.n - 2]}` : '';
-          return `<b>n = ${d.n}, ${name}</b><br>perplexity ${fmtPpl(d.v)}${extra}`;
+          const name = d.s.key === 'none' ? 'không làm mịn' : d.s.label;
+          const extra = d.s.key === 'interpolation' && d.n > 1 ? `<br>trọng số bậc ${d.n}: ${data.weights[d.n - 2]}` : '';
+          return `<b>n = ${d.n}, ${name}</b><br>độ bối rối: ${fmtPpl(d.v)}${extra}`;
         };
         gr.selectAll('circle.point').data(finitePoints, (d) => d.s.key + d.n).join('circle').attr('class', 'point')
           .attr('r', 4.5).attr('fill', (d) => d.s.color).attr('cx', (d) => x(d.n)).attr('cy', (d) => yr(d.v)).attr('tabindex', 0)
@@ -174,7 +174,7 @@
         const infinite = series.find((s) => s.key === 'none').points.filter((d) => d.v == null);
         gr.selectAll('text.infinity').data(infinite, (d) => d.n).join('text').attr('class', 'infinity')
           .attr('x', (d) => x(d.n)).attr('y', -2).attr('text-anchor', 'middle').attr('fill', 'var(--muted-color)').text('∞')
-          .on('mouseenter mousemove', (e, d) => showTip(e, `<b>n = ${d.n}, no smoothing</b><br>infinite: some validation ${d.n}-grams have the probability 0`))
+          .on('mouseenter mousemove', (e, d) => showTip(e, `<b>n = ${d.n}, không làm mịn</b><br>vô cực: một số ${d.n}-gram trong tập xác thực có xác suất bằng 0`))
           .on('mouseleave', hideTip);
       }
 

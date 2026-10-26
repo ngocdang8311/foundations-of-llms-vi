@@ -101,18 +101,19 @@
 
       let lang = 'French';
       let active = null; // { side: 'src' | 'tgt', index }
+      const LANG_LABELS = { English: 'Tiếng Anh', French: 'Tiếng Pháp', German: 'Tiếng Đức', Turkish: 'Tiếng Thổ Nhĩ Kỳ' };
 
       container.innerHTML = `
         <div class="controls">
-          <span class="control-label">Translation</span>
-          <div class="segmented" role="group" aria-label="Language of the translation">
-            ${Object.keys(TARGETS).map((k) => `<button type="button" data-lang="${k}">${k}</button>`).join('')}
+          <span class="control-label">Bản dịch</span>
+          <div class="segmented" role="group" aria-label="Ngôn ngữ của bản dịch">
+            ${Object.keys(TARGETS).map((k) => `<button type="button" data-lang="${k}">${LANG_LABELS[k] || k}</button>`).join('')}
           </div>
         </div>
         <div class="chart"></div>`;
       const buttons = Array.from(container.querySelectorAll('.segmented button'));
       const svg = d3.select(container.querySelector('.chart')).append('svg').attr('width', '100%')
-        .attr('role', 'img').attr('aria-label', 'Alignment of the morphemes of an English sentence and of its translation');
+        .attr('role', 'img').attr('aria-label', 'Gióng hàng các hình vị giữa câu tiếng Anh và bản dịch của nó');
       const g = svg.append('g');
 
       const measure = (() => {
@@ -160,8 +161,8 @@
           // Language names on the left of the sentences when there is room, else above and below them
           const margin = (width - Math.max(rowWidth(SOURCE, size), rowWidth(target.units, size))) / 2;
           const inline = margin >= 90;
-          g.append('text').attr('class', 'lang').attr('x', 0).attr('y', inline ? 24 : 4).attr('dy', inline ? '0.32em' : 0).text('English');
-          g.append('text').attr('class', 'lang').attr('x', 0).attr('y', inline ? height - 22 : height + 2).attr('dy', inline ? '0.32em' : 0).text(lang);
+          g.append('text').attr('class', 'lang').attr('x', 0).attr('y', inline ? 24 : 4).attr('dy', inline ? '0.32em' : 0).text(LANG_LABELS.English);
+          g.append('text').attr('class', 'lang').attr('x', 0).attr('y', inline ? height - 22 : height + 2).attr('dy', inline ? '0.32em' : 0).text(LANG_LABELS[lang] || lang);
         } else {
           const rowH = 24;
           const nWords = (units) => units[units.length - 1].word + 1;
@@ -184,8 +185,8 @@
             return out;
           };
           pos = { src: col(SOURCE, colW, true), tgt: col(target.units, width - colW, false) };
-          g.append('text').attr('class', 'lang').attr('x', colW).attr('y', 8).attr('text-anchor', 'end').text('English');
-          g.append('text').attr('class', 'lang').attr('x', width - colW).attr('y', 8).text(lang);
+          g.append('text').attr('class', 'lang').attr('x', colW).attr('y', 8).attr('text-anchor', 'end').text(LANG_LABELS.English);
+          g.append('text').attr('class', 'lang').attr('x', width - colW).attr('y', 8).text(LANG_LABELS[lang] || lang);
         }
 
         const linkPath = (a, b) => {

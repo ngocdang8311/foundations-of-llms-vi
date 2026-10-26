@@ -1,0 +1,283 @@
+<div class="d3-ch7-agent-reliability"></div>
+<style>
+  .d3-ch7-agent-reliability {
+    font-size: 12.5px;
+    color: var(--text-color);
+    margin: 12px 0;
+  }
+  .d3-ch7-agent-reliability .ar-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-bg);
+    margin-bottom: 10px;
+  }
+  .d3-ch7-agent-reliability .ar-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .d3-ch7-agent-reliability input[type="range"] {
+    cursor: pointer;
+    width: 110px;
+  }
+  .d3-ch7-agent-reliability .ar-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  @media (max-width: 640px) {
+    .d3-ch7-agent-reliability .ar-stats {
+      grid-template-columns: 1fr;
+    }
+  }
+  .d3-ch7-agent-reliability .ar-stat {
+    padding: 9px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-bg);
+    text-align: center;
+  }
+  .d3-ch7-agent-reliability .ar-stat-label {
+    font-size: 11px;
+    color: var(--muted-color);
+    margin-bottom: 3px;
+  }
+  .d3-ch7-agent-reliability .ar-stat-val {
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-ch7-agent-reliability svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch7-agent-reliability'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch7-agent-reliability'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let pStep = 0.95;
+        let kHorizon = 20;
+        let maxAttempts = 2; // M attempts with verifier: p_eff = 1 - (1 - p)^M
+
+        let cRaw = '#e15759';
+        let cVerified = '#59a14f';
+
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) {
+                cRaw = cat[3];
+                cVerified = cat[2];
+              }
+            }
+          } catch (_) {}
+        };
+        readPalette();
+
+        const controls = document.createElement('div');
+        controls.className = 'ar-controls';
+
+        const gP = document.createElement('div');
+        gP.className = 'ar-group';
+        const lblP = document.createElement('span');
+        const inpP = document.createElement('input');
+        inpP.type = 'range';
+        inpP.min = '0.70';
+        inpP.max = '0.99';
+        inpP.step = '0.01';
+        inpP.value = String(pStep);
+        gP.append(lblP, inpP);
+
+        const gK = document.createElement('div');
+        gK.className = 'ar-group';
+        const lblK = document.createElement('span');
+        const inpK = document.createElement('input');
+        inpK.type = 'range';
+        inpK.min = '1';
+        inpK.max = '30';
+        inpK.step = '1';
+        inpK.value = String(kHorizon);
+        gK.append(lblK, inpK);
+
+        const gM = document.createElement('div');
+        gM.className = 'ar-group';
+        const lblM = document.createElement('span');
+        const inpM = document.createElement('input');
+        inpM.type = 'range';
+        inpM.min = '1';
+        inpM.max = '4';
+        inpM.step = '1';
+        inpM.value = String(maxAttempts);
+        gM.append(lblM, inpM);
+
+        controls.append(gP, gK, gM);
+
+        const stats = document.createElement('div');
+        stats.className = 'ar-stats';
+        const s1 = document.createElement('div');
+        s1.className = 'ar-stat';
+        const s2 = document.createElement('div');
+        s2.className = 'ar-stat';
+        const s3 = document.createElement('div');
+        s3.className = 'ar-stat';
+        stats.append(s1, s2, s3);
+
+        const svgWrap = document.createElement('div');
+        container.append(controls, stats, svgWrap);
+
+        const W = 740, H = 260;
+        const margin = { top: 20, right: 28, bottom: 38, left: 52 };
+        const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+
+        const render = () => {
+          readPalette();
+          lblP.innerHTML = `Độ tin cậy mỗi bước <strong>p = ${(pStep * 100).toFixed(0)}%</strong>`;
+          lblK.innerHTML = `Số bước tác vụ <strong>K = ${kHorizon}</strong>`;
+          lblM.innerHTML = `Số lần thử Verifier <strong>M = ${maxAttempts}</strong>`;
+
+          const pEff = 1 - Math.pow(1 - pStep, maxAttempts);
+          const rawAtK = Math.pow(pStep, kHorizon);
+          const verAtK = Math.pow(pEff, kHorizon);
+
+          s1.innerHTML = `<div class="ar-stat-label">Không có Verifier: P = p^K</div><div class="ar-stat-val" style="color:${cRaw}">${(rawAtK * 100).toFixed(1)}%</div>`;
+          s2.innerHTML = `<div class="ar-stat-label">Độ tin cậy mỗi bước sau M=${maxAttempts} lần thử</div><div class="ar-stat-val">${(pEff * 100).toFixed(2)}%</div>`;
+          s3.innerHTML = `<div class="ar-stat-label">Có Verifier + Retry: P = (1 − (1−p)^M)^K</div><div class="ar-stat-val" style="color:${cVerified}">${(verAtK * 100).toFixed(1)}%</div>`;
+
+          svg.selectAll('*').remove();
+
+          const x = d3.scaleLinear().domain([1, 30]).range([margin.left, W - margin.right]);
+          const y = d3.scaleLinear().domain([0, 1]).range([H - margin.bottom, margin.top]);
+
+          // Grid lines
+          [0.2, 0.4, 0.6, 0.8, 1.0].forEach((tick) => {
+            svg.append('line')
+              .attr('x1', margin.left)
+              .attr('x2', W - margin.right)
+              .attr('y1', y(tick))
+              .attr('y2', y(tick))
+              .attr('stroke', 'var(--border-color)')
+              .attr('stroke-dasharray', '3,3');
+
+            svg.append('text')
+              .attr('x', margin.left - 8)
+              .attr('y', y(tick) + 4)
+              .attr('text-anchor', 'end')
+              .attr('font-size', 11)
+              .attr('fill', 'var(--muted-color)')
+              .text(`${Math.round(tick * 100)}%`);
+          });
+
+          [1, 5, 10, 15, 20, 25, 30].forEach((stepTick) => {
+            svg.append('text')
+              .attr('x', x(stepTick))
+              .attr('y', H - margin.bottom + 18)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', 11)
+              .attr('fill', 'var(--muted-color)')
+              .text(`k=${stepTick}`);
+          });
+
+          svg.append('text')
+            .attr('x', (margin.left + W - margin.right) / 2)
+            .attr('y', H - 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11.5)
+            .attr('fill', 'var(--muted-color)')
+            .text('Số bước suy luận / gọi công cụ liên tiếp (K)');
+
+          const steps = d3.range(1, 31);
+          const lineRaw = d3.line().x((k) => x(k)).y((k) => y(Math.pow(pStep, k)));
+          const lineVer = d3.line().x((k) => x(k)).y((k) => y(Math.pow(pEff, k)));
+
+          svg.append('path')
+            .datum(steps)
+            .attr('fill', 'none')
+            .attr('stroke', cRaw)
+            .attr('stroke-width', 2.4)
+            .attr('d', lineRaw);
+
+          svg.append('path')
+            .datum(steps)
+            .attr('fill', 'none')
+            .attr('stroke', cVerified)
+            .attr('stroke-width', 2.4)
+            .attr('d', lineVer);
+
+          // Vertical marker at kHorizon
+          svg.append('line')
+            .attr('x1', x(kHorizon))
+            .attr('x2', x(kHorizon))
+            .attr('y1', margin.top)
+            .attr('y2', H - margin.bottom)
+            .attr('stroke', 'var(--text-color)')
+            .attr('stroke-width', 1.3)
+            .attr('stroke-dasharray', '4,3');
+
+          svg.append('circle')
+            .attr('cx', x(kHorizon))
+            .attr('cy', y(rawAtK))
+            .attr('r', 5)
+            .attr('fill', cRaw);
+
+          svg.append('circle')
+            .attr('cx', x(kHorizon))
+            .attr('cy', y(verAtK))
+            .attr('r', 5)
+            .attr('fill', cVerified);
+        };
+
+        inpP.addEventListener('input', () => { pStep = Number(inpP.value); render(); });
+        inpK.addEventListener('input', () => { kHorizon = Number(inpK.value); render(); });
+        inpM.addEventListener('input', () => { maxAttempts = Number(inpM.value); render(); });
+
+        render();
+        document.addEventListener('palettes:updated', render);
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

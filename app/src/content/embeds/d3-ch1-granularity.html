@@ -1,0 +1,261 @@
+<div class="d3-ch1-granularity"></div>
+<style>
+  .d3-ch1-granularity { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-ch1-granularity .ctrl-bar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+    margin-bottom: 12px; padding: 10px 14px; border-radius: 8px;
+    background: var(--surface-bg); border: 1px solid var(--border-color);
+  }
+  .d3-ch1-granularity .ctrl-bar label { font-weight: 600; display: flex; align-items: center; gap: 8px; flex: 1; min-width: 240px; }
+  .d3-ch1-granularity input[type="range"] { flex: 1; accent-color: var(--primary-color); cursor: pointer; }
+  .d3-ch1-granularity .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .d3-ch1-granularity .preset-btn {
+    border: 1px solid var(--border-color); background: var(--page-bg); color: var(--text-color);
+    font-size: 11.5px; padding: 4px 9px; border-radius: 5px; cursor: pointer; font-family: inherit;
+  }
+  .d3-ch1-granularity .preset-btn.is-active {
+    background: var(--primary-color); color: #fff; border-color: var(--primary-color); font-weight: 600;
+  }
+  .d3-ch1-granularity svg { display: block; width: 100%; overflow: visible; }
+  .d3-ch1-granularity .axis path, .d3-ch1-granularity .axis line { stroke: var(--axis-color); }
+  .d3-ch1-granularity .axis text { fill: var(--tick-color); font-size: 11px; }
+  .d3-ch1-granularity .grid line { stroke: var(--grid-color); }
+  .d3-ch1-granularity .grid path { stroke: none; }
+  .d3-ch1-granularity .metrics {
+    margin-top: 12px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  }
+  .d3-ch1-granularity.is-narrow .metrics { grid-template-columns: 1fr; }
+  .d3-ch1-granularity .metric-card {
+    padding: 10px 12px; border-radius: 8px; background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+  }
+  .d3-ch1-granularity .metric-title { font-size: 11.5px; color: var(--muted-color); margin-bottom: 3px; }
+  .d3-ch1-granularity .metric-val { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .d3-ch1-granularity .metric-sub { font-size: 11.5px; color: var(--muted-color); margin-top: 2px; }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch1-granularity'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch1-granularity'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // Continuous scale t in [0, 100] mapping log10(|V|) from 2.408 (256) to 6.0 (1,000,000)
+      const V_MIN = 256;
+      const V_MAX = 1000000;
+      const tToV = (t) => Math.round(Math.pow(10, Math.log10(V_MIN) + (t / 100) * (Math.log10(V_MAX) - Math.log10(V_MIN))));
+      const vToT = (v) => ((Math.log10(v) - Math.log10(V_MIN)) / (Math.log10(V_MAX) - Math.log10(V_MIN))) * 100;
+
+      // Empirical compression curve for a 1,000-word article (~5,200 UTF-8 bytes)
+      // At |V|=256, L = 5200 tokens (1.0 B/tok). At |V|=32k, L ~ 1320. At |V|=128k, L ~ 1150. At |V|=1M, L ~ 1020.
+      const seqLength = (v) => {
+        const x = (Math.log10(v) - Math.log10(256)) / (Math.log10(1000000) - Math.log10(256));
+        const ratio = 1 + 4.05 * (1 - Math.exp(-3.4 * x));
+        return Math.round(5200 / ratio);
+      };
+
+      const PRESETS = [
+        { label: 'Byte-level (256)', v: 256, tag: 'ByT5' },
+        { label: 'BERT (30K)', v: 30522, tag: 'BERT' },
+        { label: 'GPT-2 (50K)', v: 50257, tag: 'GPT-2' },
+        { label: 'Llama-3 (128K)', v: 128256, tag: 'Llama-3' },
+        { label: 'Word-level (500K)', v: 500000, tag: 'Word-level' }
+      ];
+
+      let currentV = 50257;
+
+      container.innerHTML = `
+        <div class="ctrl-bar">
+          <label>
+            <span>Kích thước từ vựng |V|:</span>
+            <input type="range" min="0" max="100" step="0.5" class="v-slider" />
+          </label>
+          <div class="presets"></div>
+        </div>
+        <div class="chart-box"></div>
+        <div class="metrics"></div>
+      `;
+
+      const slider = container.querySelector('.v-slider');
+      const presetsBox = container.querySelector('.presets');
+      const chartBox = container.querySelector('.chart-box');
+      const metricsBox = container.querySelector('.metrics');
+      const svg = d3.select(chartBox).append('svg').attr('role', 'img')
+        .attr('aria-label', 'Biểu đồ đánh đổi giữa kích thước từ vựng |V| và độ dài chuỗi L');
+
+      PRESETS.forEach((p) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'preset-btn';
+        btn.dataset.v = p.v;
+        btn.textContent = p.label;
+        btn.addEventListener('click', () => {
+          currentV = p.v;
+          slider.value = vToT(currentV);
+          render();
+        });
+        presetsBox.appendChild(btn);
+      });
+
+      slider.value = vToT(currentV);
+      slider.addEventListener('input', () => {
+        currentV = tToV( parseFloat(slider.value) );
+        render();
+      });
+
+      const getColors = () => {
+        try {
+          const c = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 4);
+          if (c && c.length >= 3) return c;
+        } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#59a14f', '#e15759'];
+      };
+
+      const fmtInt = d3.format(',');
+
+      function render() {
+        const totalW = container.clientWidth || 680;
+        container.classList.toggle('is-narrow', totalW < 520);
+        const height = 250;
+        const margin = { top: 20, right: 28, bottom: 38, left: 56 };
+        const iw = Math.max(200, totalW - margin.left - margin.right);
+        const ih = height - margin.top - margin.bottom;
+
+        svg.attr('width', totalW).attr('height', height);
+        svg.selectAll('*').remove();
+
+        const [cCurve, cPoint, cSweet] = getColors();
+
+        const x = d3.scaleLog().domain([V_MIN, V_MAX]).range([0, iw]);
+        const y = d3.scaleLinear().domain([800, 5500]).range([ih, 0]);
+
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        g.append('g').attr('class', 'grid')
+          .call(d3.axisLeft(y).ticks(5).tickSize(-iw).tickFormat(''));
+
+        // Sweet spot band: 30K to 150K
+        const x1 = x(28000), x2 = x(160000);
+        g.append('rect')
+          .attr('x', x1).attr('y', 0)
+          .attr('width', x2 - x1).attr('height', ih)
+          .attr('fill', cSweet).attr('opacity', 0.11);
+        g.append('text')
+          .attr('x', (x1 + x2) / 2).attr('y', 14)
+          .attr('text-anchor', 'middle').attr('fill', cSweet)
+          .attr('font-size', 11).attr('font-weight', 700)
+          .text('Vùng Subword tối ưu (30K–150K)');
+
+        g.append('g').attr('class', 'axis x')
+          .attr('transform', `translate(0,${ih})`)
+          .call(d3.axisBottom(x).tickValues([256, 1000, 10000, 32000, 128000, 1000000])
+            .tickFormat((d) => d >= 1000 ? `${Math.round(d/1000)}K` : d));
+
+        g.append('g').attr('class', 'axis y')
+          .call(d3.axisLeft(y).ticks(5));
+
+        g.append('text')
+          .attr('x', iw / 2).attr('y', ih + 33)
+          .attr('text-anchor', 'middle').attr('fill', 'var(--muted-color)').attr('font-size', 11.5)
+          .text('Kích thước bộ từ vựng |V| (thang logarit)');
+
+        g.append('text')
+          .attr('transform', 'rotate(-90)')
+          .attr('x', -ih / 2).attr('y', -42)
+          .attr('text-anchor', 'middle').attr('fill', 'var(--muted-color)').attr('font-size', 11.5)
+          .text('Độ dài chuỗi L (tokens / 1.000 từ)');
+
+        const curvePts = d3.range(0, 101, 2).map((t) => {
+          const v = tToV(t);
+          return { v, l: seqLength(v) };
+        });
+
+        const line = d3.line().x((d) => x(d.v)).y((d) => y(d.l)).curve(d3.curveMonotoneX);
+        g.append('path')
+          .datum(curvePts)
+          .attr('fill', 'none').attr('stroke', cCurve).attr('stroke-width', 2.5)
+          .attr('d', line);
+
+        // Reference preset dots
+        PRESETS.forEach((p) => {
+          const px = x(p.v), py = y(seqLength(p.v));
+          g.append('circle')
+            .attr('cx', px).attr('cy', py).attr('r', 4)
+            .attr('fill', 'var(--surface-bg)').attr('stroke', cCurve).attr('stroke-width', 2);
+          g.append('text')
+            .attr('x', px).attr('y', py - 8)
+            .attr('text-anchor', p.v < 500 ? 'start' : p.v > 400000 ? 'end' : 'middle')
+            .attr('font-size', 10.5).attr('fill', 'var(--muted-color)')
+            .text(p.tag);
+        });
+
+        // Current selected point
+        const curL = seqLength(currentV);
+        const cx = x(currentV), cy = y(curL);
+        g.append('line')
+          .attr('x1', cx).attr('x2', cx).attr('y1', cy).attr('y2', ih)
+          .attr('stroke', cPoint).attr('stroke-dasharray', '3,3');
+        g.append('circle')
+          .attr('cx', cx).attr('cy', cy).attr('r', 6.5)
+          .attr('fill', cPoint).attr('stroke', 'var(--page-bg)').attr('stroke-width', 2);
+
+        presetsBox.querySelectorAll('.preset-btn').forEach((b) => {
+          const bv = Number(b.dataset.v);
+          b.classList.toggle('is-active', Math.abs(Math.log10(bv) - Math.log10(currentV)) < 0.04);
+        });
+
+        // Compute metrics (assuming d_model = 4096, Embedding + LM Head = 2 * |V| * d)
+        const embParamsM = ((2 * currentV * 4096) / 1e6).toFixed(1);
+        const attnRel = ((curL / 1320) ** 2).toFixed(2);
+        const ratio = (5200 / curL).toFixed(2);
+
+        metricsBox.innerHTML = `
+          <div class="metric-card">
+            <div class="metric-title">Kích thước từ vựng |V|</div>
+            <div class="metric-val">${fmtInt(currentV)} tokens</div>
+            <div class="metric-sub">Tham số Embedding + Head (d=4096): <strong>${embParamsM}M</strong></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Độ dài chuỗi L (cho 1.000 từ)</div>
+            <div class="metric-val">${fmtInt(curL)} tokens</div>
+            <div class="metric-sub">Tỷ lệ nén: <strong>${ratio} bytes/token</strong></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-title">Chi phí Self-Attention O(L²)</div>
+            <div class="metric-val" style="color:${cPoint}">${attnRel}× (so với 32K BPE)</div>
+            <div class="metric-sub">${currentV < 2000 ? 'Chuỗi quá dài → nghẽn tính toán' : currentV > 250000 ? 'Bảng nhúng quá lớn & thưa' : 'Cân bằng bộ nhớ & tốc độ'}</div>
+          </div>
+        `;
+      }
+
+      render();
+      document.addEventListener('palettes:updated', render);
+      if (window.ResizeObserver) new ResizeObserver(() => render()).observe(container);
+      else window.addEventListener('resize', render);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

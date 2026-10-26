@@ -3,17 +3,17 @@
 export const cells = 1;
 
 ```python
-# The digits 0 to 9 are their own tokens. The decoder reads a start
-# token, 10, before it writes the first digit.
+# Các chữ số từ 0 đến 9 là các token của chính chúng. Bộ giải mã
+# đọc một token bắt đầu (10) trước khi viết chữ số đầu tiên.
 START = 10
 
-# A batch of n random strings of digits of the same length, and
-# their "translations": the same digits in reverse order
+# Một lô gồm n chuỗi chữ số ngẫu nhiên có cùng độ dài và các
+# "bản dịch" của chúng: chính các chữ số đó theo thứ tự đảo ngược
 import torch
 
 def make_batch(n, length):
     sources = torch.randint(0, 10, (n, length))
-    targets = sources.flip(1)   # reverse the order of the columns
+    targets = sources.flip(1)   # đảo ngược thứ tự các cột
     return sources, targets
 
 torch.manual_seed(0)

@@ -10,8 +10,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách mỗi dòng theo khoảng trắng
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -20,8 +20,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# The validation and test sequences, built in the same way
-# [Copied from the starter of 2.2]
+# Chuỗi xác thực và chuỗi kiểm tra, được tạo theo cùng cách
+# [Sao chép từ phần khởi đầu bài 2.2]
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())
@@ -34,23 +34,23 @@ print(f"validation: {len(val_sequence)} words")
 print(f"test: {len(test_sequence)} words")
 
 
-# Give each word of the vocabulary an index
-# [Copied from the starter of 4.2]
+# Gán một chỉ số cho mỗi từ trong từ vựng
+# [Sao chép từ phần khởi đầu bài 4.2]
 vocabulary = sorted(set(train_sequence))
 word_index = {word: i for i, word in enumerate(vocabulary)}
 
 
 # ----------------------
-#  New in this exercise
+#  Mới trong bài tập này
 # ----------------------
-# Cut a sequence into n streams of indices: row i holds the i-th
-# piece of the text. A batch reads the n streams side by side, so
-# that each stream continues from one batch to the next.
+# Cắt chuỗi thành n luồng chỉ số: hàng i chứa phần thứ i của văn
+# bản. Mỗi lô đọc n luồng song song cạnh nhau để mỗi luồng được
+# nối tiếp từ lô này sang lô tiếp theo.
 import torch
 
 def make_streams(sequence, n):
     indices = torch.tensor([word_index[word] for word in sequence])
-    length = len(indices) // n   # drop the last few words
+    length = len(indices) // n   # bỏ một vài từ cuối cùng
     return indices[:n * length].view(n, length)
 
 train_streams = make_streams(train_sequence, 32)
@@ -65,10 +65,10 @@ print(f"start of stream 1: {' '.join(first)}")
 <section className="code-output"><pre>{"text: 2051910 words\nvocabulary: 33277 words\nvalidation: 213886 words\ntest: 241211 words\n\ntrain: (32, 64122) (streams, words)\nstart of stream 1: . Antonio Imbert <unk> is one of the"}</pre></section>
 
 ```python
-# (1) The model: the embeddings, an LSTM, and one score per word of
-# the vocabulary at each position. forward() takes the state left
-# by the previous chunk, and returns the new one. Start from small
-# embeddings, as in exercise 4.2.
+# (1) Mô hình: tầng nhúng, mạng LSTM và điểm số cho từng từ trong
+# từ vựng tại mỗi vị trí. forward() nhận trạng thái từ đoạn trước
+# để lại và trả về trạng thái mới. Khởi tạo các vector nhúng nhỏ
+# như ở bài 4.2.
 from torch import nn
 import torch.nn.functional as F
 
@@ -91,8 +91,8 @@ model = LSTMLanguageModel(V, D=256, H=256).to(device)
 nn.init.normal_(model.embedding.weight, std=0.1)
 
 
-# (2) The chunks of 35 words: x holds the words of the chunk, y the
-# words that follow them, one position later
+# (2) Các đoạn dài 35 từ: x chứa các từ của đoạn, y chứa các từ
+# theo sau chúng ở vị trí kế tiếp
 steps = 35
 
 def chunks(streams):
@@ -104,8 +104,8 @@ def chunks(streams):
     return pairs
 
 
-# (3) The perplexity on a set of streams, read chunk after chunk
-# with the state carried over
+# (3) Độ hỗn loạn (perplexity) trên một tập luồng, đọc nối tiếp
+# từng đoạn và truyền trạng thái qua các đoạn
 import math
 
 def perplexity(model, streams):
@@ -120,9 +120,9 @@ def perplexity(model, streams):
     return math.exp(total_loss / count)
 
 
-# (4) Train with Adam and gradient clipping. The state is carried
-# from one chunk to the next, but detach() cuts its link to the
-# previous chunks, so that the gradient stops at the chunk.
+# (4) Huấn luyện với Adam và cắt ngưỡng đạo hàm. Trạng thái được
+# truyền từ đoạn này sang đoạn tiếp theo, nhưng detach() cắt liên
+# kết với các đoạn trước để đạo hàm dừng lại ở đoạn hiện tại.
 import copy
 
 optimizer = torch.optim.Adam(model.parameters(), lr=2e-3)
@@ -146,13 +146,13 @@ for epoch in range(3):
         best_model = copy.deepcopy(model)
 
 
-# (5) Test perplexity of the best model
+# (5) Độ hỗn loạn trên tập kiểm tra của mô hình tốt nhất
 test_perplexity = perplexity(best_model, test_streams)
 print(f"\ntest perplexity, epoch {best_epoch}: {test_perplexity:.1f}")
 
 
-# (6) Generate 50 words, one at a time: the state carries all the
-# words generated so far
+# (6) Sinh 50 từ, từng từ một: trạng thái mang thông tin của toàn
+# bộ các từ đã sinh cho đến thời điểm hiện tại
 first_word = "The"
 length = 50
 torch.manual_seed(0)

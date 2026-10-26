@@ -1,0 +1,33 @@
+export const cells = 1;
+
+```python
+corpus = """Beautiful is better than ugly. Explicit is better than implicit.
+Simple is better than complex. Complex is better than complicated.
+Flat is better than nested. Sparse is better than dense.
+Special cases aren't special enough to break the rules.
+Although practicality beats purity, errors should never pass silently.
+In the face of ambiguity, refuse the temptation to guess.
+Now is better than never, although never is often better than right now.
+If the implementation is hard to explain, it is a bad idea.
+If the implementation is easy to explain, it may be a good idea.
+Language models do not read raw text directly as words or characters.
+Instead, a tokenizer converts text into a sequence of integer token IDs.
+Byte-Pair Encoding starts with individual bytes and repeatedly merges
+the most frequent adjacent pair of tokens into a new vocabulary entry.
+Common words like the, and, model, language quickly become single tokens,
+while rarer words like tokenization, autoregressive, or transformers are
+split into meaningful subword pieces such as token, ization, and transform.
+Subword tokenization helps neural networks generalize across different forms
+of the same root word, such as train, trained, trainer, and training,
+or model, models, modeled, and modeling in natural language processing.
+When a tokenizer splits unseen words into smaller subwords, the language
+model can still understand their meaning from the familiar roots and suffixes.
+Without pre-tokenization, however, merging raw bytes directly across spaces
+can fuse frequent words with punctuation marks or adjacent words."""
+
+raw_bytes = list(corpus.encode("utf-8"))
+print(f"Độ dài ban đầu: {len(raw_bytes)} bytes "
+      f"({len(set(raw_bytes))} byte phân biệt)")
+```
+
+<section className="code-output"><pre>{"Độ dài ban đầu: 1591 bytes (44 byte phân biệt)"}</pre></section>

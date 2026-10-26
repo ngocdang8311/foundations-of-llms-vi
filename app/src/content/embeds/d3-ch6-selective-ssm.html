@@ -1,0 +1,301 @@
+<div class="d3-ch6-selective-ssm"></div>
+<style>
+  .d3-ch6-selective-ssm {
+    font-size: 12.5px;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    background: var(--surface-bg);
+  }
+  .d3-ch6-selective-ssm .ssm-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .d3-ch6-selective-ssm .ssm-btns {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .d3-ch6-selective-ssm button {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 4%, transparent);
+    color: var(--text-color);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+  }
+  .d3-ch6-selective-ssm button.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-ch6-selective-ssm svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch6-selective-ssm .ssm-caption {
+    margin-top: 10px;
+    padding: 9px 12px;
+    border-radius: 7px;
+    background: color-mix(in oklab, var(--text-color) 5%, var(--page-bg));
+    font-size: 12px;
+    line-height: 1.45;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const SEQ = [
+      { tok: 'MÃ:', salient: false, deltaSel: 0.04, deltaLti: 0.35 },
+      { tok: 'A7', salient: true,  deltaSel: 0.92, deltaLti: 0.35 },
+      { tok: 'uhm', salient: false, deltaSel: 0.02, deltaLti: 0.35 },
+      { tok: '...', salient: false, deltaSel: 0.01, deltaLti: 0.35 },
+      { tok: 'K9', salient: true,  deltaSel: 0.90, deltaLti: 0.35 },
+      { tok: 'à',   salient: false, deltaSel: 0.02, deltaLti: 0.35 },
+      { tok: 'ờm',  salient: false, deltaSel: 0.02, deltaLti: 0.35 },
+      { tok: 'nhỉ', salient: false, deltaSel: 0.01, deltaLti: 0.35 },
+      { tok: 'M2', salient: true,  deltaSel: 0.89, deltaLti: 0.35 },
+      { tok: '=>',  salient: false, deltaSel: 0.03, deltaLti: 0.35 }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch6-selective-ssm'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch6-selective-ssm'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let selective = true;
+
+        const toolbar = document.createElement('div');
+        toolbar.className = 'ssm-toolbar';
+        toolbar.innerHTML = `
+          <div class="ssm-btns">
+            <button type="button" data-mode="selective" class="active">Mamba (Selective SSM): Δ_t = softplus(W_Δ · x_t)</button>
+            <button type="button" data-mode="lti">SSM Bất biến thời gian (LTI / S4): Δ cố định</button>
+          </div>
+          <div style="font-size:12px;color:var(--muted-color)">Nhấp vào một token nhiễu/quan trọng để đổi trạng thái</div>
+        `;
+        container.appendChild(toolbar);
+
+        const W = 740, H = 285;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        const caption = document.createElement('div');
+        caption.className = 'ssm-caption';
+        container.appendChild(caption);
+
+        let colors = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759'];
+        const readColors = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) colors = cat;
+            }
+          } catch (_) {}
+        };
+
+        const render = () => {
+          readColors();
+          svg.selectAll('*').remove();
+          const colPrimary = colors[0];
+          const colSalient = colors[1];
+          const colKeep = colors[2];
+          const colNoise = colors[3];
+
+          const xStep = (t) => 56 + t * 69;
+
+          // Compute retention of the 3 salient tokens [A7, K9, M2] across time steps
+          // h_t = exp(-delta_t) * h_{t-1} + (1 - exp(-delta_t)) * x_t
+          const salientIndices = SEQ.map((s, idx) => s.salient ? idx : -1).filter((idx) => idx >= 0);
+
+          // Row labels
+          svg.append('text').attr('x', 8).attr('y', 36).attr('font-size', '11px').attr('font-weight', '700').attr('fill', 'var(--muted-color)').text('Token x_t');
+          svg.append('text').attr('x', 8).attr('y', 112).attr('font-size', '11px').attr('font-weight', '700').attr('fill', 'var(--muted-color)').text('Bước Δ_t');
+          svg.append('text').attr('x', 8).attr('y', 175).attr('font-size', '11px').attr('font-weight', '700').attr('fill', 'var(--muted-color)').text('Hệ số nhớ Ā_t');
+          svg.append('text').attr('x', 8).attr('y', 240).attr('font-size', '11px').attr('font-weight', '700').attr('fill', 'var(--muted-color)').text('Trạng thái h_t');
+
+          let memItems = [];
+
+          SEQ.forEach((item, t) => {
+            const cx = xStep(t);
+            const delta = selective ? (item.salient ? 0.92 : 0.02) : 0.40;
+            const aBar = Math.exp(-delta * 1.6); // retention factor exp(-Delta * A)
+            const bBar = 1 - aBar;              // write gate
+
+            // Decay existing memory items
+            memItems = memItems.map((m) => ({ ...m, strength: m.strength * aBar }));
+            if (item.salient) {
+              memItems.push({ tok: item.tok, strength: bBar, salient: true });
+            } else if (!selective) {
+              memItems.push({ tok: item.tok, strength: bBar, salient: false });
+            }
+
+            // 1. Token box (clickable to toggle salient)
+            const tg = svg.append('g')
+              .style('cursor', 'pointer')
+              .on('click', () => {
+                item.salient = !item.salient;
+                render();
+              });
+
+            tg.append('rect')
+              .attr('x', cx - 27).attr('y', 16)
+              .attr('width', 54).attr('height', 30)
+              .attr('rx', 6)
+              .attr('fill', item.salient
+                ? `color-mix(in oklab, ${colSalient} 24%, var(--surface-bg))`
+                : 'var(--page-bg)')
+              .attr('stroke', item.salient ? colSalient : 'var(--border-color)')
+              .attr('stroke-width', item.salient ? 2 : 1);
+
+            tg.append('text')
+              .attr('x', cx).attr('y', 35)
+              .attr('text-anchor', 'middle')
+              .attr('font-family', 'monospace')
+              .attr('font-weight', item.salient ? '700' : '500')
+              .attr('fill', 'var(--text-color)')
+              .text(item.tok);
+
+            // 2. Delta_t bar
+            const maxBarH = 44;
+            const barH = Math.max(3, delta * maxBarH);
+            svg.append('rect')
+              .attr('x', cx - 16).attr('y', 120 - maxBarH)
+              .attr('width', 32).attr('height', maxBarH)
+              .attr('rx', 4)
+              .attr('fill', 'color-mix(in oklab, var(--text-color) 8%, transparent)');
+            svg.append('rect')
+              .attr('x', cx - 16).attr('y', 120 - barH)
+              .attr('width', 32).attr('height', barH)
+              .attr('rx', 4)
+              .attr('fill', delta > 0.5 ? colSalient : colPrimary);
+            svg.append('text')
+              .attr('x', cx).attr('y', 135)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', '10.5px')
+              .attr('font-weight', '600')
+              .attr('fill', 'var(--text-color)')
+              .text(delta.toFixed(2));
+
+            // 3. Retention factor A_bar = exp(-Delta)
+            svg.append('circle')
+              .attr('cx', cx).attr('cy', 171)
+              .attr('r', 15)
+              .attr('fill', `color-mix(in oklab, ${colKeep} ${Math.round(aBar * 75)}%, var(--page-bg))`)
+              .attr('stroke', colKeep)
+              .attr('stroke-width', 1.4);
+            svg.append('text')
+              .attr('x', cx).attr('y', 175)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', '10px')
+              .attr('font-weight', '700')
+              .attr('fill', 'var(--text-color)')
+              .text(`${Math.round(aBar * 100)}%`);
+
+            if (t < SEQ.length - 1) {
+              svg.append('line')
+                .attr('x1', cx + 17).attr('y1', 171)
+                .attr('x2', xStep(t + 1) - 17).attr('y2', 171)
+                .attr('stroke', colKeep)
+                .attr('stroke-width', 1 + aBar * 2.5)
+                .attr('opacity', 0.6);
+            }
+
+            // 4. Hidden state h_t stacked memory strength of salient tokens
+            const stateBoxY = 205;
+            svg.append('rect')
+              .attr('x', cx - 27).attr('y', stateBoxY)
+              .attr('width', 54).attr('height', 58)
+              .attr('rx', 6)
+              .attr('fill', 'var(--page-bg)')
+              .attr('stroke', 'var(--border-color)');
+
+            const topSalient = memItems.filter((m) => m.salient).slice(-3);
+            topSalient.forEach((m, idx) => {
+              const ry = stateBoxY + 6 + idx * 17;
+              const w = Math.max(4, Math.min(46, m.strength * 58));
+              svg.append('rect')
+                .attr('x', cx - 23).attr('y', ry)
+                .attr('width', w).attr('height', 13)
+                .attr('rx', 3)
+                .attr('fill', `color-mix(in oklab, ${colSalient} ${Math.round(30 + Math.min(1, m.strength) * 70)}%, transparent)`);
+              svg.append('text')
+                .attr('x', cx).attr('y', ry + 10)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', '9.5px')
+                .attr('font-family', 'monospace')
+                .attr('font-weight', '700')
+                .attr('fill', 'var(--text-color)')
+                .text(`${m.tok}:${Math.round(m.strength * 100)}%`);
+            });
+          });
+
+          if (selective) {
+            caption.innerHTML = `<strong>Chế độ Chọn lọc (Mamba):</strong> Khi gặp các token quan trọng (màu cam), cổng $\\Delta_t$ mở lớn ($0.92$) để ghi thông tin vào trạng thái $h_t$. Khi đi qua chuỗi nhiễu (<code>uhm</code>, <code>...</code>, <code>à</code>, <code>ờm</code>), $\\Delta_t \\to 0.02$ nên hệ số giữ trạng thái $\\bar{A}_t = \\exp(-\\Delta_t A) \\approx 97\\%$: trạng thái ẩn "đóng băng" và bảo toàn nguyên vẹn mã <strong>A7 - K9 - M2</strong> tới cuối chuỗi!`;
+          } else {
+            caption.innerHTML = `<strong>Chế độ Bất biến thời gian (LTI / S4):</strong> Vì $\\Delta$ là hằng số cố định ($0.40$) với mọi bước thời gian, mô hình ghi cả các token nhiễu vào trạng thái và làm suy giảm thông tin cũ theo hàm mũ ở mỗi bước ($\\bar{A}_t = 53\\%$). Tới cuối chuỗi, tín hiệu của <strong>A7</strong> đã bị xóa mờ chỉ còn vài phần trăm!`;
+          }
+        };
+
+        const btnSel = toolbar.querySelector('[data-mode="selective"]');
+        const btnLti = toolbar.querySelector('[data-mode="lti"]');
+
+        btnSel.addEventListener('click', () => {
+          selective = true;
+          btnSel.classList.add('active');
+          btnLti.classList.remove('active');
+          render();
+        });
+        btnLti.addEventListener('click', () => {
+          selective = false;
+          btnLti.classList.add('active');
+          btnSel.classList.remove('active');
+          render();
+        });
+
+        document.addEventListener('palettes:updated', render);
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

@@ -1,0 +1,29 @@
+export const cells = 1;
+
+```python
+import re
+
+corpus = """Beautiful is better than ugly. Explicit is better than implicit.
+Simple is better than complex. Complex is better than complicated.
+Special cases aren't special enough to break the rules.
+Although practicality beats purity, errors should never pass silently.
+Now is better than never, although never is often better than right now.
+If the implementation is hard to explain, it's a bad idea!
+Language models do not read raw text directly as words or characters.
+Instead, a tokenizer converts text into a sequence of integer token IDs.
+Common words like model, models, model., model!, model? share the root model.
+When training on numbers like 123456 or 2024, GPT-4 splits digits into
+groups of at most 3 digits so arithmetic is more consistent across tokens.
+Subword tokenization helps neural networks generalize across different forms
+of the same root word, such as train, trained, trainer, and training,
+or token, tokens, tokenizer, and tokenization in language modeling."""
+
+# Biểu thức chính quy pre-tokenization rút gọn theo chuẩn GPT-4 (cl100k_base)
+GPT4_PAT = re.compile(
+    r"'(?:[sdmt]|ll|ve|re)| ?[A-Za-z]+| ?\d{1,3}| ?[^\sA-Za-z\d]+|\s+"
+)
+print("Tách câu thử nghiệm:",
+      GPT4_PAT.findall("It's 123456: model., model!"))
+```
+
+<section className="code-output"><pre>{"Tách câu thử nghiệm: ['It', \"'s\", ' 123', '456', ':', ' model', '.,', ' model', '!']"}</pre></section>

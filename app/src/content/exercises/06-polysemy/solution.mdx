@@ -5,12 +5,12 @@ export const cells = 2;
 export const seconds = 1;
 
 ```python
-# The GloVe vectors of Pennington et al., trained on 6 billion
-# words of Wikipedia and news (Gigaword), in the copy of
-# sentence-transformers on the Hub: 400,000 words in lower case,
-# sorted from the most frequent to the least frequent, with 300
-# dimensions. Row 0 of the file is a padding token: drop it.
-# [Copied from the starter of 5.4]
+# Các vector GloVe của Pennington và cộng sự, huấn luyện trên 6 tỷ
+# từ Wikipedia và tin tức (Gigaword), từ bản sao của
+# sentence-transformers trên Hub: 400.000 từ chữ thường, xếp từ
+# phổ biến nhất đến ít phổ biến nhất, 300 chiều.
+# Hàng 0 của tệp là token đệm: bỏ hàng này đi.
+# [Sao chép từ phần khởi đầu bài 5.4]
 import json
 
 from huggingface_hub import hf_hub_download
@@ -24,8 +24,8 @@ words_path = hf_hub_download(
 glove_vectors = load_file(weights_path)["emb_layer.weight"][1:]
 glove_words = json.load(open(words_path))["vocab"][1:]
 
-# Keep the 30,000 most frequent words
-# [Copied from the starter of 5.4]
+# Giữ lại 30.000 từ phổ biến nhất
+# [Sao chép từ phần khởi đầu bài 5.4]
 words = glove_words[:30000]
 vectors = glove_vectors[:30000]
 word_index = {word: i for i, word in enumerate(words)}
@@ -36,28 +36,27 @@ print(f"GloVe: {len(words)} words, vectors of size {vectors.shape[1]}")
 <section className="code-output"><pre>{"GloVe: 30000 words, vectors of size 300"}</pre></section>
 
 ```python
-# (1) The 8 nearest neighbors of each word, by cosine similarity.
-# Divide each vector by its length, so that the dot products with
-# the vector of a word are its cosine similarities with all the
-# 30,000 words.
+# (1) 8 láng giềng gần nhất của mỗi từ theo độ tương đồng cosine.
+# Chia mỗi vector cho độ dài của nó để tích vô hướng với vector
+# của một từ chính là độ tương đồng cosine với toàn bộ 30.000 từ.
 vectors = vectors / vectors.norm(dim=1, keepdim=True)
 
 def similarities_to(word):
-    return vectors @ vectors[word_index[word]]   # one per word
+    return vectors @ vectors[word_index[word]]   # một giá trị mỗi từ
 
 for word in ["bank", "mouse", "plot", "score"]:
     ranking = similarities_to(word).argsort(descending=True).tolist()
-    neighbors = [words[i] for i in ranking[1:9]]   # [0] is the word
+    neighbors = [words[i] for i in ranking[1:9]]   # [0] là chính từ đó
     print(f"{word}: {', '.join(neighbors)}")
 
 
-# (2) The rank of a word among the neighbors of another one: one
-# plus the number of words that are closer, the word itself excluded
+# (2) Thứ hạng của một từ trong các láng giềng của từ khác: một
+# cộng với số từ ở gần hơn, không tính chính từ gốc
 print()
 for word, other in [("bank", "river"), ("score", "soundtrack")]:
     similarities = similarities_to(word)
     closer = similarities > similarities[word_index[other]]
-    n_closer = closer.sum().item() - 1   # without the word itself
+    n_closer = closer.sum().item() - 1   # không tính chính từ gốc
     print(f'"{other}" is neighbor number {n_closer + 1} of "{word}", '
           f"out of {len(words) - 1}")
 ```

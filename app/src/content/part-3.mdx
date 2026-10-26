@@ -1,0 +1,590 @@
+---
+title: "Tiền huấn luyện (Pre-training): Từ dữ liệu Web thô đến Định luật Mở rộng"
+chapter: 3
+banner: "banner-3.html"
+description: "Cách lọc hàng nghìn tỷ token từ Internet, tối ưu hóa mạng nơ-ron ở quy mô lớn và phân bổ ngân sách tính toán theo định luật Chinchilla."
+authors:
+  - name: "David Louapre"
+    url: "https://huggingface.co/dlouapre"
+    affiliations: [1]
+affiliations:
+  - name: "Hugging Face"
+    url: "https://huggingface.co"
+published: "Oct. 26, 2026"
+template: "article"
+licence: >
+  Sơ đồ và nội dung văn bản được cấp phép theo <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC‑BY 4.0</a>, trừ khi có ghi chú khác.
+tableOfContentsAutoCollapse: true
+showPdf: true
+---
+
+import Note from '../components/Note.astro';
+import HtmlEmbed from '../components/HtmlEmbed.astro';
+import PaperNote from '../components/post/PaperNote.astro';
+import Exercise from '../components/post/Exercise.astro';
+import Starter from '../components/post/Starter.astro';
+import Hints from '../components/post/Hints.astro';
+import Hint from '../components/post/Hint.astro';
+import Checkpoint from '../components/post/Checkpoint.astro';
+import Solution from '../components/post/Solution.astro';
+import WhatToNotice from '../components/post/WhatToNotice.astro';
+import Bonus from '../components/post/Bonus.astro';
+import Optional from '../components/post/Optional.astro';
+import Inset from '../components/post/Inset.astro';
+import WrapTable from '../components/post/WrapTable.astro';
+import ReferenceList from '../components/post/ReferenceList.astro';
+
+<Note variant="success">
+Ở hai chương trước, chúng ta đã chế tạo xong **Bộ tách từ (Tokenizer)** để biến văn bản thô thành chuỗi các số nguyên, và lắp ráp hoàn chỉnh **Kiến trúc Transformer Decoder** với RMSNorm, RoPE và SwiGLU. Nhưng một kiến trúc dù tinh vi đến đâu, khi vừa khởi tạo ngẫu nhiên cũng chỉ là một cỗ máy phát ra những chuỗi từ vô nghĩa.
+
+Chương này đưa bạn vào giai đoạn tốn kém nhất, quyết định tri thức nền tảng của mọi mô hình ngôn ngữ lớn: **Tiền huấn luyện (Pre-training)**. Đúng với triết lý **Học qua Thực hành**, bạn sẽ tự tay cài đặt bộ đóng gói tài liệu đạt hiệu suất 100% token, xây dựng bộ lọc khử trùng lặp mờ MinHash trên dữ liệu Web, viết vòng lặp tối ưu hóa AdamW với lịch trình tốc độ học Cosine, và giải bài toán phân bổ ngân sách tính toán theo định luật mở rộng Chinchilla.
+</Note>
+
+Khi nhìn vào một mô hình ngôn ngữ hiện đại như Llama-3 hay DeepSeek-V3, phương trình huấn luyện của nó trông đơn giản đến bất ngờ: cho mô hình đọc một đoạn văn bản và yêu cầu nó dự đoán token tiếp theo. Thế nhưng, đằng sau mục tiêu tưởng chừng tầm thường ấy là một cuộc cách mạng kỹ thuật trị giá hàng chục triệu đô la tiền điện và hàng nghìn GPU hoạt động liên tục suốt nhiều tháng trời.
+
+Trong chương này, chúng ta sẽ lần lượt giải quyết **ba câu hỏi cốt lõi** định hình toàn bộ quy trình tiền huấn luyện hiện đại:
+
+- **Làm thế nào để biến hàng trăm terabyte mã HTML hỗn độn, đầy spam và trùng lặp trên Internet thành hàng nghìn tỷ token sạch, được đóng gói khít 100% vào bộ nhớ GPU?**
+- **Làm thế nào để dẫn dắt hàng chục tỷ tham số hội tụ ổn định qua hàng trăm nghìn bước cập nhật đạo hàm ở độ chính xác giảm (`bfloat16`) mà không bị nổ đạo hàm hay phân kỳ?**
+- **Với một ngân sách tính toán cố định $C$ (tính bằng FLOPs), ta nên xây dựng một mô hình thật lớn hay huấn luyện một mô hình vừa phải trên nhiều dữ liệu hơn?**
+
+<Note title="Tập dữ liệu & Công cụ" emoji="📖" variant="info" id="datasets">
+- **CommonCrawl & FineWeb** [@penedo2024]: Kho lưu trữ web công cộng lớn nhất thế giới (hơn 250 tỷ trang web từ năm 2008) và bộ dữ liệu chuẩn công nghiệp **FineWeb** gồm 15 nghìn tỷ (15T) token đã qua quy trình lọc 6 tầng và khử trùng lặp MinHash. Tải tại Hugging Face Hub: [HuggingFaceFW/fineweb](https://huggingface.co/datasets/HuggingFaceFW/fineweb).
+- **C4 (Colossal Clean Crawled Corpus)** [@raffel2020]: Tập dữ liệu tiền huấn luyện kinh điển được nhóm Google tạo ra từ bản chụp CommonCrawl tháng 4/2019 để huấn luyện họ mô hình T5, đặt nền móng cho các quy tắc lọc chất lượng văn bản Web.
+- **Công cụ thực hành**: Chúng ta sử dụng `torch` (PyTorch) để cài đặt bộ nạp dữ liệu đóng gói, vòng lặp huấn luyện `AdamW`, lịch trình tốc độ học và giải phương trình tối ưu hóa định luật mở rộng Chinchilla.
+</Note>
+
+---
+
+## 1. Bài toán Tiền huấn luyện và Chuẩn bị Batch dữ liệu
+
+### 1.1 Hàm mất mát Cross-Entropy tự hồi quy
+
+Giả sử bộ tách từ ở Chương 1 đã chuyển một tài liệu văn bản thành một chuỗi gồm $L$ chỉ số nguyên $(x_1, x_2, \dots, x_L)$, trong đó mỗi token $x_t \in \{0, 1, \dots, |V|-1\}$ thuộc bộ từ vựng kích thước $|V|$. Theo quy tắc nhân xác suất (chain rule of probability), xác suất xuất hiện của cả chuỗi văn bản được phân rã chính xác thành tích các xác suất có điều kiện từ trái sang phải:
+
+$$
+P(x_1, x_2, \dots, x_L) = \prod_{t=1}^{L} P(x_t \mid x_1, x_2, \dots, x_{t-1}).
+$$
+
+Một mô hình ngôn ngữ tự hồi quy có bộ tham số $\theta$ nhận vào chuỗi ngữ cảnh quá khứ $(x_1, \dots, x_t)$ và xuất ra một vector điểm số chưa chuẩn hóa (logits) $z_t \in \mathbb{R}^{|V|}$ tại mỗi vị trí $t$. Qua hàm Softmax, mô hình dự đoán phân phối xác suất cho token kế tiếp $x_{t+1}$:
+
+$$
+P_\theta(x_{t+1} \mid x_1, \dots, x_t) = \frac{\exp(z_{t, x_{t+1}})}{\sum_{v=1}^{|V|} \exp(z_{t, v})}.
+$$
+
+Mục tiêu của tiền huấn luyện là cực đại hóa hợp lý (maximum likelihood) trên toàn bộ kho văn bản, tương đương với việc **cực tiểu hóa hàm mất mát Cross-Entropy trung bình trên mỗi token**:
+
+$$
+\mathcal{L}(\theta) = -\frac{1}{L} \sum_{t=1}^{L} \log P_\theta(x_{t+1} \mid x_1, \dots, x_t).
+$$
+
+Điểm kỳ diệu của kiến trúc Transformer Decoder có mặt nạ nhân quả (causal mask) là: chỉ với **một lượt lan truyền tiến (forward pass) duy nhất** trên chuỗi đầu vào $x = (x_1, x_2, \dots, x_L)$, mô hình tính toán song song cả $L$ dự đoán cho chuỗi đích dịch chuyển sang trái một vị trí $y = (x_2, x_3, \dots, x_{L+1})$. Tại vị trí đầu tiên, mô hình học cách dự đoán $x_2$ từ $x_1$; tại vị trí thứ hai, nó dự đoán $x_3$ từ $(x_1, x_2)$; và tại vị trí cuối cùng, nó dự đoán $x_{L+1}$ từ toàn bộ $L$ token trước đó. Mọi vị trí trong cửa sổ ngữ cảnh đều đóng góp tín hiệu đạo hàm!
+
+### 1.2 Đóng gói tài liệu (Document Packing) vs. Đệm chuỗi (Padding)
+
+Trên thực tế, văn bản trên Internet có độ dài vô cùng chênh lệch: một dòng bình luận có thể chỉ dài 15 token, một bản tin báo chí dài 600 token, còn một chương sách dài tới 10.000 token. Trong khi đó, GPU đòi hỏi dữ liệu đầu vào phải là một tensor chữ nhật đồng nhất có kích thước $(B, L)$, với $B$ là kích thước lô (batch size) và $L$ là độ dài cửa sổ ngữ cảnh (context length, chẳng hạn $L = 4096$ hoặc $8192$).
+
+Nếu ta làm theo cách truyền thống của các bài toán phân loại văn bản — đặt mỗi bài viết vào một hàng riêng biệt rồi chèn thêm các token đệm `<pad>` vào cuối các bài viết ngắn cho đủ độ dài $L$ — điều gì sẽ xảy ra? Vì phần lớn trang web ngắn hơn $4096$ token, **tới 40%–70% diện tích của tensor $(B, L)$ sẽ toàn là các ô `<pad>` vô nghĩa**. Mặc dù ta có thể đặt `ignore_index` để loại bỏ `<pad>` khỏi hàm mất mát, các lớp Linear và Attention của Transformer vẫn phải thực hiện hàng tỷ phép nhân ma trận trên những vị trí đệm đó!
+
+Để đạt **hiệu suất sử dụng token 100%**, các hệ thống tiền huấn luyện LLM hiện đại áp dụng kỹ thuật **Đóng gói tài liệu (Document Packing / Concatenated Chunking)**:
+
+1. Kết thúc mỗi tài liệu bằng một token đặc biệt đánh dấu ranh giới, thường gọi là `<|endoftext|>` hoặc `<eos>` (End-of-Sequence).
+2. Nối tất cả các tài liệu đã tách từ thành một dòng chảy token khổng lồ, liên tục.
+3. Cắt dòng chảy này thành các đoạn có độ dài cố định $L + 1$. Trong mỗi đoạn, $L$ token đầu tiên làm vector đầu vào $x$, và $L$ token cuối cùng (dịch phải 1 vị trí) làm nhãn đích $y$.
+
+<HtmlEmbed
+  src="d3-ch3-doc-packing.html"
+  title="Đệm chuỗi truyền thống (Padding) so với Đóng gói tài liệu (Document Packing)"
+  desc="Ở chế độ 1, so sánh cách Padding lãng phí hơn 40% phép tính cho các ô <pad> trong khi Document Packing nối các văn bản bằng token <eos> để lấp đầy 100% cửa sổ ngữ cảnh L = 8. Chuyển sang chế độ 2 và di chuột lên từng hàng của ma trận 8×8 để quan sát cách Mặt nạ chú ý nội bộ (Intra-document Causal Mask) ngăn chặn hiện tượng nhiễm ngữ cảnh chéo giữa hai tài liệu nằm chung một cửa sổ."
+/>
+
+Khi hai tài liệu độc lập (ví dụ một bài báo y học và một đoạn mã Python) nằm chung trong cùng một cửa sổ đóng gói dài $L$, mặt nạ nhân quả tam giác dưới thông thường sẽ cho phép các token của đoạn mã Python nhìn ngược về các token của bài báo y học đứng trước nó. Ở các mô hình thế hệ đầu như GPT-2 hay GPT-3, người ta chấp nhận sự "nhiễm chéo" nhẹ này vì mô hình khá nhanh chóng học được rằng token `<|endoftext|>` đồng nghĩa với việc "hãy xóa trí nhớ cũ và bắt đầu chủ đề mới". Tuy nhiên, ở các mô hình hiện đại với chiều dài ngữ cảnh lớn như Llama-3 ($L = 8192$ đến $128\text{K}$), ta sử dụng **Mặt nạ chú ý nội bộ tài liệu (Intra-Document Causal Mask)** — một ma trận đường chéo theo từng khối tài liệu (block-diagonal causal mask) đảm bảo mỗi token chỉ được chú ý tới các token quá khứ thuộc **cùng một tài liệu** với nó:
+
+$$
+M_{i, j} = \begin{cases}
+0 & \text{nếu } j \le i \text{ và } \text{doc\_id}(i) = \text{doc\_id}(j), \\
+-\infty & \text{ngược lại.}
+\end{cases}
+$$
+
+Hãy tự tay cài đặt bộ đóng gói tài liệu này và đo xem chúng ta tiết kiệm được bao nhiêu phần trăm phép tính so với phương pháp đệm truyền thống!
+
+<Exercise number="3.1" title="Xây dựng bộ đóng gói tài liệu (Document Packing)" data="Token Streams" nb="ch3-01-data-packing">
+
+Cho 8 đoạn văn bản đã được tách thành danh sách các ID token trong mã khởi tạo, với `EOS_ID = 0` và `PAD_ID = -1`, cùng chiều dài cửa sổ ngữ cảnh `context_length = 8`.
+
+1. **Phương pháp Padding**: Với mỗi tài liệu, nối thêm `EOS_ID` vào cuối, cắt lấy tối đa `context_length` token đầu tiên, và đệm `PAD_ID` vào bên phải nếu chuỗi ngắn hơn `context_length`. Đóng thành một tensor kích thước `(8, 8)` và tính tỷ lệ phần trăm các vị trí khác `PAD_ID` (hiệu suất token hữu ích).
+2. **Phương pháp Document Packing**: Viết hàm `pack_documents(docs, ctx_len, eos_id=0)` nối tất cả tài liệu lại thành một danh sách phẳng duy nhất (mỗi tài liệu kết thúc bằng `eos_id`). Chia danh sách này thành các khối liên tiếp để tạo ra tensor đầu vào `X` và tensor nhãn đích `Y` (dịch phải 1 vị trí so với `X`), mỗi hàng có đúng `ctx_len` token. In ra kích thước của `X`, `Y`, hiệu suất sử dụng token và cặp `(x, y)` của khối đầu tiên.
+
+<Starter nb="ch3-01-data-packing" />
+
+<Hints>
+
+<Hint>
+
+Khi nối $8$ tài liệu có tổng cộng $49$ token và thêm $1$ token `EOS_ID` sau mỗi tài liệu, tổng độ dài dòng chảy `stream` sẽ là $49 + 8 = 57$ token. Để tạo ra mỗi cặp `(x, y)` có độ dài `ctx_len = 8`, bạn cần lấy một cửa sổ dài $8 + 1 = 9$ token liên tiếp: `x = stream[start : start + 8]` và `y = stream[start + 1 : start + 9]`.
+
+</Hint>
+
+<Hint>
+
+Với dòng chảy dài `len(stream)` token và bước nhảy giữa các khối bằng `ctx_len`, số khối hoàn chỉnh thu được là `num_blocks = (len(stream) - 1) // ctx_len`. Với $57$ token và `ctx_len = 8`, ta có `(57 - 1) // 8 = 7` khối hoàn chỉnh không chứa bất kỳ token đệm nào!
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch3-01-data-packing">
+
+Phương pháp Padding truyền thống chỉ đạt hiệu suất token **71.9%** (lãng phí **28.1%** phép tính cho `<pad>`), đồng thời còn làm mất mát các token ở cuối những câu dài hơn 8 token. Ngược lại, `pack_documents` gom toàn bộ 57 token thành 7 khối đặc khít kích thước `(7, 8)` với hiệu suất sử dụng token đạt tuyệt đối **100.0%**.
+
+</Checkpoint>
+
+<Solution nb="ch3-01-data-packing" />
+
+<WhatToNotice>
+
+Hãy nhìn vào Khối `#0` trong kết quả đầu ra:
+- Đầu vào `x`: `[12, 45, 89, 23, 67, 0, 34, 78]`
+- Nhãn đích `y`: `[45, 89, 23, 67, 0, 34, 78, 91]`
+
+Tại vị trí thứ 5 (khi `x[4] = 67`, từ cuối của tài liệu đầu tiên), nhãn đích là `y[4] = 0` (`<eos>`): mô hình học cách nhận biết khi nào một văn bản kết thúc! Ngay ở vị trí tiếp theo (`x[5] = 0`), nhãn đích là `y[5] = 34` (từ đầu tiên của tài liệu thứ hai): tài liệu mới bắt đầu ngay lập tức trong cùng một hàng của batch mà không bỏ trống một ô nào. **Đóng gói tài liệu giúp tăng tốc độ tiền huấn luyện lên 1.5–2.5 lần trên thực tế mà không cần thay đổi bất kỳ dòng mã nào của kiến trúc mạng.**
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 2. Quy trình Lọc và Làm sạch Dữ liệu Web quy mô lớn
+
+### 2.1 Tại sao dữ liệu Web thô không thể dùng trực tiếp?
+
+Để huấn luyện một mô hình cỡ Llama-3 hay Qwen-2.5, chúng ta cần khoảng **15 nghìn tỷ (15,000,000,000,000) token** văn bản. Toàn bộ Wikipedia tiếng Anh — niềm tự hào tri thức của nhân loại với gần 7 triệu bài viết — chỉ chứa khoảng **4 tỷ token**, tức là chưa đầy **0.03%** nhu cầu của mô hình! Ngay cả khi gom toàn bộ sách in, bài báo khoa học arXiv và mã nguồn GitHub công khai, ta vẫn phải lấy hơn 80% dữ liệu từ nguồn duy nhất đủ lớn: **mạng Internet công cộng**, thông qua các kho lưu trữ bò web định kỳ như **CommonCrawl**.
+
+<PaperNote id="penedo2024" look="Hình 2 và Bảng 1: biểu đồ tiến trình điểm chuẩn trung bình (Aggregate score trên 9 bộ benchmark như MMLU, ARC, HellaSwag) tăng vọt qua từng tầng lọc của quy trình FineWeb.">
+
+Được công bố bởi nhóm nghiên cứu Hugging Face vào tháng 6 năm 2024, **FineWeb** giải quyết điểm mù lớn nhất của các LLM mã nguồn mở: làm thế nào để xây dựng một tập dữ liệu 15 nghìn tỷ token sạch từ 96 bản chụp CommonCrawl (2013–2024). Nhóm tác giả đã huấn luyện thử nghiệm hơn 70 mô hình có quy mô 1.8B và 8B tham số (trên ngân sách từ 28B đến 350B token) để kiểm chứng thực nghiệm từng bước lọc thay vì phỏng đoán cảm tính. Phát hiện gây bất ngờ nhất của bài báo là việc khử trùng lặp toàn cục qua cả 96 bản chụp thực chất làm **giảm** chất lượng so với khử trùng lặp độc lập trên từng bản chụp riêng lẻ!
+</PaperNote>
+
+Thế nhưng, Internet thô là một bãi rác khổng lồ. Nếu bạn lấy ngẫu nhiên một tệp văn bản từ CommonCrawl mà không lọc, bạn sẽ bắt gặp:
+- Các thanh menu điều hướng lặp đi lặp lại (`"Trang chủ | Đăng nhập | Giỏ hàng (0) | Chính sách bảo mật"`),
+- Các trang web nhồi nhét từ khóa SEO tự động để đánh lừa công cụ tìm kiếm,
+- Hàng triệu bản tin, thông cáo báo chí hoặc điều khoản sử dụng được sao chép y hệt nhau trên hàng chục nghìn tên miền khác nhau,
+- Nội dung độc hại, lừa đảo, văn bản lỗi bảng mã hoặc dữ liệu cá nhân nhạy cảm (PII).
+
+Năm 2020, nhóm tác giả của mô hình **T5** tại Google đã chứng minh rằng việc áp dụng bộ quy tắc làm sạch trên CommonCrawl để tạo ra tập dữ liệu **C4 (Colossal Clean Crawled Corpus)** giúp cải thiện đáng kể năng lực ngôn ngữ của mô hình trên mọi tác vụ hạ nguồn [@raffel2020]. Đến năm 2024, nhóm nghiên cứu tại Hugging Face đã tiến hành hàng chục thí nghiệm đối chứng quy mô lớn và đúc kết thành quy trình lọc 6 tầng của **FineWeb** [@penedo2024]:
+
+1. **Lọc URL và Danh sách chặn (URL Filtering)**: Loại bỏ các trang web thuộc danh sách tên miền đen (nội dung người lớn, cờ bạc, spam,钓鱼/phishing) và các URL chứa từ khóa rác ngay từ đầu.
+2. **Trích xuất văn bản từ HTML (`trafilatura`)**: Thay vì dùng các tệp văn bản WET có sẵn của CommonCrawl (vốn giữ lại rất nhiều rác menu/footer), FineWeb chạy trình phân tích cây DOM `trafilatura` trực tiếp trên các tệp HTML gốc (WARC) để chỉ bóc tách phần thân bài viết chính.
+3. **Lọc ngôn ngữ (`fastText`)**: Dùng bộ phân loại nhẹ `fastText` để giữ lại các văn bản đạt ngưỡng độ tin cậy ngôn ngữ $\ge 0.65$.
+4. **Bộ quy tắc chất lượng Gopher (Quality Heuristics)**: Áp dụng các quy tắc thống kê nhanh: giữ lại văn bản có độ dài từ $50$ đến $100.000$ từ, độ dài từ trung bình từ $3$ đến $10$ ký tự, ít nhất $80\%$ số từ chứa chữ cái, và loại bỏ các bài viết có tỷ lệ dòng/đoạn văn lặp lại nội bộ vượt ngưỡng.
+5. **Khử trùng lặp mờ bằng MinHash LSH (Fuzzy Deduplication)**: Phát hiện và xóa bỏ các bài viết trùng lặp hoặc gần trùng lặp trên quy mô hàng tỷ trang web.
+6. **Bộ lọc tinh chỉnh C4 & FineWeb**: Loại bỏ các tài liệu có dòng chứa `"lorem ipsum"`, mã `{javascript}`, hoặc có tỷ lệ dòng không kết thúc bằng dấu chấm câu quá cao (dấu hiệu của danh sách liên kết hoặc bảng giá sản phẩm).
+
+<HtmlEmbed
+  src="d3-ch3-data-pipeline.html"
+  title="Phễu lọc dữ liệu tương tác của FineWeb: Từ CommonCrawl thô đến 15 nghìn tỷ token sạch"
+  desc="Nhấp hoặc di chuột vào từng tầng của phễu lọc (bên trái) để xem tỷ lệ dữ liệu được giữ lại, ví dụ về mẫu văn bản rác bị loại bỏ ở tầng đó, và mức tăng điểm chuẩn MMLU / ARC-Challenge tương ứng (bên phải) khi huấn luyện mô hình kiểm chứng 1.8B tham số."
+/>
+
+### 2.2 Khử trùng lặp gần đúng ở quy mô Web với Shingling & MinHash
+
+Tại sao chúng ta không thể dùng một bảng băm (hash table) thông thường như `SHA-256` trên toàn bộ bài viết để khử trùng lặp? Bởi vì hai trang báo đăng lại cùng một bản tin hiếm khi giống nhau từng byte một: trang thứ nhất có thể thêm dòng `"Theo phóng viên TTXVN —"` ở đầu, còn trang thứ hai thêm câu `"Đọc thêm các bài liên quan tại đây"` ở cuối. Chuỗi băm `SHA-256` của chúng sẽ khác nhau hoàn toàn dù $95\%$ nội dung bài viết là một!
+
+Để đo độ giống nhau giữa hai văn bản bất chấp những chỉnh sửa nhỏ, ta biểu diễn mỗi tài liệu $A$ thành tập hợp các cụm $n$ từ liên tiếp (gọi là **$n$-gram shingles**, trong FineWeb chọn $n = 5$), ký hiệu là $S_A$. Độ tương đồng giữa hai tài liệu $A$ và $B$ được định nghĩa qua **Hệ số tương đồng Jaccard (Jaccard Similarity)**:
+
+$$
+J(S_A, S_B) = \frac{|S_A \cap S_B|}{|S_A \cup S_B|} \in [0, 1].
+$$
+
+Tuy nhiên, việc tính giao và hợp của hai tập hợp cho mọi cặp tài liệu trong kho $N_{\text{doc}} = 10^9$ bài viết đòi hỏi $O(N_{\text{doc}}^2) = 10^{18}$ phép so sánh — một con số bất khả thi! **Thuật toán MinHash** giải quyết triệt để nút cổ chai này bằng một định lý xác suất tuyệt đẹp:
+
+Giả sử ta có một hàm băm ngẫu nhiên $h$ ánh xạ mỗi shingle $s \in S_A$ thành một số nguyên 32-bit, và ta gọi $m_h(S_A) = \min_{s \in S_A} h(s)$ là **giá trị băm nhỏ nhất** trong tập $S_A$. Xác suất để hai tập hợp $S_A$ và $S_B$ có cùng giá trị băm nhỏ nhất đúng bằng độ tương đồng Jaccard của chúng!
+
+$$
+\mathbb{P}\!\left[\min_{s \in S_A} h(s) = \min_{s \in S_B} h(s)\right] = \frac{|S_A \cap S_B|}{|S_A \cup S_B|} = J(S_A, S_B).
+$$
+
+*Tại sao định lý này lại đúng?* Hãy xét hợp $S_A \cup S_B$. Vì $h$ là một phép hoán vị ngẫu nhiên đồng đều, mọi phần tử trong $S_A \cup S_B$ đều có cơ hội ngang nhau để trở thành phần tử có giá trị băm nhỏ nhất toàn cục. Hai tập hợp $S_A$ và $S_B$ sẽ có cùng giá trị băm nhỏ nhất **khi và chỉ khi** phần tử nhỏ nhất của $S_A \cup S_B$ nằm trong phần giao $S_A \cap S_B$. Xác suất của biến cố đó chính là tỷ số giữa số phần tử của $S_A \cap S_B$ và số phần tử của $S_A \cup S_B$!
+
+Nhờ đó, thay vì lưu hàng nghìn shingles của mỗi bài viết, ta chỉ cần dùng $K$ hàm băm độc lập $h_1, h_2, \dots, h_K$ để nén mỗi văn bản thành một **chữ ký MinHash (MinHash signature)** có độ dài cố định $K$:
+
+$$
+\text{sig}(S_A) = \bigl[m_{h_1}(S_A),\, m_{h_2}(S_A),\, \dots,\, m_{h_K}(S_A)\bigr], \qquad
+\hat{J}(S_A, S_B) = \frac{1}{K} \sum_{k=1}^{K} \mathbb{I}\!\left[\text{sig}_k(S_A) = \text{sig}_k(S_B)\right].
+$$
+
+Khi kết hợp với kỹ thuật **Băm nhạy cục bộ theo dải (Locality-Sensitive Hashing — LSH)**: chia $K = 112$ giá trị băm thành $b = 14$ dải (bands), mỗi dải gồm $r = 8$ số nguyên, hai văn bản chỉ cần trùng khớp hoàn toàn ở **ít nhất một dải** là được đưa vào cùng một thùng ứng viên trùng lặp. Độ phức tạp giảm từ bậc hai $O(N_{\text{doc}}^2)$ xuống **tuyến tính $O(N_{\text{doc}})$**!
+
+<Exercise number="3.2" title="Khử trùng lặp văn bản gần đúng bằng Shingling và MinHash" data="Web Corpus" nb="ch3-02-minhash-dedup">
+
+Trong mã khởi tạo là một kho dữ liệu nhỏ gồm 6 bài viết thu thập từ nhiều trang web, trong đó có những bài viết bị sao chép và chỉnh sửa nhẹ ở đầu hoặc cuối câu.
+
+1. Viết hàm `get_shingles(text, n=3)` chuẩn hóa văn bản về chữ thường (chỉ giữ lại chữ cái, chữ số và khoảng trắng), tách từ theo khoảng trắng và trả về tập hợp (`set`) các cụm 3 từ liên tiếp (`3-grams`).
+2. Viết hàm `compute_minhash(shingles, num_perm=64)` tạo chữ ký MinHash độ dài $K = 64$. Với mỗi hạt giống `seed` từ `0` đến `63`, băm chuỗi `f"{seed}:{s}"` bằng `hashlib.md5` (lấy 4 byte đầu đổi sang số nguyên lớn) và tìm giá trị nhỏ nhất trên toàn bộ `shingles`.
+3. Duyệt qua các tài liệu từ đầu đến cuối: giữ lại tài liệu chưa bị đánh dấu trùng lặp, và loại bỏ mọi tài liệu phía sau có độ tương đồng ước lượng bằng MinHash $\hat{J} \ge 0.70$. In ra độ tương đồng Jaccard thực tế so với ước lượng MinHash của các cặp trùng lặp, và danh sách chỉ số các bài viết được giữ lại.
+
+<Starter nb="ch3-02-minhash-dedup" />
+
+<Hints>
+
+<Hint>
+
+Để lấy tất cả các cụm $n$ từ liên tiếp từ danh sách `words`, dùng biểu thức tập hợp:
+`set(" ".join(words[i : i + n]) for i in range(len(words) - n + 1))`.
+
+</Hint>
+
+<Hint>
+
+Độ tương đồng Jaccard thực tế giữa hai tập hợp `s_i` và `s_j` trong Python chỉ cần viết `len(s_i & s_j) / len(s_i | s_j)`. Còn độ tương đồng ước lượng từ hai chữ ký MinHash `sig_i` và `sig_j` là tỷ lệ các vị trí trùng khớp: `sum(a == b for a, b in zip(sig_i, sig_j)) / len(sig_i)`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch3-02-minhash-dedup">
+
+Thuật toán phát hiện chính xác 3 cặp bài viết sao chép chỉnh sửa: `(0, 1)`, `(0, 5)` và `(2, 4)`. Độ tương đồng ước lượng bằng chữ ký MinHash 64 chiều bám rất sát giá trị Jaccard thực tế (sai số chỉ khoảng $0.01$–$0.02$). Sau khi khử trùng lặp với ngưỡng $0.70$, kho dữ liệu được rút gọn từ 6 bài xuống 3 bài viết gốc độc lập: `[0, 2, 3]`.
+
+</Checkpoint>
+
+<Solution nb="ch3-02-minhash-dedup" />
+
+<WhatToNotice>
+
+Hãy quan sát bài viết số `0` và bài viết số `1`: bài số `1` có thêm dấu chấm than và cụm `"Nguồn: TinCongNghe"` ở cuối. Một bộ lọc trùng lặp chính xác (exact match) sẽ coi đây là hai bài khác nhau và giữ lại cả hai. Với 3-gram Shingling + MinHash, hai bài viết này có độ tương đồng Jaccard $0.800$ (ước lượng MinHash $0.812$) và lập tức bị nhận diện là bản sao. Trong thực tế tiền huấn luyện LLM, việc loại bỏ các đoạn văn lặp đi lặp lại không chỉ tiết kiệm hàng triệu giờ GPU mà còn ngăn chặn hiện tượng **học vẹt nguyên văn (memorization)** và hiện tượng mô hình bị kẹt trong vòng lặp sinh từ khi suy luận!
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 3. Động lực học Huấn luyện và Tối ưu hóa
+
+Sau khi đã có luồng dữ liệu sạch và đóng gói thành các batch $(B, L)$, bước tiếp theo là cập nhật bộ tham số $\theta$ của mạng Transformer qua hàng trăm nghìn bước lặp. Ở quy mô hàng tỷ tham số, thuật toán SGD truyền thống hoàn toàn thất bại vì độ cong của bề mặt hàm mất mát rất khác nhau giữa lớp Embedding, các ma trận Query/Key/Value và các lớp chuẩn hóa.
+
+### 3.1 Bộ tối ưu hóa AdamW và Phân tách Suy giảm Trọng số (Decoupled Weight Decay)
+
+Hầu hết mọi mô hình ngôn ngữ lớn hiện đại đều được huấn luyện bằng **AdamW** [@loshchilov2019]. Ở mỗi bước thời gian $t$, với đạo hàm $g_t = \nabla_\theta \mathcal{L}(\theta_{t-1})$, AdamW duy trì hai trung bình trượt hàm mũ: **mô-men bậc nhất** $m_t$ (ước lượng hướng trung bình của đạo hàm) và **mô-men bậc hai** $v_t$ (ước lượng phương sai bình phương từng tọa độ của đạo hàm):
+
+$$
+\begin{aligned}
+m_t &= \beta_1 m_{t-1} + (1 - \beta_1) g_t, \qquad &\hat{m}_t &= \frac{m_t}{1 - \beta_1^t}, \\[4pt]
+v_t &= \beta_2 v_{t-1} + (1 - \beta_2) g_t^2, \qquad &\hat{v}_t &= \frac{v_t}{1 - \beta_2^t}.
+\end{aligned}
+$$
+
+Trong thực tế tiền huấn luyện LLM (từ GPT-3, Chinchilla đến Llama-3), bộ siêu tham số chuẩn mực là $\beta_1 = 0.9$ và **$\beta_2 = 0.95$** (thay vì $0.999$ mặc định của PyTorch). Tại sao $\beta_2$ lại được giảm xuống $0.95$? Với $\beta_2 = 0.999$, mô-men bậc hai $v_t$ nhớ trung bình của $1000$ bước trước đó; khi gặp một batch dữ liệu bất thường làm đạo hàm tăng đột biến (gradient spike), $v_t$ phản ứng quá chậm khiến bước cập nhật $\hat{m}_t / \sqrt{\hat{v}_t}$ vọt lố. Với $\beta_2 = 0.95$ (chu kỳ nhớ khoảng $20$ bước), mẫu số $\sqrt{\hat{v}_t}$ thích ứng tức thì để dập tắt các xung đột biến!
+
+<PaperNote id="loshchilov2019" look="Thuật toán 2 (trang 2) và Hình 1–3: sự khác biệt giữa chuẩn hóa L2 cộng vào đạo hàm và suy giảm trọng số tách rời (Decoupled Weight Decay) trong AdamW.">
+
+Trong nhiều năm, các thư viện học sâu cài đặt suy giảm trọng số (weight decay) bằng cách cộng trực tiếp thành phần phạt chuẩn $L_2$ ($\lambda \theta_{t-1}$) vào đạo hàm $g_t$ trước khi đưa vào Adam. Loshchilov và Hutter (2019) chỉ ra rằng trong các bộ tối ưu thích ứng như Adam, thành phần $\lambda \theta_{t-1}$ đó cũng bị chia cho $\sqrt{\hat{v}_t}$: hệ quả là các trọng số có đạo hàm lịch sử lớn lại bị suy giảm ít hơn hẳn các trọng số khác! Bằng cách **tách rời** bước kéo trọng số về 0 ra khỏi bước cập nhật đạo hàm thích ứng, **AdamW** giúp mô hình tổng quát hóa tốt hơn vượt trội và làm cho siêu tham số tốc độ học $\eta_t$ hoàn toàn độc lập với hệ số $\lambda$.
+</PaperNote>
+
+Điểm cốt lõi tạo nên chữ **"W"** trong **AdamW** là bước **suy giảm trọng số tách rời (decoupled weight decay)**: thay vì cộng $\lambda \theta_{t-1}$ vào đạo hàm $g_t$, ta trừ trực tiếp một lượng $\eta_t \lambda \theta_{t-1}$ vào tham số cùng lúc với bước nhảy thích ứng:
+
+$$
+\theta_t = \theta_{t-1} - \eta_t \left( \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon} + \lambda \theta_{t-1} \right).
+$$
+
+**Quy tắc vàng khi cấu hình Weight Decay**: Chúng ta chỉ áp dụng suy giảm trọng số ($\lambda = 0.1$) cho các **ma trận trọng số từ 2 chiều trở lên** (`p.ndim >= 2`, bao gồm các ma trận chiếu tuyến tính $W_Q, W_K, W_V, W_O, W_{\text{up}}, W_{\text{gate}}, W_{\text{down}}$ và bảng Embedding), và **bắt buộc đặt $\lambda = 0.0$ cho tất cả các tham số 1 chiều** (`p.ndim < 2`, gồm các vector độ chệch `bias` và vector hệ số tỷ lệ $\gamma$ của LayerNorm / RMSNorm). Nếu bạn vô tình áp dụng weight decay lên hệ số $\gamma$ của RMSNorm, bộ tối ưu sẽ liên tục kéo biên độ chuẩn hóa của từng tầng về $0$, làm suy yếu luồng tín hiệu qua mạng sâu!
+
+### 3.2 Lịch trình Tốc độ học: Warmup + Cosine Decay và WSD
+
+Ở những bước đầu tiên khi mô hình vừa khởi tạo ngẫu nhiên ($t \approx 0$), mô-men bậc hai $v_t$ chưa tích lũy đủ thống kê và các trọng số Attention chưa định hình, khiến đạo hàm có phương sai rất lớn. Nếu áp dụng ngay tốc độ học cực đại $\eta_{\max}$ từ bước $0$, các bước nhảy ban đầu sẽ đẩy trọng số rơi vào vùng bão hòa và làm hàm mất mát phân kỳ ngay lập tức.
+
+Do đó, mọi quy trình tiền huấn luyện đều bắt đầu bằng **Giai đoạn khởi động tuyến tính (Linear Warmup)** trong $T_{\text{warmup}}$ bước đầu tiên (thường chiếm $1\%–5\%$ tổng số bước, hoặc khoảng $2000$ bước), sau đó giảm dần theo **Lịch trình Cosine (Cosine Decay)** về mức $\eta_{\min} \approx 0.1 \eta_{\max}$ khi đạt tổng số bước $T$:
+
+$$
+\eta(t) = \begin{cases}
+\eta_{\max} \cdot \dfrac{t}{T_{\text{warmup}}} & \text{nếu } t < T_{\text{warmup}}, \\[8pt]
+\eta_{\min} + \dfrac{1}{2}(\eta_{\max} - \eta_{\min}) \left(1 + \cos\!\left(\pi \dfrac{t - T_{\text{warmup}}}{T - T_{\text{warmup}}}\right)\right) & \text{nếu } T_{\text{warmup}} \le t \le T.
+\end{cases}
+$$
+
+Một nhược điểm lớn của lịch trình Cosine truyền thống là bạn **phải ấn định trước tổng số bước $T$ ngay từ lúc bắt đầu huấn luyện**. Nếu sau khi huấn luyện xong $1\text{T}$ token, bạn có thêm ngân sách GPU và muốn huấn luyện tiếp lên $2\text{T}$ token thì sao? Vì tốc độ học Cosine đã chạm đáy $\eta_{\min}$ ở cuối chu kỳ $T$, việc tiếp tục huấn luyện hoặc tăng tốc độ học lên lại sẽ làm xáo trộn trọng số.
+
+Để khắc phục hạn chế này, các mô hình thế hệ mới (như MiniCPM, DeepSeek-V3) sử dụng lịch trình **Warmup–Stable–Decay (WSD)**: tốc độ học tăng tuyến tính trong $T_{\text{warmup}}$ bước, sau đó **giữ hằng số ở mức $\eta_{\max}$** suốt phần lớn thời gian (pha *Stable*), và chỉ giảm nhanh xuống $\eta_{\min}$ trong khoảng $10\%–15\%$ số bước cuối cùng (pha *Decay*). Với WSD, bạn có thể lưu các bản chụp (checkpoints) dọc theo pha Stable và rẽ nhánh sang pha Decay ở bất kỳ thời điểm nào bạn muốn dừng!
+
+<HtmlEmbed
+  src="d3-ch3-lr-schedules.html"
+  title="So sánh Lịch trình Tốc độ học: Warmup + Cosine Decay vs. Warmup–Stable–Decay (WSD)"
+  desc="Điều chỉnh số bước khởi động (warmup_steps), tỷ lệ tốc độ học tối thiểu (min_lr) và độ dài pha giảm của WSD. Quan sát biểu đồ bên phải: khi thiếu Warmup, hàm mất mát dao động mạnh và hội tụ kém; trong khi đó lịch trình WSD duy trì tốc độ học cao suốt pha Stable rồi tạo ra cú sụt giảm hàm mất mát ấn tượng ngay khi bước vào pha Decay cuối kỳ."
+/>
+
+### 3.3 Cắt chuẩn đạo hàm, Tích lũy đạo hàm và Độ chính xác hỗn hợp
+
+Bên cạnh AdamW và lịch trình tốc độ học, ba kỹ thuật hệ thống sau đây là trụ cột giữ cho quá trình tiền huấn luyện nhanh và không bị sụp đổ:
+
+1. **Cắt chuẩn đạo hàm toàn cục (Global Gradient Norm Clipping)**: Trước mỗi lệnh `optimizer.step()`, ta tính chuẩn $L_2$ toàn cục của vector đạo hàm gộp từ tất cả các tham số: $\|g\|_2 = \sqrt{\sum_{p} \|\nabla_p \mathcal{L}\|_2^2}$. Nếu $\|g\|_2$ vượt quá ngưỡng $c$ (chuẩn công nghiệp là $c = 1.0$), ta co toàn bộ đạo hàm theo tỷ lệ:
+   $$
+   g \leftarrow g \cdot \frac{c}{\max(c, \|g\|_2)}.
+   $$
+   Phép co này **giữ nguyên hướng** của vector đạo hàm nhưng khóa chặt độ dài bước nhảy tối đa, bảo vệ mô hình khi gặp một batch dữ liệu nhiễu.
+2. **Tích lũy đạo hàm (Gradient Accumulation)**: Ở quy mô lớn, để ước lượng đạo hàm mượt và tận dụng tối đa tính song song, ta cần kích thước lô toàn cục (global batch size) rất lớn — thường từ **2 triệu đến 4 triệu token mỗi bước cập nhật** (ví dụ $B_{\text{global}} = 1024$ chuỗi $\times$ $4096$ token). Không một GPU đơn lẻ nào chứa nổi 1024 chuỗi cùng lúc trong VRAM! Giải pháp là chia nhỏ thành $K_{\text{acc}}$ bước vi lô (micro-batches): ở mỗi micro-batch, ta chia hàm mất mát cho $K_{\text{acc}}$, gọi `loss.backward()` để **cộng dồn** đạo hàm vào thuộc tính `.grad`, và chỉ gọi `optimizer.step()` kèm `optimizer.zero_grad()` sau mỗi $K_{\text{acc}}$ bước. Kết quả toán học hoàn toàn tương đương với việc chạy một lô khổng lồ!
+3. **Huấn luyện Độ chính xác Hỗn hợp (`fp16` / `bfloat16`)** [@micikevicius2018]: Thay vì lưu trữ và nhân ma trận bằng số thực dấu phẩy động 32-bit (`fp32`: 1 bit dấu, 8 bit số mũ, 23 bit phần định trị), các Tensor Cores trên GPU hiện đại thực hiện phép nhân ma trận ở định dạng 16-bit nhanh gấp 2–4 lần và giảm một nửa băng thông bộ nhớ:
+   - **`fp16` (5 bit số mũ, 10 bit định trị)**: Có dải biểu diễn rất hẹp (tối đa $65.504$), dễ bị tràn số (overflow thành `NaN`) hoặc hụt số (underflow về $0$), đòi hỏi phải nhân hệ số co giãn hàm mất mát động (*Dynamic Loss Scaling*) [@micikevicius2018].
+   - **`bfloat16` (Brain Floating Point — 8 bit số mũ, 7 bit định trị)**: Giữ **nguyên vẹn 8 bit số mũ giống hệt `fp32`**, nên có cùng dải động khổng lồ ($\sim 10^{-38}$ đến $3.4 \times 10^{38}$) và không cần Loss Scaling! Tuy nhiên, bản sao trọng số gốc (master weights) và trạng thái mô-men $m_t, v_t$ của AdamW vẫn luôn phải giữ ở `fp32` để các bước cập nhật nhỏ $\eta_t \Delta \theta$ không bị làm tròn về $0$.
+
+<Exercise number="3.3" title="Cài đặt vòng lặp tiền huấn luyện với AdamW, Cosine Schedule và Gradient Clipping" data="Synthetic Sequences" nb="ch3-03-training-loop">
+
+Cho mô hình Transformer tự hồi quy thu nhỏ `TinyLM` (109.440 tham số) đã được định nghĩa sẵn trong mã khởi tạo. Hãy hoàn thiện quy trình tiền huấn luyện 100 bước theo đúng chuẩn mực công nghiệp:
+
+1. Viết hàm `get_lr(step, total_steps=100, warmup_steps=10, max_lr=3e-3, min_lr=3e-4)` trả về tốc độ học tăng tuyến tính`max_lr * (step + 1) / warmup_steps` khi `step < warmup_steps`, và giảm theo hàm Cosine từ `max_lr` về `min_lr` khi `step >= warmup_steps`.
+2. Phân tách các tham số của `model` thành 2 nhóm: `decay_params` (các tensor có số chiều `p.ndim >= 2`, áp dụng `weight_decay=0.1`) và `nodecay_params` (các tensor có `p.ndim < 2`, áp dụng `weight_decay=0.0`). Khởi tạo `torch.optim.AdamW` với `betas=(0.9, 0.95)`.
+3. Chạy vòng lặp huấn luyện từ `step = 0` đến `100` trên dữ liệu chuỗi tuần hoàn `(X, Y)`: cập nhật tốc độ học vào `optimizer.param_groups`, tính hàm mất mát Cross-Entropy, lan truyền ngược, cắt chuẩn đạo hàm toàn cục bằng `torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)`, và cập nhật trọng số. In ra `LR`, `Loss` và chuẩn đạo hàm trước khi cắt sau mỗi 25 bước.
+
+<Starter nb="ch3-03-training-loop" />
+
+<Hints>
+
+<Hint>
+
+Để kiểm tra số chiều của một tensor tham số `p` trong PyTorch, dùng thuộc tính `p.ndim`. Các ma trận trọng số của lớp `Linear` và `Embedding` đều có `p.ndim == 2`, trong khi các vector `bias` và tham số của `LayerNorm` có `p.ndim == 1`.
+
+</Hint>
+
+<Hint>
+
+Hàm `torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)` vừa sửa đổi trực tiếp các đạo hàm `.grad` tại chỗ (nếu chuẩn tổng vượt quá `1.0`), vừa **trả về giá trị chuẩn toàn cục ban đầu** trước khi bị cắt! Bạn chỉ cần gán `grad_norm = torch.nn.utils.clip_grad_norm_(...)` để theo dõi nó.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch3-03-training-loop">
+
+Mô hình có `107,520` tham số 2D chịu tác động của Weight Decay và `1,920` tham số 1D (bias & LayerNorm) được miễn trừ Weight Decay. Nhờ giai đoạn khởi động 10 bước và cắt chuẩn đạo hàm ở mức `1.0` (khi chuẩn đạo hàm đầu kỳ lên tới `1.842`), hàm mất mát giảm mượt mà từ `4.1982` (tương đương đoán mò $\ln 64 \approx 4.1589$) xuống `0.2581` ở bước 100.
+
+</Checkpoint>
+
+<Solution nb="ch3-03-training-loop" />
+
+<WhatToNotice>
+
+Hãy chú ý cột `Chuẩn Grad trước cắt` ở bước `0` và bước `25`: giá trị chuẩn toàn cục đạt `1.842` và `1.315`, đều vượt ngưỡng `1.0`! Nếu không có `clip_grad_norm_` kết hợp với giai đoạn `warmup` giữ tốc độ học thấp ở những bước đầu tiên (`LR = 0.000100` ở bước 0), những cú giật đạo hàm đầu kỳ này trên các mô hình hàng chục tỷ tham số sẽ làm tràn số và phá hỏng các đầu chú ý (attention heads). Khi mô hình đã đi vào vùng hội tụ ổn định (từ bước 50 trở đi), chuẩn đạo hàm tự nhiên giảm xuống dưới `1.0` (`0.942` $\to$ `0.389`) và bộ cắt đạo hàm không còn cần can thiệp nữa.
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 4. Định luật Mở rộng: Từ Kaplan đến Chinchilla và Hơn thế nữa
+
+### 4.1 Luật hàm mũ và Sự đánh đổi giữa Tham số ($N$) và Dữ liệu ($D$)
+
+Giả sử phòng thí nghiệm của bạn được cấp một cụm gồm 2.048 GPU H100 trong vòng 1 tháng, tương đương một **ngân sách tính toán cố định $C$** (tính bằng số phép toán dấu phẩy động — FLOPs). Như chúng ta đã chứng minh ở Chương 2, chi phí tính toán cho một lượt lan truyền tiến (khoảng $2N$ FLOPs mỗi token) cộng với một lượt lan truyền ngược (khoảng $4N$ FLOPs mỗi token) trên một mô hình Transformer đặc có $N$ tham số (không tính lớp nhúng) qua $D$ token huấn luyện tuân theo công thức xấp xỉ cực kỳ chính xác:
+
+$$
+C \approx 6 N D \quad (\text{FLOPs}).
+$$
+
+Công thức $C \approx 6ND$ đặt ra một bài toán đánh đổi sống còn: nếu bạn nhân đôi kích thước mô hình $N$, bạn buộc phải cắt giảm một nửa lượng dữ liệu huấn luyện $D$ để không vượt quá ngân sách $C$. Vậy **đâu là điểm cân bằng tối ưu giữa $N^*$ và $D^*$ để mô hình đạt hàm mất mát kiểm định $L(N, D)$ thấp nhất?**
+
+<PaperNote id="kaplan2020" look="Hình 1 (trang 3): ba đồ thị log-log thẳng tắp thể hiện hàm mất mát kiểm định giảm theo luật hàm mũ (power-law) qua nhiều bậc độ lớn của Compute, Dataset size và Parameters.">
+
+Được công bố vào tháng 1 năm 2020 bởi Jared Kaplan, Sam McCandlish và các cộng sự tại OpenAI, bài báo này lần đầu tiên phát hiện ra rằng hàm mất mát Cross-Entropy của Transformer tuân theo các định luật hàm mũ chính xác qua hơn 7 bậc độ lớn của ngân sách tính toán. Tuy nhiên, vì nhóm tác giả cố định một chu kỳ lịch trình tốc độ học dài duy nhất khi khảo sát các mô hình nhỏ, họ đã đi đến kết luận lệch về phía ưu tiên mở rộng tham số ($N_{\text{opt}} \propto C^{0.73}$, $D_{\text{opt}} \propto C^{0.27}$). Kết luận này đã trực tiếp dẫn tới thiết kế của **GPT-3 (175B tham số trên 300B token)** vài tháng sau đó.
+</PaperNote>
+
+Năm 2020, Kaplan et al. [@kaplan2020] tại OpenAI phát hiện ra rằng hàm mất mát Cross-Entropy giảm theo **luật hàm mũ (power-law)** theo cả kích thước mô hình $N$ lẫn lượng dữ liệu $D$. Khi vẽ trên hệ trục tọa độ log-log, đường cong giảm loss tạo thành những đường thẳng tắp kéo dài suốt nhiều bậc độ lớn! Tuy nhiên, theo ước lượng của Kaplan et al., khi ngân sách tính toán $C$ tăng lên $10$ lần, ta nên tăng số lượng tham số mô hình lên $5.4$ lần ($N_{\text{opt}} \propto C^{0.73}$) và chỉ cần tăng lượng dữ liệu lên $1.8$ lần ($D_{\text{opt}} \propto C^{0.27}$).
+
+Tin tưởng vào quy tắc đó, trong giai đoạn 2020–2021, cả thế giới chạy đua chế tạo những mô hình khổng lồ nhưng chỉ huấn luyện trên khoảng $300$ tỷ token: **GPT-3** ($175\text{B}$ tham số), **Jurassic-1** ($178\text{B}$), **Gopher** ($280\text{B}$) và **Megatron-Turing NLG** ($530\text{B}$).
+
+### 4.2 Cú sốc Chinchilla (Hoffmann et al., 2022)
+
+Tháng 3 năm 2022, Jordan Hoffmann, Sebastian Borgeaud và các đồng nghiệp tại DeepMind đã phát hiện ra một sai sót tinh vi trong thiết kế thí nghiệm của Kaplan et al.: khi huấn luyện các mô hình với số lượng token $D$ khác nhau, Kaplan et al. đã **không điều chỉnh độ dài chu kỳ giảm tốc độ học Cosine khớp với đúng số bước huấn luyện thực tế**, làm cho các mô hình nhỏ được huấn luyện trên nhiều token bị đánh giá thấp một cách bất công!
+
+<PaperNote id="hoffmann2022" look="Hình 2 (Đường cong IsoFLOPs) và Bảng 3: so sánh trực tiếp giữa Gopher (280B tham số, 300B token) và Chinchilla (70B tham số, 1.4T token) dưới cùng một ngân sách tính toán.">
+
+Hoffmann et al. (2022) đã huấn luyện hơn 400 mô hình ngôn ngữ có kích thước từ 70M đến 16B tham số trên 5 đến 500 tỷ token, mỗi lần đều khớp chu kỳ Cosine Decay trùng khít với tổng số token mục tiêu. Họ đề xuất phương trình tham số hóa cộng tính $L(N, D) = E + A N^{-\alpha} + B D^{-\beta}$ và chứng minh rằng $N$ và $D$ phải được mở rộng **với tốc độ ngang nhau** ($N_{\text{opt}} \propto C^{0.50}, D_{\text{opt}} \propto C^{0.50}$). Để kiểm chứng, họ huấn luyện mô hình **Chinchilla (70B tham số)** trên **1.4 nghìn tỷ token** — nhỏ hơn Gopher (280B) gấp 4 lần nhưng dùng nhiều dữ liệu gấp 4.6 lần. Kết quả: Chinchilla đạt 67.5% trên MMLU, vượt xa Gopher (60.0%) và GPT-3 (43.9%) trong khi chi phí suy luận rẻ hơn 4 lần!
+</PaperNote>
+
+Bằng cách khớp đúng lịch trình Cosine cho từng lượt chạy, Hoffmann et al. [@hoffmann2022] mô hình hóa hàm mất mát kiểm định qua phương trình tham số hóa ba thành phần:
+
+$$
+L(N, D) = E + \frac{A}{N^\alpha} + \frac{B}{D^\beta},
+$$
+
+trong đó:
+- $E \approx 1.693$ (nats/token) là **entropy tối thiểu bất khả quy** của ngôn ngữ tự nhiên (ngay cả một mô hình hoàn hảo vô hạn tham số cũng không thể dự đoán chính xác tuyệt đối từ tiếp theo do tính ngẫu nhiên nội tại của văn bản),
+- $A N^{-\alpha}$ (với $A \approx 406.4, \alpha \approx 0.34$) là sai số xấp xỉ hàm do mô hình có dung lượng hữu hạn $N$,
+- $B D^{-\beta}$ (với $B \approx 410.7, \beta \approx 0.28$) là sai số thống kê do mô hình chỉ được nhìn thấy một lượng hữu hạn $D$ token huấn luyện.
+
+Khi cực tiểu hóa $L(N, D)$ dưới ràng buộc ngân sách tính toán cố định $C = 6 N D$, nghiệm giải tích cho ta:
+
+$$
+N_{\text{opt}}(C) \propto C^{\frac{\beta}{\alpha + \beta}} \approx C^{0.45} \approx C^{0.5}, \qquad
+D_{\text{opt}}(C) \propto C^{\frac{\alpha}{\alpha + \beta}} \approx C^{0.55} \approx C^{0.5}.
+$$
+
+Nói cách khác: **Khi ngân sách tính toán tăng gấp đôi, bạn phải tăng đồng thời cả kích thước mô hình $N$ lẫn lượng dữ liệu $D$ theo tỷ lệ tương đương nhau!** Từ các đường cong đồng mức **IsoFLOPs** (nơi các mô hình có kích thước khác nhau được huấn luyện dưới cùng một ngân sách $C$, tạo thành những đường parabol chữ U có một đáy tối ưu duy nhất), Hoffmann et al. rút ra **Quy tắc vàng Chinchilla**:
+
+$$
+D_{\text{opt}} \approx 20 \times N_{\text{opt}} \quad (\text{khoảng 20 token huấn luyện cho mỗi tham số}).
+$$
+
+<HtmlEmbed
+  src="d3-ch3-chinchilla-isoflops.html"
+  title="Đường cong đồng mức IsoFLOPs của Chinchilla và Ba vùng chế độ huấn luyện"
+  desc="Mỗi đường cong chữ U biểu diễn hàm mất mát kiểm định L(N, D) khi giữ cố định ngân sách tính toán C = 6ND và thay đổi số lượng tham số N. Nhấp chọn một mức ngân sách C và kéo thanh trượt để di chuyển điểm thăm dò dọc theo đường cong: điểm đáy parabol chính là cấu hình tối ưu Chinchilla (D/N ≈ 20), bên phải đáy là vùng thiếu dữ liệu (Under-trained như Gopher 280B), còn bên trái đáy là vùng huấn luyện vượt ngưỡng (Over-trained như Llama-3 8B)."
+/>
+
+### 4.3 Vượt ngưỡng Chinchilla (Over-training): Tối ưu hóa cho Suy luận
+
+Định luật Chinchilla trả lời câu hỏi: *"Làm sao đạt hàm mất mát thấp nhất với chi phí **tiền huấn luyện** $C_{\text{train}} = 6ND$ nhỏ nhất?"* Tuy nhiên, trong thế giới thực, một mô hình nguồn mở hoặc một sản phẩm thương mại chỉ được tiền huấn luyện **một lần duy nhất**, nhưng sau đó sẽ được tải lên hàng chục nghìn máy chủ để phục vụ hàng nghìn tỷ lượt truy vấn của người dùng!
+
+Nếu tính cả tổng lượng token mà mô hình sẽ phải sinh ra trong suốt vòng đời phục vụ suy luận là $D_{\text{inf}}$ (với chi phí khoảng $2N$ FLOPs cho mỗi token sinh ra), thì **tổng chi phí tính toán toàn vòng đời** là:
+
+$$
+C_{\text{total}}(N, D) = \underbrace{6 N D}_{\text{Chi phí Tiền huấn luyện}} + \underbrace{2 N D_{\text{inf}}}_{\text{Chi phí Suy luận}}.
+$$
+
+Bởi vì chi phí suy luận tỷ lệ thuận trực tiếp với số lượng tham số $N$ (mà **không** phụ thuộc vào lượng token $D$ mà mô hình đã đọc lúc tiền huấn luyện!), phương trình tối ưu hóa toàn cục dịch chuyển mạnh về phía **chọn mô hình nhỏ hơn ($N < N_{\text{opt}}$) và huấn luyện nó trên lượng dữ liệu lớn gấp hàng chục lần ngưỡng Chinchilla ($D \gg 20N$)**. Đó chính là lý do tại sao **Llama-3 8B** được huấn luyện trên tới **15 nghìn tỷ (15T) token** — tức là gần **1.875 token cho mỗi tham số** (gấp hơn 90 lần tỷ lệ Chinchilla 20:1)!
+
+<WrapTable>
+
+| Mô hình | Năm | Tham số ($N$) | Dữ liệu ($D$) | Tỷ lệ $D / N$ | Ngân sách $C \approx 6ND$ | Chế độ phân bổ tính toán |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **GPT-3** | 2020 | $175\text{B}$ | $300\text{B}$ | $1.7\text{ tok/param}$ | $3.15 \times 10^{23}$ | Thiếu dữ liệu nặng (*Under-trained* theo luật Kaplan) |
+| **Gopher** | 2021 | $280\text{B}$ | $300\text{B}$ | $1.1\text{ tok/param}$ | $5.04 \times 10^{23}$ | Thiếu dữ liệu nặng (*Under-trained*) |
+| **Chinchilla** | 2022 | $70\text{B}$ | $1.4\text{T}$ | **$20.0\text{ tok/param}$** | $5.88 \times 10^{23}$ | **Tối ưu tiền huấn luyện (*Compute-Optimal*)** |
+| **LLaMA-1 7B** | 2023 | $6.7\text{B}$ | $1.0\text{T}$ | $149\text{ tok/param}$ | $4.02 \times 10^{22}$ | Huấn luyện vượt ngưỡng (*Inference-Optimal*) |
+| **Llama-3 8B** | 2024 | $8.0\text{B}$ | $15.0\text{T}$ | **$1.875\text{ tok/param}$** | $7.20 \times 10^{23}$ | **Huấn luyện cực đại cho suy luận rẻ (*Extreme Over-training*)** |
+| **Llama-3 405B** | 2024 | $405\text{B}$ | $15.6\text{T}$ | $38.5\text{ tok/param}$ | $3.79 \times 10^{25}$ | Gần vùng tối ưu Chinchilla ở quy mô $10^{25}$ FLOPs |
+
+</WrapTable>
+
+Hãy dùng chính phương trình tham số hóa của Hoffmann et al. để giải bài toán phân bổ $(N^*, D^*)$ và tính điểm hòa vốn suy luận!
+
+<Exercise number="3.4" title="Tối ưu hóa cấu hình Chinchilla và Tính điểm hòa vốn suy luận" data="Scaling Law Equation" nb="ch3-04-scaling-law-fit">
+
+Cho phương trình tham số hóa Chinchilla $L(N, D) = E + A N^{-\alpha} + B D^{-\beta}$ với bộ hệ số thực nghiệm $E = 1.693$, $A = 406.4, \alpha = 0.34$ và $B = 410.7, \beta = 0.28$.
+
+1. **Nghiệm giải tích Chinchilla**: Với ngân sách tính toán cố định $C = 5.76 \times 10^{23}$ FLOPs và ràng buộc $C = 6 N D$, cực tiểu hóa $L(N, D)$ đạt được khi hai đạo hàm riêng cân bằng nhau: $\alpha A N^{-\alpha} = \beta B D^{-\beta}$. Từ đó suy ra công thức nghiệm đóng:
+   $$
+   N^* = G \left(\frac{C}{6}\right)^a, \quad D^* = \frac{1}{G} \left(\frac{C}{6}\right)^b, \quad \text{với } G = \left(\frac{\alpha A}{\beta B}\right)^{\frac{1}{\alpha + \beta}}, \; a = \frac{\beta}{\alpha + \beta}, \; b = \frac{\alpha}{\alpha + \beta}.
+   $$
+   Hãy tính $(N^*, D^*)$, tỷ lệ $D^*/N^*$ và so sánh loss dự đoán của Gopher ($280\text{B}, 300\text{B}$), Chinchilla ($70\text{B}, 1.4\text{T}$) và cấu hình $(N^*, D^*)$.
+2. **Điểm hòa vốn suy luận (Inference Break-even)**: Giả sử bạn cần một mô hình đạt mục tiêu chất lượng $L_{\text{target}} = 1.9900$. Cấu hình gần tối ưu Chinchilla dùng mô hình $N_{\text{opt}} = 22\text{B}$ tham số, trong khi cấu hình Over-training dùng mô hình nhỏ gọn $N_{\text{small}} = 8\text{B}$ tham số. Hãy viết hàm tìm số token huấn luyện $D$ cần thiết để mỗi mô hình chạm mốc $L_{\text{target}} = 1.9900$, tính chi phí tiền huấn luyện $C_{\text{train}} = 6ND$ của mỗi phương án, và tìm tổng số token suy luận $D_{\text{inf}}$ mà từ đó phương án $8\text{B}$ bắt đầu tiết kiệm tổng FLOPs hơn phương án $22\text{B}$ (biết chi phí suy luận là $2 N D_{\text{inf}}$).
+
+<Starter nb="ch3-04-scaling-law-fit" />
+
+<Hints>
+
+<Hint>
+
+Từ phương trình $L(N, D) = E + A N^{-\alpha} + B D^{-\beta} = L_{\text{target}}$, khi đã biết $N$, ta rút ra lượng dữ liệu cần thiết:
+$$
+B D^{-\beta} = L_{\text{target}} - E - A N^{-\alpha} \implies D = \left(\frac{B}{L_{\text{target}} - E - A N^{-\alpha}}\right)^{1/\beta}.
+$$
+
+</Hint>
+
+<Hint>
+
+Phương án mô hình nhỏ $N_{\text{small}} = 8\text{B}$ tốn nhiều FLOPs tiền huấn luyện hơn ($C_{\text{train, small}} > C_{\text{train, opt}}$), nhưng mỗi token suy luận lại tiết kiệm được $2 (N_{\text{opt}} - N_{\text{small}})$ FLOPs. Do đó, điểm hòa vốn là:
+`D_inf = (C_train_small - C_train_opt) / (2 * (N_opt - N_small))`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch3-04-scaling-law-fit">
+
+Với ngân sách $C = 5.76 \times 10^{23}$ FLOPs, nghiệm giải tích cho ra $N^* = 62.8\text{B}$ tham số và $D^* = 1529.0\text{B}$ token ($D^*/N^* = 24.4$), đạt loss `1.9359` — sát nút với Chinchilla 70B (`1.9363`) và vượt xa Gopher 280B (`2.0046`). Ở bài toán mục tiêu `Loss = 1.9900`, mô hình `8B` cần huấn luyện trên `2,706.5B` token (đắt gần gấp đôi lúc tiền huấn luyện so với mô hình `22B` chỉ cần `498.5B` token), nhưng chỉ cần phục vụ quá **`2,290.1B` token suy luận** là mô hình `8B` bắt đầu hoàn vốn và sinh lời mãi mãi!
+
+</Checkpoint>
+
+<Solution nb="ch3-04-scaling-law-fit" />
+
+<WhatToNotice>
+
+Con số **2.290 tỷ token suy luận** để hòa vốn nghe có vẻ lớn, nhưng đối với một dịch vụ có 10 triệu người dùng hoạt động mỗi ngày (mỗi người dùng tiêu thụ 2.000 token/ngày, tức 20 tỷ token/ngày toàn hệ thống), điểm hòa vốn này đạt được chỉ sau **chưa đầy 4 tháng vận hành**! Hơn thế nữa, một mô hình 8B ở định dạng `INT8`/`FP8` chỉ chiếm 8 GB VRAM — chạy vừa vặn trên một card GPU tiêu dùng hoặc điện thoại cao cấp — trong khi mô hình 22B đòi hỏi phần cứng chuyên dụng đắt đỏ hơn nhiều. Đó là lý do mọi phòng thí nghiệm ngày nay đều huấn luyện các mô hình nhỏ vượt xa ngưỡng Chinchilla.
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 5. Huấn luyện Phân tán ở Quy mô Hàng Nghìn GPU
+
+### 5.1 Bài toán Bức tường Bộ nhớ (The Memory Wall): Một tham số tốn bao nhiêu byte VRAM?
+
+Hãy làm một phép tính nhẩm đơn giản: để tiền huấn luyện một mô hình khiêm tốn cỡ **7 tỷ tham số ($N = 7 \times 10^9$, như LLaMA-1 7B hoặc Mistral 7B)** bằng độ chính xác hỗn hợp (`bfloat16` + `AdamW`), chúng ta cần bao nhiêu bộ nhớ VRAM chỉ riêng cho các trạng thái tĩnh của mô hình (chưa tính bộ nhớ lưu kích hoạt trung gian `activations`)?
+
+Trong quy trình huấn luyện độ chính xác hỗn hợp chuẩn [@micikevicius2018]:
+1. **Trọng số `bfloat16` (2 byte/tham số)** dùng cho lượt lan truyền tiến và ngược.
+2. **Đạo hàm `bfloat16` (2 byte/tham số)** thu được sau lượt lan truyền ngược.
+3. **Trạng thái của bộ tối ưu hóa `AdamW` ở độ chính xác `fp32` (12 byte/tham số)**: bao gồm bản sao trọng số gốc `fp32` (*master weights*: 4 byte), mô-men bậc nhất $m_t$ (`fp32`: 4 byte) và mô-men bậc hai $v_t$ (`fp32`: 4 byte).
+
+<Inset title="Quy tắc 16 Byte cho mỗi tham số khi Tiền huấn luyện">
+
+Tổng dung lượng bộ nhớ tĩnh cho mỗi tham số trong quá trình tiền huấn luyện với `AdamW` độ chính xác hỗn hợp là:
+
+$$
+\underbrace{2\text{ B}}_{\text{Trọng số bf16}} + \underbrace{2\text{ B}}_{\text{Đạo hàm bf16}} + \underbrace{(4 + 4 + 4)\text{ B}}_{\text{Master weights + } m_t + v_t \text{ (fp32)}} = \mathbf{16\text{ byte / tham số}}.
+$$
+
+Như vậy, riêng trạng thái mô hình của một mạng **7B tham số** đã chiếm $7 \times 10^9 \times 16\text{ B} = \mathbf{112\text{ GB VRAM}}$ — vượt quá dung lượng của cả một card GPU NVIDIA H100 80GB hàng đầu! Với mô hình **70B tham số**, con số này lên tới **$1.120\text{ GB}$ ($1.12\text{ TB}$) VRAM**!
+
+</Inset>
+
+### 5.2 ZeRO và FSDP: Xóa bỏ sự dư thừa của Song song Dữ liệu
+
+Trong phương pháp **Song song Dữ liệu truyền thống (Data Parallelism — DDP)** trên $K$ GPU, mỗi GPU giữ một bản sao đầy đủ của toàn bộ $16N$ byte trạng thái mô hình, đọc một phần dữ liệu khác nhau, rồi dùng phép gom toàn cục (`All-Reduce`) để tính trung bình đạo hàm. Cách làm này cực kỳ lãng phí: tại sao cả $K = 64$ GPU đều phải lưu 64 bản sao giống hệt nhau của $m_t, v_t$, đạo hàm và trọng số?
+
+<PaperNote id="rajbhandari2020" look="Hình 1 (trang 3): sơ đồ trực quan hóa mức tiêu thụ bộ nhớ của Baseline DDP so với 3 cấp độ phân mảnh ZeRO-1 (Pos), ZeRO-2 (Pos+g) và ZeRO-3 (Pos+g+p).">
+
+Được phát triển bởi Samyam Rajbhandari, Jeff Rasley, Olatunji Ruwase và Yuxiong He tại Microsoft (trong thư viện DeepSpeed), **ZeRO (Zero Redundancy Optimizer)** đã thay đổi hoàn toàn cách huấn luyện mô hình lớn. Bằng cách phân mảnh (shard) các trạng thái của mô hình đều khắp $K$ GPU và chỉ truyền thông qua mạng đúng phần tham số cần dùng ở từng bước thông qua tổ hợp `All-Gather` và `Reduce-Scatter`, ZeRO giảm bộ nhớ tĩnh trên mỗi GPU đi đúng $K$ lần mà tổng lượng băng thông truyền thông chỉ tăng tối đa $1.5\times$ so với DDP chuẩn. Trong PyTorch hiện đại, ZeRO-3 được tích hợp sẵn dưới tên gọi **FSDP (Fully Sharded Data Parallel)**.
+</PaperNote>
+
+**ZeRO (Zero Redundancy Optimizer)** [@rajbhandari2020] và **PyTorch FSDP (Fully Sharded Data Parallel)** giải phóng bức tường bộ nhớ này qua 3 cấp độ phân mảnh (sharding) trên $K$ GPU:
+
+- **ZeRO-1 (Optimizer State Partitioning)**: Mỗi GPU chỉ lưu giữ và cập nhật $\frac{1}{K}$ trạng thái `fp32` của AdamW. Bộ nhớ mỗi GPU giảm từ $16N$ xuống $4N + \frac{12N}{K}$ byte (giảm gần $4\times$ mà không tốn thêm bất kỳ chi phí truyền thông nào!).
+- **ZeRO-2 (Gradient + Optimizer Partitioning)**: Phân mảnh thêm cả đạo hàm `bfloat16` bằng phép toán `Reduce-Scatter`. Bộ nhớ mỗi GPU giảm xuống $2N + \frac{14N}{K}$ byte.
+- **ZeRO-3 / FSDP (Full Parameter Sharding)**: Phân mảnh cả trọng số `bfloat16`! Trước khi tính toán một tầng Transformer, các GPU gọi lệnh `All-Gather` để gom đủ trọng số của riêng tầng đó, tính xong lập tức giải phóng trọng số của các phân mảnh khác. Bộ nhớ tĩnh trên mỗi GPU giảm tuyến tính theo số lượng GPU: $\mathbf{\frac{16N}{K}\text{ byte}}$.
+
+<Optional title="Song song hóa 3D (3D Parallelism)" subtitle="Kết hợp Data (FSDP), Tensor (Megatron-LM) và Pipeline Parallelism trên cụm hàng nghìn GPU">
+
+Khi mô hình vượt ngưỡng 70B–405B tham số trên hàng nghìn GPU, chỉ riêng FSDP là chưa đủ vì một tầng đơn lẻ vẫn quá lớn và băng thông mạng liên nút (inter-node Ethernet/InfiniBand) chậm hơn băng thông nội bộ trong một nút máy chủ (intra-node NVLink: $900\text{ GB/s}$ trên H100). Khi đó, các hệ thống như **Megatron-LM** [@shoeybi2019] kết hợp **Song song hóa 3 chiều (3D Parallelism)**:
+
+1. **Tensor Parallelism (TP — Song song nội tầng)** [@shoeybi2019]: Chia nhỏ từng ma trận nhân bên trong một khối Transformer (cắt theo cột ở lớp chiếu thứ nhất $W_{\text{up}}$, cắt theo hàng ở lớp chiếu thứ hai $W_{\text{down}}$, và chia các đầu chú ý MHA/GQA đều cho các GPU). Vì đòi hỏi đồng bộ hóa kích hoạt (`All-Reduce`) ở mỗi tầng, TP luôn được giới hạn **bên trong cùng một nút máy chủ** (thường $\text{TP} \in \{2, 4, 8\}$ qua cầu nối NVLink siêu tốc).
+2. **Pipeline Parallelism (PP — Song song đường ống)**: Chia $L_{\text{layers}}$ tầng của mạng dọc theo chiều sâu thành nhiều chặng (stages) đặt trên các nút máy chủ khác nhau, và bơm liên tiếp nhiều micro-batch theo lịch trình 1F1B (One-Forward-One-Backward) để giảm thiểu khoảng thời gian GPU chờ đợi ("bong bóng đường ống" — *pipeline bubble*).
+3. **Data Parallelism / ZeRO / FSDP (DP)**: Nhân bản cụm $(\text{TP} \times \text{PP})$ ra hàng trăm bản sao song song trên các nhánh dữ liệu khác nhau.
+
+</Optional>
+
+---
+
+### Bài tập Mở rộng
+
+Nếu bạn muốn đào sâu hơn nữa về kỹ thuật tiền huấn luyện hiện đại, hãy thử sức với các bài tập mở rộng dưới đây:
+
+<Bonus>
+
+**Mặt nạ chú ý nội bộ tài liệu (Intra-document Causal Mask).** Mở rộng hàm `pack_documents` ở Bài tập 3.1 để trả về thêm một tensor `doc_ids` có cùng kích thước với `X`, ghi nhận chỉ số tài liệu của từng token trong cửa sổ đóng gói. Từ `doc_ids`, hãy viết biểu thức vector hóa PyTorch chỉ gồm 1 dòng để tạo ma trận mặt nạ chú ý 3 chiều `(batch_size, ctx_len, ctx_len)` có giá trị `0.0` khi `(j <= i) & (doc_ids[:, i] == doc_ids[:, j])` và `-inf` ở các vị trí còn lại.
+
+</Bonus>
+
+<Bonus>
+
+**Băm nhạy cục bộ theo dải (MinHash LSH Banding).** Trong Bài tập 3.2, chúng ta đã tính chữ ký MinHash độ dài $K = 64$ rồi duyệt qua các cặp tài liệu. Hãy cài đặt thêm bước phân thùng **LSH Banding**: chia chữ ký 64 phần tử thành $b = 16$ dải (bands), mỗi dải gồm $r = 4$ số nguyên. Băm mỗi bộ 4 số nguyên vào một từ điển `buckets[(band_idx, band_tuple)]` để chỉ cần kiểm tra những cặp tài liệu rơi vào cùng ít nhất một thùng. Vẽ đường cong xác suất phát hiện ứng viên lý thuyết $P(\text{trùng ít nhất 1 dải}) = 1 - (1 - J^r)^b$ theo độ tương đồng Jaccard $J \in [0, 1]$.
+
+</Bonus>
+
+<Bonus>
+
+**Tích lũy đạo hàm (Gradient Accumulation).** Trong Bài tập 3.3, chia tensor dữ liệu `X, Y` (gồm 32 chuỗi) thành 4 micro-batch, mỗi micro-batch gồm 8 chuỗi. Hãy chạy vòng lặp tích lũy đạo hàm qua 4 micro-batch (nhớ chia `loss / 4` trước khi gọi `backward()`) rồi mới gọi `clip_grad_norm_` và `optimizer.step()`. Kiểm chứng rằng trọng số của mô hình sau 1 bước tích lũy 4 micro-batch trùng khớp tuyệt đối (sai số $< 10^{-6}$) với khi chạy 1 batch lớn gồm cả 32 chuỗi cùng lúc!
+
+</Bonus>
+
+---
+
+## Tài liệu tham khảo
+
+<ReferenceList chapter={3} />

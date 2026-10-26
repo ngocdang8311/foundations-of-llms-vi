@@ -60,16 +60,16 @@
 
       container.innerHTML = `
         <div class="charts">
-          <div><div class="chart-title">p, the true distribution<span class="chart-sub">fixed</span></div><div class="left"></div></div>
-          <div><div class="chart-title">q, the model<span class="chart-sub">drag the bars up or down</span></div><div class="right"></div></div>
+          <div><div class="chart-title">p, phân phối thực<span class="chart-sub">cố định</span></div><div class="left"></div></div>
+          <div><div class="chart-title">q, mô hình<span class="chart-sub">kéo các cột lên hoặc xuống</span></div><div class="right"></div></div>
         </div>
         <div class="readout"></div>`;
       const readout = container.querySelector('.readout');
 
       const leftSvg = d3.select(container.querySelector('.left')).append('svg').attr('width', '100%')
-        .attr('role', 'img').attr('aria-label', 'The distribution p over six words');
+        .attr('role', 'img').attr('aria-label', 'Phân phối p trên sáu từ');
       const rightSvg = d3.select(container.querySelector('.right')).append('svg').attr('width', '100%')
-        .attr('aria-label', 'The distribution q over six words, adjustable');
+        .attr('aria-label', 'Phân phối q trên sáu từ, có thể điều chỉnh');
 
       // Natural logarithms, as in the formulas of the post: the unit is the nat.
       const entropy = (p) => -d3.sum(p, (pi) => (pi > 0 ? pi * Math.log(pi) : 0));
@@ -126,9 +126,9 @@
         const ce = crossEntropy(P, q);
         const kl = ce - h;
         readout.innerHTML = `
-          <span class="name">Entropy of p</span><span class="formula">H(p) = −Σ p log p</span><span class="num">${fmt(h)}</span>
-          <span class="name">Cross-entropy</span><span class="formula">H(p, q) = −Σ p log q</span><span class="num">${fmt(ce)}</span>
-          <span class="name">KL divergence</span><span class="formula">D<sub>KL</sub>(p ‖ q) = H(p, q) − H(p)</span><span class="num" style="color:${colorKL}">${fmt(kl)}</span>`;
+          <span class="name">Entropy của p</span><span class="formula">H(p) = −Σ p log p</span><span class="num">${fmt(h)}</span>
+          <span class="name">Entropy chéo (Cross-entropy)</span><span class="formula">H(p, q) = −Σ p log q</span><span class="num">${fmt(ce)}</span>
+          <span class="name">Phân kỳ KL (KL divergence)</span><span class="formula">D<sub>KL</sub>(p ‖ q) = H(p, q) − H(p)</span><span class="num" style="color:${colorKL}">${fmt(kl)}</span>`;
       }
 
       function render() {

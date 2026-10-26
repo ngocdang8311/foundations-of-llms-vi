@@ -1,0 +1,624 @@
+---
+title: "Suy luận & Tối ưu hóa (Inference): Giải mã nhanh, bộ nhớ đệm KV và giới hạn phần cứng"
+chapter: 5
+banner: "banner-5.html"
+description: "Từ chiến lược chọn mẫu Top-p đến KV Cache, GQA, FlashAttention, lượng tử hóa trọng số và giải mã suy đoán (Speculative Decoding)."
+authors:
+  - name: "David Louapre"
+    url: "https://huggingface.co/dlouapre"
+    affiliations: [1]
+affiliations:
+  - name: "Hugging Face"
+    url: "https://huggingface.co"
+published: "Oct. 26, 2026"
+template: "article"
+licence: >
+  Sơ đồ và văn bản được cấp phép theo <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC‑BY 4.0</a>, trừ khi có ghi chú khác.
+  Các hình minh họa sử dụng lại từ nguồn khác không thuộc phạm vi giấy phép này và được ghi rõ trong chú thích (“Hình từ …”).
+tableOfContentsAutoCollapse: true
+showPdf: true
+---
+
+import Note from '../components/Note.astro';
+import HtmlEmbed from '../components/HtmlEmbed.astro';
+import PaperNote from '../components/post/PaperNote.astro';
+import Exercise from '../components/post/Exercise.astro';
+import Starter from '../components/post/Starter.astro';
+import Hints from '../components/post/Hints.astro';
+import Hint from '../components/post/Hint.astro';
+import Checkpoint from '../components/post/Checkpoint.astro';
+import Solution from '../components/post/Solution.astro';
+import WhatToNotice from '../components/post/WhatToNotice.astro';
+import Bonus from '../components/post/Bonus.astro';
+import Optional from '../components/post/Optional.astro';
+import Inset from '../components/post/Inset.astro';
+import WrapTable from '../components/post/WrapTable.astro';
+import ReferenceList from '../components/post/ReferenceList.astro';
+
+<Note variant="success">
+Trong các chương trước, chúng ta đã đi trọn hành trình tạo ra một trợ lý ngôn ngữ: tách từ thành chuỗi token (Chương 1), lắp ráp kiến trúc Transformer (Chương 2), tiền huấn luyện trên hàng nghìn tỷ từ (Chương 3) và căn chỉnh theo sở thích con người (Chương 4).
+
+Nhưng khi đưa mô hình đó vào vận hành thực tế cho hàng triệu người dùng — giai đoạn **suy luận (*inference*)** — một nghịch lý hoàn toàn mới xuất hiện. Một cụm GPU có thể xử lý hàng chục nghìn token mỗi giây lúc huấn luyện, nhưng lại chỉ nhỏ giọt vài chục token mỗi giây khi trò chuyện trực tiếp. Hơn thế nữa, trong suốt vòng đời của một mô hình phổ biến, **tổng chi phí điện năng và phần cứng cho suy luận thường vượt xa chi phí huấn luyện ban đầu gấp nhiều lần**.
+
+Chương này sẽ mổ xẻ các nguyên lý toán học và giới hạn vật lý của phần cứng đứng sau quá trình sinh văn bản. Như thường lệ, bạn sẽ tự tay cài đặt từng thuật toán cốt lõi — từ bộ chọn mẫu hạt nhân (*Nucleus Sampling*), bộ nhớ đệm `kv_cache`, lượng tử hóa trọng số nhóm (*Group-wise Quantization*) cho đến kiểm chứng mẫu suy đoán (*Speculative Decoding*) — chỉ với vài chục dòng mã PyTorch thuần túy.
+</Note>
+
+Khi một mô hình ngôn ngữ đã được huấn luyện xong và đóng băng toàn bộ trọng số $\theta$, công việc duy nhất của nó tại mỗi bước là nhận vào chuỗi ngữ cảnh $x_1, x_2, \dots, x_t$ và xuất ra một vector điểm số chưa chuẩn hóa $\mathbf{z} \in \mathbb{R}^{|V|}$ (gọi là **logits**) trên toàn bộ từ vựng $V$.
+
+Tưởng chừng mọi thứ đến đây đã xong, nhưng để biến vector logits đó thành một hệ thống sinh văn bản vừa thông minh, tự nhiên, vừa đạt tốc độ phản hồi tức thì, chúng ta phải giải quyết hai câu hỏi lớn định hình toàn bộ kỹ thuật suy luận LLM hiện đại:
+
+- **Làm thế nào để chọn ra token tiếp theo từ phân phối xác suất $p(x_{t+1} \mid x_{1:t})$ sao cho văn bản sinh ra không bị rơi vào vòng lặp vô hồn của tìm kiếm tham lam (*greedy decoding*), cũng không bị trượt sang những từ vô nghĩa ở phần đuôi dài của phân phối?**
+- **Tại sao khi sinh từng token tự hồi quy, các siêu chip GPU hàng trăm TFLOPS lại dành tới hơn 95% thời gian chỉ để... đứng chờ bộ nhớ RAM, và làm thế nào để phá vỡ bức tường băng thông bộ nhớ (*memory wall*) này mà không làm giảm chất lượng mô hình?**
+
+<Note title="Công cụ & Mô hình Tham chiếu" emoji="📖" variant="info">
+Trong toàn bộ các bài tập thực hành của chương này, chúng ta sử dụng **PyTorch** tiêu chuẩn (chạy tức thì trên CPU trong vài giây) để mô phỏng chính xác các phép toán bên trong các động cơ suy luận hiện đại:
+- **Kiến trúc tham chiếu**: Llama-3 8B ($32$ lớp, $d_{\text{model}} = 4096$, $32$ đầu Query, $8$ đầu Key/Value) và Llama-3 70B ($80$ lớp, $d_{\text{model}} = 8192$, $64$ đầu Query, $8$ đầu Key/Value).
+- **Phần cứng tham chiếu**: GPU NVIDIA A100 SXM 80GB (Đỉnh tính toán FP16: $312\text{ TFLOPS}$, Băng thông bộ nhớ HBM2e: $2.0\text{ TB/s}$) và H100 SXM 80GB (Đỉnh FP16: $989\text{ TFLOPS}$, Băng thông HBM3: $3.35\text{ TB/s}$).
+- **Động cơ suy luận công nghiệp (*Inference Engines*)**: Các thuật toán bạn cài đặt trong chương này chính là nền tảng cốt lõi bên trong `vLLM`, `TensorRT-LLM`, `SGLang` và `llama.cpp`.
+</Note>
+
+---
+
+## 1. Chiến lược giải mã và chọn mẫu (Decoding & Sampling)
+
+Giả sử mô hình vừa đọc xong cụm từ *"Cánh cửa gỗ bất ngờ mở ra, bên trong là một"* và trả về vector logits $\mathbf{z} = (z_1, z_2, \dots, z_{|V|})$ ở lớp tuyến tính cuối cùng. Hàm Softmax biến vector này thành phân phối xác suất của token tiếp theo:
+
+$$
+p(x_{t+1} = w_i \mid x_{1:t}) = \frac{\exp(z_i)}{\sum_{j=1}^{|V|} \exp(z_j)}.
+$$
+
+Có phân phối xác suất rồi, ta rút ra từ tiếp theo bằng cách nào? Quyết định tưởng như nhỏ nhặt này lại có ảnh hưởng sống còn đến chất lượng câu trả lời của mô hình.
+
+### 1.1 Giải mã cực đại xác suất và căn bệnh thoái hóa văn bản
+
+Nếu mục tiêu là tìm chuỗi từ $y_1, \dots, y_M$ có xác suất hợp lý cao nhất theo mô hình, phản xạ tự nhiên nhất là **giải mã tham lam (*Greedy Decoding*)**: tại mỗi bước $t$, ta luôn chọn từ có xác suất lớn nhất:
+
+$$
+x_{t+1} = \arg\max_{w \in V} \, p(w \mid x_{1:t}).
+$$
+
+Giải mã tham lam hoàn toàn tất định (*deterministic*) và rất phù hợp cho các tác vụ có đáp án duy nhất (như phân loại hay trích xuất số liệu). Tuy nhiên, việc chọn cực đại cục bộ ở từng bước không đảm bảo chuỗi tổng thể có xác suất cao nhất: một từ hơi kém phổ biến hơn ở bước $t$ có thể mở ra một nhánh câu xuất sắc ở bước $t+1$.
+
+Để khắc phục, các hệ thống dịch máy cổ điển (Chương 0, mục 9) sử dụng **tìm kiếm chùm (*Beam Search*)**: duy trì song song $B$ ứng viên chuỗi tốt nhất (gọi là độ rộng chùm *beam width*) ở mỗi bước và chọn chuỗi tối đa hóa $\prod_{t} p(x_t \mid x_{<t})$.
+
+Thế nhưng, khi áp dụng Greedy Decoding hoặc Beam Search vào sinh văn bản mở (*open-ended generation*) trên các mô hình ngôn ngữ lớn, một hiện tượng kỳ lạ xảy ra: chỉ sau vài câu, mô hình bắt đầu viết nhạt nhẽo, an toàn quá mức, và nhanh chóng rơi vào những vòng lặp vô tận kiểu: *"Tôi không biết. Tôi không biết. Tôi không biết..."*
+
+<PaperNote id="holtzman2020" look="Hình 1 và Hình 2: So sánh xác suất từng token của văn bản do con người viết (biến thiên liên tục, giàu tính bất ngờ) với văn bản do Beam Search sinh ra (rơi vào vòng lặp phản hồi dương của các token xác suất cao).">
+
+Được công bố tại ICLR 2020 bởi Ari Holtzman và các cộng sự tại Đại học Washington và AI2, bài báo này đã giải thích triệt để vì sao các chiến lược tối đa hóa xác suất lại tạo ra văn bản tồi tệ. Tác giả chứng minh rằng khi con người viết văn, chúng ta **không** chọn chuỗi từ có xác suất cao nhất: văn bản tự nhiên luôn đan xen những từ có xác suất thấp hơn để truyền tải thông tin mới. Ngược lại, trong mô hình tự hồi quy, một khi một cụm từ xuất hiện lặp lại lần thứ hai, cơ chế chú ý (*self-attention*) sẽ đẩy xác suất lặp lại lần thứ ba lên cao hơn nữa, tạo thành một cái bẫy xác suất không lối thoát. Để giải quyết, nhóm tác giả đề xuất **Nucleus Sampling (Top-$p$)**, chỉ lấy mẫu trong "hạt nhân" xác suất động thay vì cố định số lượng từ.
+</PaperNote>
+
+Năm 2020, Ari Holtzman và cộng sự đã đặt tên cho hiện tượng này là **sự thoái hóa văn bản nơ-ron (*neural text degeneration*)** [@holtzman2020]. Vậy nếu không lấy cực đại (`argmax`), tại sao ta không lấy mẫu ngẫu nhiên trực tiếp từ phân phối $p(w \mid x_{1:t})$ như cách chúng ta từng làm với mô hình xích Markov ở Chương 0?
+
+Câu trả lời nằm ở **cái đuôi không đáng tin cậy (*unreliable tail*)** của hàm Softmax. Với bộ từ vựng $|V| \approx 128{,}000$ token, luôn có hàng chục nghìn từ hoàn toàn lạc đề hoặc sai ngữ pháp nhưng vẫn nhận một xác suất nhỏ khác không (ví dụ $10^{-5}$). Khi cộng dồn $100{,}000$ từ như vậy lại, cái đuôi dài này có thể chiếm tới $10\% - 20\%$ tổng khối lượng xác suất! Nếu lấy mẫu thuần túy trên toàn bộ từ vựng, cứ sau khoảng 5 đến 10 từ, mô hình sẽ trượt chân rút phải một từ hoàn toàn vô nghĩa ở phần đuôi, kéo toàn bộ các bước tự hồi quy phía sau chệch hướng.
+
+### 1.2 Nhiệt độ ($T$), Top-$k$ và Chọn mẫu Hạt nhân Top-$p$ (Nucleus Sampling)
+
+Để vừa giữ được sự ngẫu nhiên sáng tạo, vừa cắt bỏ hoàn toàn cái đuôi nhiễu loạn, các hệ thống LLM hiện đại kết hợp một đường ống gồm ba phép biến đổi liên tiếp trên vector logits $\mathbf{z}$ trước khi rút mẫu:
+
+1. **Nhiệt độ (*Temperature Scaling* — $T > 0$)**: Trước khi đưa vào Softmax, ta chia toàn bộ logits cho hằng số nhiệt độ $T$:
+   $$
+   p_i(T) = \frac{\exp(z_i / T)}{\sum_{j=1}^{|V|} \exp(z_j / T)}.
+   $$
+   Khi $T < 1$, chênh lệch giữa các logit lớn và nhỏ được khuếch đại, làm phân phối **nhọn hơn** (tập trung vào các từ an toàn; khi $T \to 0$, nó hội tụ về giải mã tham lam). Khi $T > 1$, phân phối bị **san phẳng**, trao nhiều cơ hội hơn cho các từ ít phổ biến (nhưng cũng làm phình to cái đuôi nhiễu).
+
+2. **Lọc Top-$k$ (*Top-$k$ Sampling*)**: Sắp xếp các token theo thứ tự xác suất giảm dần $p_{(1)} \ge p_{(2)} \ge \dots \ge p_{(|V|)}$, chỉ giữ lại đúng $k$ token đầu tiên (ví dụ $k = 50$) và gán logit của mọi token còn lại bằng $-\infty$.
+   Nhược điểm của Top-$k$ là số lượng $k$ cố định không thích ứng được với ngữ cảnh:
+   - Khi phân phối **rất nhọn** (ví dụ: *"Thủ đô của Pháp là..."*, từ `"Paris"` chiếm $98\%$), việc giữ $k=50$ từ sẽ vô tình đưa 49 từ sai vào tập chọn mẫu.
+   - Khi phân phối **rất phẳng** (ví dụ: *"Hôm nay tôi muốn kể câu chuyện về một..."*, có hàng trăm danh từ hợp lý mỗi từ chiếm $0.5\%$), việc cắt ở $k=10$ hay $k=20$ lại chặt cụt mất phần lớn các ý tưởng hay.
+
+3. **Chọn mẫu Hạt nhân Top-$p$ (*Nucleus Sampling* [@holtzman2020])**: Thay vì cố định số lượng ứng viên $k$, ta cố định **khối lượng xác suất tích lũy $p \in (0, 1]$** (thường chọn $p = 0.9$ hoặc $0.95$). Ta tìm tập con nhỏ nhất các token đứng đầu $V^{(p)}$ sao cho tổng xác suất của chúng vừa chạm hoặc vượt ngưỡng $p$:
+   $$
+   V^{(p)} = \left\{ w_{(1)}, \dots, w_{(m)} \;\middle|\; m = \min \left\{ j : \sum_{i=1}^{j} p_{(i)}(T) \ge p \right\} \right\}.
+   $$
+   Mọi token nằm ngoài $V^{(p)}$ đều bị loại bỏ, và các token trong hạt nhân được chuẩn hóa lại thành phân phối cuối cùng $\tilde{p}$:
+   $$
+   \tilde{p}(w) = \begin{cases} \dfrac{p(w)}{\sum_{v \in V^{(p)}} p(v)} & \text{nếu } w \in V^{(p)}, \\[8pt] 0 & \text{ngược lại.} \end{cases}
+   $$
+
+Nhờ định nghĩa theo tổng tích lũy, kích thước hạt nhân $|V^{(p)}|$ tự động co giãn linh hoạt: thu nhỏ về chỉ $1-2$ từ khi mô hình chắc chắn, và mở rộng ra hàng chục từ khi ngữ cảnh có nhiều nhánh rẽ hợp lý! Hãy thử nghiệm trực tiếp cơ chế này trên biểu đồ tương tác dưới đây.
+
+<HtmlEmbed
+  src="d3-ch5-sampling.html"
+  title="Sân chơi tương tác: Nhiệt độ (T), Top-k và Hạt nhân Top-p"
+  desc="Chọn ngữ cảnh đầu vào (sáng tạo phẳng hoặc sự kiện nhọn) và kéo các thanh trượt Nhiệt độ T, Top-k, Top-p. Thanh mờ biểu diễn xác suất sau khi chia nhiệt độ p_i(T); thanh đậm biểu diễn xác suất cuối cùng p̃_i sau khi cắt bỏ các từ ngoài hạt nhân và chuẩn hóa lại."
+/>
+
+<Inset title="Nên chỉnh Temperature hay Top-p trong thực tế?" id="sampling-tips">
+Trong các API thương mại (như OpenAI, Anthropic, vLLM), thông lệ tốt nhất là kết hợp $T \in [0.6, 0.9]$ với $\text{top\_p} \in [0.9, 0.95]$ cho các tác vụ hội thoại và sáng tạo, hoặc đặt $T = 0$ cho các bài toán lập trình, trích xuất JSON cần tính nhất quán cao. Lưu ý rằng thứ tự chuẩn trong các thư viện (như Hugging Face `transformers`) luôn là: **Chia nhiệt độ $T$ $\longrightarrow$ Lọc Top-$k$ $\longrightarrow$ Lọc Top-$p$ $\longrightarrow$ Chuẩn hóa lại và rút mẫu đa thức (`multinomial`)**.
+</Inset>
+
+Hãy tự tay cài đặt toàn bộ đường ống chọn mẫu này trong bài tập thực hành đầu tiên.
+
+<Exercise number="5.1" title="Cài đặt bộ chọn mẫu kết hợp Temperature, Top-k và Top-p" data="Logits mô phỏng" nb="ch5-01-top-p-sampling">
+
+Viết hàm `filter_and_sample(logits, temp, top_k, top_p)` nhận vào một vector `logits` 1 chiều, thực hiện lần lượt: (1) chia cho nhiệt độ `temp` và sắp xếp giảm dần; (2) gán `-inf` cho các vị trí vượt quá `top_k`; (3) tính xác suất tích lũy `torch.cumsum` và gán `-inf` cho các token mà tổng tích lũy của các token **đứng trước nó** đã lớn hơn hoặc bằng `top_p` (luôn giữ lại ít nhất token đứng đầu); (4) chuẩn hóa lại bằng Softmax và trả về phân phối xác suất trên thứ tự từ vựng ban đầu.
+
+Sau đó, tính **Entropy Shannon** $H(\tilde{p}) = -\sum_i \tilde{p}_i \log_2 \tilde{p}_i$ (đơn vị: bits) để đo độ đa dạng của phân phối ở 3 cấu hình khác nhau và rút thử 10 mẫu ngẫu nhiên.
+
+<Starter nb="ch5-01-top-p-sampling" />
+
+<Hints>
+
+<Hint>
+Sử dụng `sorted_logits, sorted_idx = torch.sort( logits / temp, descending=True )` để sắp xếp các ứng viên từ cao xuống thấp. Với Top-$k$, bạn chỉ cần gán `sorted_logits[top_k:] = -float("inf")`.
+</Hint>
+
+<Hint>
+Để tìm ranh giới cắt Top-$p$ chuẩn xác (bao gồm cả token đầu tiên làm tổng tích lũy vượt ngưỡng `top_p`), hãy tính `probs = torch.softmax(sorted_logits, dim=-1)` và `cum_probs = torch.cumsum(probs, dim=-1)`. Một token ở vị trí $j$ sẽ bị loại nếu tổng xác suất **trước nó** đã đạt `top_p`, tức là `(cum_probs - probs) >= top_p`. Đừng quên đặt `remove_mask[0] = False` để đảm bảo luôn giữ lại ít nhất 1 token.
+</Hint>
+
+<Hint>
+Sau khi tính `final_sorted = torch.softmax(sorted_logits, dim=-1)`, dùng phương thức `final_probs.scatter_(0, sorted_idx, final_sorted)` để đưa các giá trị xác suất về lại đúng vị trí chỉ số từ vựng ban đầu.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch5-01-top-p-sampling">
+
+Ở chế độ tham lam (`T=0.1, k=1`), chỉ 1 token được giữ lại với xác suất $100\%$ và entropy bằng $0.00\text{ bits}$. Với `Top-p (T=0.8, p=0.9)`, hạt nhân giữ lại $6/10$ token đầu tiên, nâng entropy lên $2.26\text{ bits}$.
+
+</Checkpoint>
+
+<Solution nb="ch5-01-top-p-sampling" />
+
+<WhatToNotice>
+Hãy chú ý cách công thức dịch chuyển `(cum_probs - probs) >= top_p` hoạt động: nếu token đầu tiên `"căn"` đã có xác suất $95\%$ trong khi `top_p = 0.90`, thì tại vị trí $0$, `cum_probs - probs` bằng $0 < 0.90$ nên `"căn"` được giữ lại; còn từ vị trí $1$ trở đi, tổng tích lũy phía trước đã là $0.95 \ge 0.90$ nên toàn bộ các từ còn lại bị cắt sạch! **Top-$p$ tự động biến thành giải mã tham lam khi mô hình hoàn toàn chắc chắn, và tự động mở rộng khi mô hình phân vân.**
+</WhatToNotice>
+
+</Exercise>
+
+<Optional title="Các chiến lược chọn mẫu hiện đại khác: Min-p và Phạt lặp (Repetition Penalty)">
+
+Bên cạnh Top-$k$ và Top-$p$, các động cơ suy luận mã nguồn mở gần đây (như `llama.cpp` và `vLLM`) rất ưa chuộng thêm hai kỹ thuật:
+- **Min-$p$ Sampling**: Thay vì cắt theo tổng tích lũy, Min-$p$ đặt ngưỡng cắt tương đối theo xác suất của token đứng đầu $p_{\max} = \max_i p_i$: mọi token có $p_i < \text{min\_p} \times p_{\max}$ (ví dụ $\text{min\_p} = 0.05$) sẽ bị loại bỏ. Cách này cực kỳ đơn giản và tránh được việc Top-$p$ đôi khi giữ lại quá nhiều từ vụn vặt khi $p_{\max}$ nằm lấp lửng ở mức $85\%$ (chưa đủ $90\%$).
+- **Frequency & Presence Penalty**: Giảm trực tiếp logit $z_i \leftarrow z_i - \alpha \cdot c_i - \beta \cdot \mathbb{I}[c_i > 0]$ của các token đã xuất hiện $c_i$ lần trong văn bản trước đó, giúp triệt tiêu tận gốc hiện tượng lặp từ.
+
+</Optional>
+
+---
+
+## 2. Bộ nhớ đệm KV (KV Cache) và giới hạn phần cứng Roofline
+
+Sau khi đã biết cách rút ra token tiếp theo $x_{t+1}$, ta nối nó vào cuối chuỗi đầu vào để thành $x_1, \dots, x_t, x_{t+1}$ rồi lại đưa vào mô hình để sinh tiếp $x_{t+2}$. Nhưng nếu thực hiện một cách ngây thơ — mỗi bước lại đưa toàn bộ chuỗi từ đầu vào mạng Transformer — tốc độ suy luận sẽ sụp đổ rất nhanh khi câu trả lời dài ra. Tại sao lại như vậy?
+
+### 2.1 Tại sao tính lại toàn bộ chuỗi tốn $O(L^2)$ và cách KV Cache giải cứu
+
+Hãy nhìn vào một lớp **Causal Self-Attention** (Chương 2, mục 1) khi xử lý chuỗi có độ dài $t$ với ma trận biểu diễn đầu vào $X_{1:t} \in \mathbb{R}^{t \times d}$. Lớp này nhân $X_{1:t}$ với ba ma trận trọng số $W_Q, W_K, W_V \in \mathbb{R}^{d \times d}$ để tạo ra:
+
+$$
+Q = X_{1:t} W_Q = \begin{bmatrix} q_1 \\ \vdots \\ q_{t-1} \\ q_t \end{bmatrix}, \quad
+K = X_{1:t} W_K = \begin{bmatrix} k_1 \\ \vdots \\ k_{t-1} \\ k_t \end{bmatrix}, \quad
+V = X_{1:t} W_V = \begin{bmatrix} v_1 \\ \vdots \\ v_{t-1} \\ v_t \end{bmatrix}.
+$$
+
+Có hai sự thật toán học vô cùng quan trọng ở đây:
+1. **Nhờ mặt nạ nhân quả (*causal mask*)**, biểu diễn của các token ở vị trí $1, 2, \dots, t-1$ **hoàn toàn không phụ thuộc** vào token mới $x_t$. Do đó, các hàng $k_1 \dots k_{t-1}$ và $v_1 \dots v_{t-1}$ ở bước $t$ giống hệt 100% với những gì chúng ta đã tính ở bước $t-1$!
+2. Để dự đoán token tiếp theo $x_{t+1}$, lớp đầu ra cuối cùng của mô hình chỉ đọc **duy nhất vector ẩn ở vị trí cuối cùng $h_t$**. Mà để tính $h_t$, phép chú ý chỉ cần lấy tích vô hướng giữa truy vấn mới nhất $q_t \in \mathbb{R}^{1 \times d}$ với tất cả các khóa $k_1 \dots k_t$:
+
+$$
+\text{Attention}_t(q_t, K_{1:t}, V_{1:t}) = \text{softmax}\!\left(\frac{q_t K_{1:t}^\top}{\sqrt{d_k}}\right) V_{1:t}.
+$$
+
+Nếu không lưu lại gì từ bước trước, ở mỗi bước $t$ ta phải tính lại toàn bộ $t$ hàng của $Q, K, V$; tổng chi phí sinh $L$ token sẽ tỷ lệ với $\sum_{t=1}^{L} t = \frac{L(L+1)}{2} = O(L^2)$.
+
+Giải pháp rất tự nhiên: chúng ta cấp phát một vùng nhớ trên RAM của GPU gọi là **Bộ nhớ đệm Khóa–Giá trị (*KV Cache*)** để lưu lại các ma trận $K_{1:t-1}$ và $V_{1:t-1}$ ở mọi lớp Transformer. Khi sinh token thứ $t$, ta chỉ đưa **duy nhất 1 token mới nhất $x_t$** đi qua mạng:
+- Chỉ tính $q_t = x_t W_Q$, $k_t = x_t W_K$, $v_t = x_t W_V$ (chi phí $O(1)$ theo độ dài chuỗi).
+- Nối (*append*) $k_t$ và $v_t$ vào cuối bộ đệm để thu được $K_{1:t}$ và $V_{1:t}$.
+- Nhân vector $q_t$ ($1 \times d_k$) với $K_{1:t}^\top$ ($d_k \times t$) và $V_{1:t}$ ($t \times d_v$).
+
+### 2.2 Hai pha suy luận (Prefill vs Decode) và Mô hình Roofline
+
+KV Cache chia quá trình suy luận của một yêu cầu người dùng thành hai pha có bản chất phần cứng đối lập nhau hoàn toàn:
+
+- **Pha 1 — Prefill (Khởi tạo ngữ cảnh)**: Khi người dùng vừa gửi một câu hỏi (prompt) dài $L_{\text{prompt}}$ token (ví dụ $512$ token), toàn bộ $512$ token này đã có sẵn cùng lúc. GPU xử lý tất cả chúng song song trong một lượt chạy duy nhất bằng phép nhân **Ma trận – Ma trận** (kích thước $[512, d] \times [d, d]$), vừa sinh ra token trả lời đầu tiên, vừa điền đầy KV Cache ban đầu.
+- **Pha 2 — Decode (Giải mã tự hồi quy)**: Từ token thứ hai trở đi, vì token sau phụ thuộc vào token trước nên mô hình buộc phải chạy tuần tự từng bước một. Nhờ KV Cache, đầu vào của mỗi bước chỉ có độ dài bằng $1$ (hoặc bằng kích thước batch $B$). Mọi phép nhân trọng số giờ đây thu nhỏ thành phép nhân **Vector – Ma trận** (kích thước $[1, d] \times [d, d]$).
+
+Tại sao phép nhân Vector – Ma trận ở pha Decode lại là "cơn ác mộng" đối với GPU hiện đại? Để hiểu điều này, các kỹ sư hệ thống sử dụng **Mô hình Roofline (*Roofline Model*)**.
+
+Một GPU có hai thông số vật lý giới hạn:
+1. **Đỉnh tính toán ($\text{Peak FLOP/s}$)**: Số phép tính dấu phẩy động tối đa mỗi giây của các nhân Tensor Cores (ví dụ NVIDIA A100 đạt $312\text{ TFLOPS} = 312 \times 10^{12}\text{ FLOP/s}$ ở chuẩn FP16).
+2. **Băng thông bộ nhớ ($\text{Memory Bandwidth}$)**: Tốc độ truyền dữ liệu tối đa từ bộ nhớ chính HBM (VRAM) vào bộ nhớ đệm siêu tốc trên chip SRAM (ví dụ A100 đạt $2.0\text{ TB/s} = 2 \times 10^{12}\text{ Bytes/s}$).
+
+Tỷ số giữa số phép toán số học thực hiện được trên mỗi byte dữ liệu phải đọc từ HBM được gọi là **Cường độ số học (*Arithmetic Intensity* — $I$)**:
+
+$$
+I = \frac{\text{Tổng số phép tính (FLOPs)}}{\text{Tổng số Byte đọc/ghi bộ nhớ (Bytes)}} \quad [\text{FLOPs/Byte}].
+$$
+
+Trên GPU A100, để các nhân tính toán không phải ngồi chơi chờ dữ liệu, một tác vụ phải có cường độ số học vượt qua **điểm gãy (*Ridge Point*)**:
+
+$$
+I_{\text{ridge}} = \frac{312\text{ TFLOPS}}{2.0\text{ TB/s}} = 156\text{ FLOPs/Byte}.
+$$
+
+Hãy tính cường độ số học của một lớp tuyến $Y = X W$ với ma trận trọng số $W \in \mathbb{R}^{d \times d}$ lưu ở chuẩn FP16 ($2\text{ bytes}$ mỗi tham số, tổng dung lượng $2 d^2\text{ bytes}$) khi xử lý $N$ token cùng lúc ($X \in \mathbb{R}^{N \times d}$):
+- Số phép tính nhân–cộng của phép nhân ma trận là $2 N d^2\text{ FLOPs}$.
+- Khi $N \ll d$, lượng byte cần đọc từ HBM bị chi phối bởi kích thước ma trận trọng số $2 d^2\text{ bytes}$.
+- Suy ra cường độ số học xấp xỉ bằng đúng số lượng token xử lý song song:
+
+$$
+I \approx \frac{2 N d^2\text{ FLOPs}}{2 d^2\text{ Bytes}} = N\text{ FLOPs/Byte!}
+$$
+
+<WrapTable>
+
+| Pha suy luận | Số token xử lý cùng lúc ($N$) | Bản chất toán học | Cường độ số học $I$ (FP16) | So với ngưỡng A100 ($156\text{ FLOPs/B}$) | Trạng thái phần cứng |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Pha Prefill** (Prompt $L=512, B=1$) | $N = 512$ | Ma trận $\times$ Ma trận (GEMM) | $\approx 512\text{ FLOPs/Byte}$ | $512 > 156$ | **Giới hạn bởi tính toán (*Compute-bound*)**: Tensor Cores chạy hết $100\%$ công suất. |
+| **Pha Decode đơn lẻ** ($1\text{ token}, B=1$) | $N = 1$ | Vector $\times$ Ma trận (GEMV) | $\approx 1\text{ FLOP/Byte}$ | $1 \ll 156$ | **Giới hạn bởi bộ nhớ (*Memory-bound*)**: GPU nhàn rỗi $>99\%$, tốc độ chỉ phụ thuộc thời gian đọc trọng số từ HBM. |
+| **Pha Decode theo Batch** ($1\text{ token}, B=64$) | $N = 64$ | Ma trận nhỏ $\times$ Ma trận | $\approx 64\text{ FLOPs/Byte}$ | $64 < 156$ | Tận dụng băng thông tốt gấp $64\times$, tiến gần lên đỉnh Roofline. |
+
+</WrapTable>
+
+Đây chính là kết luận quan trọng nhất về phần cứng suy luận: **Ở pha Decode với kích thước batch nhỏ, tốc độ sinh token (tokens/giây) hoàn toàn không phụ thuộc vào việc GPU có bao nhiêu TFLOPS, mà bằng Băng thông bộ nhớ chia cho Dung lượng mô hình!** Ví dụ, mô hình Llama-3 8B ở chuẩn FP16 nặng $16\text{ GB}$; để sinh 1 token, GPU A100 ($2000\text{ GB/s}$) bắt buộc phải đọc hết $16\text{ GB}$ trọng số này từ HBM lên chip, nên tốc độ tối đa lý thuyết khi $B=1$ là:
+
+$$
+\text{Tốc độ tối đa (Decode, } B=1\text{)} \approx \frac{\text{Băng thông HBM}}{\text{Dung lượng trọng số + KV Cache}} \approx \frac{2000\text{ GB/s}}{16\text{ GB}} = 125\text{ tokens/giây}.
+$$
+
+Hãy quan sát cả cơ chế ma trận của KV Cache lẫn vị trí của hai pha Prefill / Decode trên biểu đồ Roofline dưới đây.
+
+<HtmlEmbed
+  src="d3-ch5-kv-cache-roofline.html"
+  title="Biểu đồ kép: Ma trận KV Cache ở bước t và Mô hình Roofline trên GPU"
+  desc="Trái: So sánh các hàng Q, K, V phải tính ở bước t khi không có và khi có KV Cache. Phải: Biểu đồ Roofline (thang log-log) trên A100/H100. Kéo thanh trượt Kích thước Batch B để thấy điểm hoạt động của pha Decode trượt dọc theo sườn nghiêng băng thông bộ nhớ tiến về phía trần tính toán."
+/>
+
+Hãy kiểm chứng sự tương đương toán học tuyệt đối và mức giảm số phép tính của KV Cache trong Bài tập 5.2.
+
+<Exercise number="5.2" title="Cài đặt Causal Self-Attention có bộ nhớ đệm KV Cache" data="Tensor ngẫu nhiên" nb="ch5-02-kv-cache">
+
+Cài đặt hàm `causal_attn_step(x, kv_cache=None)` thực hiện một bước chú ý nhân quả:
+1. Chiếu đầu vào `x` (kích thước `(B, L_in, d_model)`) qua `W_q`, `W_k`, `W_v`.
+2. Nếu `kv_cache` được truyền vào dưới dạng tuple `(k_prev, v_prev)`, hãy nối (`torch.cat`) `k` và `v` mới vào sau bộ đệm theo chiều chuỗi (`dim=1`) để tạo thành `new_cache = (k, v)`.
+3. Tính ma trận điểm chú ý $Q K^\top / \sqrt{d_{\text{model}}}$ (nếu `L_in > 1`, tức pha Prefill, hãy áp dụng mặt nạ tam giác trên `torch.triu(..., diagonal=1)` gán `-inf`), qua Softmax, nhân với $V$, chiếu qua `W_o` và trả về vector đầu ra ở vị trí cuối cùng `out[:, -1:, :]` cùng `new_cache`.
+
+So sánh sai số tuyệt đối lớn nhất giữa 16 bước sinh **không có KV Cache** (luôn truyền toàn bộ tiền tố `seq_tokens[:, :cur_len, :]`) và **có KV Cache** (1 bước Prefill 8 token + 16 bước Decode từng token một), đồng thời đếm tổng số lượt token phải đi qua phép chiếu tuyến tính QKV.
+
+<Starter nb="ch5-02-kv-cache" />
+
+<Hints>
+
+<Hint>
+Ở pha Prefill (`kv_cache is None`), `x` có chiều dài `L_q = L_k = 8`, nên bạn cần mặt nạ nhân quả `mask = torch.triu(torch.ones(L_q, L_k, dtype=torch.bool), diagonal=1)` để không cho vị trí trước nhìn thấy vị trí sau.
+</Hint>
+
+<Hint>
+Ở pha Decode (`kv_cache is not None`), `x` chỉ chứa đúng 1 token mới nhất (`L_q = 1`), trong khi `k` và `v` sau khi nối có chiều dài `L_k = t`. Vì token mới nhất ở vị trí thứ $t$ được phép nhìn thấy toàn bộ các vị trí $1 \dots t$, bạn **không cần** áp dụng mặt nạ nhân quả khi `L_q == 1`!
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch5-02-kv-cache">
+
+Sai số tuyệt đối lớn nhất giữa hai phương pháp chỉ là `2.98e-08` (sai số làm tròn dấu phẩy động 32-bit). Số lượt chiếu QKV tuyến tính giảm từ `268 lượt` xuống đúng `24 lượt` (bằng tổng độ dài chuỗi $8 + 16 = 24$), tiết kiệm gấp `11.2 lần` chỉ trên chuỗi ngắn 24 token!
+
+</Checkpoint>
+
+<Solution nb="ch5-02-kv-cache" />
+
+<WhatToNotice>
+Khi không có KV Cache, mỗi token ở đầu câu bị đem đi nhân với $W_Q, W_K, W_V$ lặp đi lặp lại ở mọi bước sinh tiếp theo ($\sum_{step=0}^{16} (8 + step) = 268$ lượt). Khi bật KV Cache, mỗi token trong câu — dù thuộc phần câu hỏi hay phần trả lời — chỉ đi qua các ma trận trọng số **đúng một lần duy nhất** ($8 + 16 \times 1 = 24$ lượt). Với chuỗi dài $L = 4096$ token, KV Cache giảm số phép tính chiếu tuyến tính đi hơn **2.000 lần**!
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 3. Thu gọn KV Cache: MQA, GQA và PagedAttention
+
+KV Cache giúp chúng ta thoát khỏi độ phức tạp tính toán bậc hai $O(L^2)$ ở mỗi bước Decode, nhưng nó lại đánh đổi bằng một cái giá rất đắt: **dung lượng bộ nhớ VRAM tăng tuyến tính theo cả độ dài ngữ cảnh $L$ lẫn kích thước batch $B$**.
+
+Hãy làm một phép tính nhẩm cho mô hình **Llama-2 70B** nếu dùng cơ chế Multi-Head Attention (MHA) tiêu chuẩn ($n_{\text{layers}} = 80$ lớp, $n_{\text{heads}} = 64$ đầu chú ý, chiều mỗi đầu $d_h = 128$, lưu ở chuẩn FP16 tốn $2\text{ bytes}$ cho mỗi số thực):
+- Với mỗi token, ở mỗi lớp và mỗi đầu chú ý, ta phải lưu 1 vector khóa $k$ ($128$ số) và 1 vector giá trị $v$ ($128$ số).
+- Dung lượng KV Cache cho **1 token duy nhất** trên toàn mạng là:
+  $$
+  2\text{ (K và V)} \times 2\text{ bytes} \times 80\text{ lớp} \times 64\text{ đầu} \times 128\text{ chiều} = 2{,}621{,}440\text{ bytes} \approx 2.5\text{ MB / token}.
+  $$
+- Nếu hệ thống phục vụ đồng thời một batch gồm $B = 16$ người dùng với độ dài ngữ cảnh $L = 8{,}192$ token, tổng số token cần lưu trong KV Cache là $16 \times 8{,}192 = 131{,}072$ token. Dung lượng VRAM riêng cho KV Cache sẽ là:
+  $$
+  131{,}072 \times 2.5\text{ MB} = \mathbf{320\text{ GB VRAM!}}
+  $$
+Con số này còn lớn gấp đôi dung lượng của bản thân trọng số mô hình 70B ($140\text{ GB}$)! Hơn thế nữa, ở mỗi bước Decode, GPU phải đọc toàn bộ $320\text{ GB}$ KV Cache này từ HBM lên chip để tính tích vô hướng $q_t K^\top$, khiến nút cổ chai băng thông bộ nhớ càng trở nên trầm trọng.
+
+### 3.1 Từ Multi-Query Attention (MQA) đến Grouped-Query Attention (GQA)
+
+Làm thế nào để cắt giảm kích thước KV Cache đi nhiều lần mà không làm giảm số lượng đầu truy vấn (*Query heads*) của mô hình?
+
+Năm 2019, Noam Shazeer (một trong các đồng tác giả của Transformer gốc) nhận ra một sự bất đối xứng thú vị [@shazeer2019mqa]: trong Multi-Head Attention, chúng ta rất cần nhiều đầu truy vấn $Q^{(1)}, \dots, Q^{(H)}$ để mỗi đầu đặt một "câu hỏi" khác nhau ở mỗi bước. Nhưng các bảng tra cứu $K$ và $V$ thì hoàn toàn có thể **dùng chung**! Ông đề xuất **Multi-Query Attention (MQA)**: giữ nguyên toàn bộ $H$ đầu Query, nhưng chỉ sử dụng **duy nhất 1 đầu Key và 1 đầu Value** chia sẻ cho tất cả $H$ đầu Query đó. Với $H = 64$, MQA lập tức làm giảm dung lượng và băng thông đọc của KV Cache đi đúng **64 lần**!
+
+<PaperNote id="ainslie2023gqa" look="Hình 2 và Hình 3: Sơ đồ so sánh MHA, GQA, MQA và đường cong thời gian suy luận theo số lượng nhóm G trên mô hình T5-XXL.">
+
+Được công bố tại EMNLP 2023 bởi Joshua Ainslie và các cộng sự tại Google Research, bài báo giới thiệu **Grouped-Query Attention (GQA)** như sự tổng quát hóa hoàn hảo nối giữa MHA ($G = H$) và MQA ($G = 1$). Nhóm tác giả chỉ ra rằng khi thu gọn cực đoan xuống chỉ còn 1 đầu KV như MQA, các mô hình lớn đôi khi bị suy giảm chất lượng và mất ổn định khi huấn luyện. Bằng cách chia $H$ đầu Query thành $G$ nhóm (thường là $G = 8$), mỗi nhóm dùng chung 1 đầu Key/Value, GQA đạt tốc độ suy luận nhanh gần như MQA trong khi giữ nguyên chất lượng của MHA. Đặc biệt, bài báo còn đề xuất kỹ thuật **uptraining**: chuyển đổi một mô hình MHA đã huấn luyện sẵn sang GQA bằng cách lấy trung bình cộng (*mean pooling*) các ma trận chiếu $W_K, W_V$ trong mỗi nhóm rồi chỉ cần huấn luyện tiếp với $5\%$ lượng token ban đầu.
+</PaperNote>
+
+Tuy nhiên, việc ép cả 64 đầu Query phải nhìn vào cùng 1 không gian Key/Value duy nhất đôi khi làm giảm độ chính xác trên các bài toán suy luận phức tạp. Năm 2023, Ainslie và cộng sự tại Google đã đưa ra điểm cân bằng vàng mang tên **Grouped-Query Attention (GQA)** [@ainslie2023gqa]:
+- Ta chia $n_q$ đầu Query thành $G$ nhóm bằng nhau (với $1 < G < n_q$, tức có $n_{\text{kv}} = G$ đầu Key/Value).
+- Mỗi nhóm gồm $n_q / G$ đầu Query sẽ chia sẻ chung 1 đầu Key và 1 đầu Value.
+- Công thức tổng quát tính dung lượng bộ nhớ KV Cache (tính bằng Bytes) cho batch size $B$ và độ dài chuỗi $L$ giờ đây là:
+
+$$
+\text{VRAM}_{\text{KV}} = 2 \times \text{bytes\_per\_param} \times n_{\text{layers}} \times n_{\text{kv}} \times d_h \times L \times B.
+$$
+
+Ngày nay, **GQA với $n_{\text{kv}} = 8$ đầu Key/Value** đã trở thành tiêu chuẩn mặc định của hầu hết mọi mô hình ngôn ngữ lớn hiện đại (bao gồm Llama-3 8B/70B, Qwen-2.5, Mistral và Gemma-2), giúp giảm dung lượng KV Cache đi $4\times$ đến $8\times$ hoàn toàn miễn phí về mặt chất lượng!
+
+<HtmlEmbed
+  src="d3-ch5-mha-mqa-gqa.html"
+  title="Trực quan hóa MHA, GQA, MQA và Máy tính bộ nhớ KV Cache"
+  desc="Chọn chế độ MHA (8 đầu KV), GQA-4 (4 đầu KV), GQA-2 (chuẩn nén 8× như Llama-3) hoặc MQA (1 đầu KV), đồng thời kéo thanh trượt Độ dài ngữ cảnh L và Batch Size B để xem dung lượng VRAM tiết kiệm được so với giới hạn 80 GB của một GPU A100."
+/>
+
+### 3.2 Quản lý bộ nhớ phân trang PagedAttention (vLLM)
+
+Ngay cả khi đã dùng GQA để thu gọn kích thước mỗi token trong KV Cache, một vấn đề hệ thống cực lớn khác vẫn tồn tại khi vận hành máy chủ suy luận cho nhiều người dùng cùng lúc: **sự phân mảnh bộ nhớ (*memory fragmentation*)**.
+
+Trong PyTorch thông thường, một tensor `kv_cache` của một yêu cầu phải được cấp phát dưới dạng một **khối bộ nhớ liên tục (*contiguous memory*)** trên VRAM. Nhưng khi người dùng vừa gửi câu hỏi vào, hệ thống không thể biết trước câu trả lời sẽ dài $50$ token hay $2{,}048$ token! Do đó, các hệ thống thế hệ đầu buộc phải đặt chỗ trước (*pre-allocate*) một vùng nhớ liên tục bằng đúng độ dài tối đa $L_{\text{max}}$ (ví dụ $4{,}096$ token) cho mỗi yêu cầu.
+
+<PaperNote id="kwon2023vllm" look="Hình 2 và Hình 4: Minh họa phân mảnh bộ nhớ nội/ngoại trên KV Cache truyền thống (lãng phí tới 60%–80% VRAM) và cơ chế bảng trang (Block Table) của PagedAttention.">
+
+Được công bố tại hội nghị hệ điều hành danh giá SOSP 2023 bởi Woosuk Kwon, Zhuohan Li và các cộng sự tại UC Berkeley, bài báo này đã khai sinh ra **vLLM** — động cơ suy luận mã nguồn mở phổ biến nhất hiện nay. Tác giả phát hiện ra rằng trong các hệ thống phục vụ LLM trước đó, chỉ có $20.4\% - 38.2\%$ dung lượng VRAM dành cho KV Cache được dùng để lưu các token thực sự; phần còn lại bị bỏ trống do cấp phát thừa (*internal fragmentation*) hoặc bị kẹt giữa các khe hở bộ nhớ (*external fragmentation*). Bằng cách mượn trực tiếp ý tưởng **Bộ nhớ ảo và Phân trang (*Virtual Memory & Paging*)** của hệ điều hành để tạo ra **PagedAttention**, vLLM giảm tỷ lệ lãng phí bộ nhớ xuống dưới $4\%$, qua đó tăng kích thước batch $B$ và nâng thông lượng phục vụ lên gấp $2\times - 4\times$ so với FasterTransformer và Orca.
+</PaperNote>
+
+Cách cấp phát liên tục này gây ra sự lãng phí khủng khiếp [@kwon2023vllm]:
+1. **Phân mảnh nội (*Internal fragmentation*)**: Vùng nhớ đã đặt chỗ cho $4{,}096$ token nhưng thực tế câu trả lời chỉ dài $300$ token; hơn $90\%$ phần bộ nhớ còn lại bị bỏ không mà không yêu cầu nào khác được chạm vào.
+2. **Phân mảnh ngoại (*External fragmentation*)**: Khi các yêu cầu có độ dài khác nhau kết thúc và giải phóng bộ nhớ, VRAM bị băm nhỏ thành những khoảng trống rời rạc không đủ lớn để chứa một khối liên tục mới.
+
+Năm 2023, nhóm nghiên cứu tại UC Berkeley đã giải quyết triệt để bài toán này bằng **PagedAttention (vLLM)** [@kwon2023vllm], mượn trực tiếp nguyên lý **bộ nhớ ảo phân trang (*virtual memory paging*)** của hệ điều hành Linux/Windows:
+- Thay vì cấp phát một mảng lớn liên tục cho mỗi yêu cầu, toàn bộ VRAM dành cho KV Cache được chia thành các **khối (*KV blocks* / *pages*)** có kích thước nhỏ cố định (ví dụ mỗi khối chứa đúng $B_{\text{block}} = 16$ token).
+- Một yêu cầu sinh đến đâu mới được cấp phát thêm khối mới đến đó (*on-demand allocation*). Các khối của cùng một cuộc hội thoại không cần nằm cạnh nhau trong bộ nhớ vật lý HBM, mà được ánh xạ thông qua một **Bảng khối (*Block Table*)**.
+- Nhân tính toán CUDA của PagedAttention đọc trực tiếp bảng khối này để gom các vector $K, V$ từ các trang vật lý rời rạc ngay trong lúc tính điểm chú ý.
+
+Đặc biệt, PagedAttention còn mở ra khả năng **chia sẻ tiền tố (*Prefix Caching / Copy-on-Write*)**: khi hàng nghìn yêu cầu cùng dùng chung một đoạn System Prompt dài (hoặc tài liệu RAG chung), tất cả chúng chỉ cần trỏ chung vào cùng các trang KV vật lý của đoạn mở đầu đó mà không tốn thêm một byte VRAM nào!
+
+---
+
+## 4. FlashAttention và lượng tử hóa trọng số (Quantization)
+
+Ở Mục 2 và Mục 3, chúng ta đã thấy bức tường băng thông bộ nhớ (*Memory Wall*) kìm hãm cả hai thành phần lớn nhất của mô hình:
+1. Ở **pha Prefill** (hoặc khi ngữ cảnh $L$ rất dài), việc đọc/ghi ma trận chú ý trung gian $S, P \in \mathbb{R}^{L \times L}$ ra vào bộ nhớ HBM làm tắc nghẽn cơ chế Self-Attention.
+2. Ở **pha Decode**, việc phải đọc toàn bộ ma trận trọng số $W$ từ HBM cho mỗi token làm tắc nghẽn các lớp tuyến tính (Linear / FFN).
+
+Chúng ta sẽ lần lượt phá vỡ hai nút cổ chai này bằng **FlashAttention** và **Lượng tử hóa Trọng số (*Weight Quantization*)**.
+
+### 4.1 FlashAttention: Tránh ghi ma trận $L \times L$ ra HBM nhờ Online Softmax
+
+Trên một GPU như A100, bộ nhớ được tổ chức theo cấu trúc phân cấp với sự chênh lệch tốc độ rất lớn:
+- **Bộ nhớ chính HBM (VRAM)**: Dung lượng rất lớn ($40\text{ GB} - 80\text{ GB}$), nhưng băng thông chậm ($1.5 - 2.0\text{ TB/s}$).
+- **Bộ nhớ đệm trên chip SRAM (Shared Memory / L1 Cache)**: Băng thông cực nhanh ($\approx 19\text{ TB/s}$, nhanh gấp $10\times$ HBM), nhưng dung lượng cực nhỏ (chỉ khoảng $192\text{ KB}$ trên mỗi Streaming Multiprocessor, tổng cộng $\approx 20\text{ MB}$ trên toàn chip).
+
+Cách cài đặt Self-Attention tiêu chuẩn trong PyTorch ($\text{softmax}(QK^\top / \sqrt{d_k}) V$) thực hiện 3 bước tách rời, buộc GPU phải ghi các ma trận trung gian khổng lồ kích thước $L \times L$ ra HBM rồi lại đọc ngược vào SRAM:
+1. Đọc $Q, K \in \mathbb{R}^{L \times d}$ từ HBM lên SRAM, tính $S = QK^\top / \sqrt{d_k} \in \mathbb{R}^{L \times L}$, rồi **ghi toàn bộ $S$ ra HBM**.
+2. Đọc $S$ từ HBM lên SRAM, tính $P = \text{softmax}(S) \in \mathbb{R}^{L \times L}$, rồi **ghi toàn bộ $P$ ra HBM**.
+3. Đọc $P$ và $V$ từ HBM lên SRAM, tính $O = PV \in \mathbb{R}^{L \times d}$, rồi ghi $O$ ra HBM.
+
+Khi độ dài chuỗi $L = 32{,}768$, ma trận $L \times L$ có tới hơn **1 tỷ phần tử** cho mỗi đầu chú ý! Thời gian di chuyển ma trận $L \times L$ này qua lại giữa HBM và SRAM lâu gấp nhiều lần thời gian thực hiện phép nhân ma trận thực sự.
+
+<PaperNote id="dao2022flashattention" look="Hình 1: Sơ đồ phân cấp bộ nhớ GPU (SRAM 19 TB/s vs HBM 1.5 TB/s) và cách chia khối (tiling) của FlashAttention giúp gộp toàn bộ phép toán Attention vào một nhân CUDA duy nhất.">
+
+Được công bố tại NeurIPS 2022 bởi Tri Dao và các cộng sự tại Đại học Stanford, **FlashAttention** đã tạo nên cuộc cách mạng cho khả năng xử lý ngữ cảnh dài của LLM. Thay vì xấp xỉ ma trận chú ý như các phương pháp trước đó, FlashAttention tính **chính xác tuyệt đối 100%** công thức Softmax Attention nhưng được thiết kế nhận biết truy cập bộ nhớ (*IO-aware*). Bằng cách chia $Q, K, V$ thành các khối nhỏ vừa khít trong bộ nhớ SRAM trên chip và cập nhật kết quả bằng thuật toán *Online Softmax*, FlashAttention giảm số lượng truy cập HBM từ $O(L^2)$ xuống $O(L^2 d^2 / M)$ (với $M$ là kích thước SRAM), đồng thời giảm bộ nhớ phụ trợ từ $O(L^2)$ xuống tuyến tính $O(L)$, giúp tăng tốc từ $2\times$ đến $4\times$ và mở đường cho các cửa sổ ngữ cảnh hàng trăm nghìn token.
+</PaperNote>
+
+Năm 2022, Tri Dao và cộng sự giới thiệu **FlashAttention** [@dao2022flashattention] với ý tưởng cốt lõi: **Không bao giờ tạo ra và ghi ma trận $L \times L$ xuống HBM!** Thay vào đó, ta chia (*tile*) các ma trận $Q, K, V$ thành từng khối nhỏ nạp vừa vào SRAM, tính điểm chú ý của từng khối rồi cộng dồn trực tiếp vào kết quả đầu ra $O$ ngay bên trong SRAM trước khi ghi $O$ về HBM.
+
+Nhưng có một rào cản toán học: hàm $\text{softmax}(s_i) = \frac{e^{s_i - m}}{\sum_{j=1}^{L} e^{s_j - m}}$ (với $m = \max_j s_j$ để tránh tràn số) có mẫu số phụ thuộc vào **toàn bộ hàng $1 \dots L$**. Làm sao ta có thể nhân $P$ với $V$ khi mới chỉ đọc được khối thứ nhất của $K$ và $V$?
+
+Bí quyết nằm ở kỹ thuật **Online Softmax** (chuẩn hóa lại trực tuyến). Giả sử khi đọc xong khối thứ nhất $S^{(1)}$, ta lưu giá trị lớn nhất cục bộ $m^{(1)} = \max(S^{(1)})$, tổng mẫu số cục bộ $\ell^{(1)} = \sum e^{S^{(1)} - m^{(1)}}$, và vector đầu ra tạm thời $O^{(1)} = \frac{e^{S^{(1)} - m^{(1)}}}{\ell^{(1)}} V^{(1)}$. Khi nạp tiếp khối thứ hai $S^{(2)}, V^{(2)}$ vào SRAM, ta cập nhật thống kê toàn cục mới chỉ bằng một phép nhân hiệu chỉnh hệ số mũ:
+
+$$
+\begin{aligned}
+m_{\text{new}} &= \max\!\big(m^{(1)},\, \max(S^{(2)})\big), \\[4pt]
+\ell_{\text{new}} &= e^{m^{(1)} - m_{\text{new}}} \ell^{(1)} + \sum e^{S^{(2)} - m_{\text{new}}}, \\[4pt]
+O_{\text{new}} &= \frac{\ell^{(1)} e^{m^{(1)} - m_{\text{new}}}}{\ell_{\text{new}}} O^{(1)} + \frac{e^{S^{(2)} - m_{\text{new}}}}{\ell_{\text{new}}} V^{(2)}.
+\end{aligned}
+$$
+
+Nhờ quy tắc cập nhật đệ quy tuyệt đẹp này, GPU có thể quét qua từng mảnh của $K, V$ trong SRAM và cuối cùng thu được chính xác tuyệt đối ma trận $O$ mà không hề tốn một byte HBM nào cho ma trận $L \times L$!
+
+### 4.2 Lượng tử hóa trọng số (Weight Quantization): Nén FP16 xuống INT8 và INT4
+
+Nếu FlashAttention giải quyết nút cổ chai $L \times L$ của cơ chế Attention, thì ở pha Decode (với độ dài chuỗi vừa phải), hơn $80\%$ thời gian lại nằm ở việc đọc các ma trận trọng số $W \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ từ HBM vào SRAM.
+
+Vì tốc độ pha Decode tỷ lệ nghịch với dung lượng byte của trọng số:
+- Nếu ta nén mỗi trọng số từ chuẩn 16-bit (`FP16`/`BF16`, $2\text{ bytes}$) xuống số nguyên 8-bit (`INT8`, $1\text{ byte}$), dung lượng mô hình giảm $2\times$ và tốc độ sinh token lý thuyết **tăng gấp $2\times$**.
+- Nếu nén xuống số nguyên 4-bit (`INT4`, $0.5\text{ byte}$), dung lượng mô hình 70B giảm từ $140\text{ GB}$ xuống chỉ còn $\approx 38\text{ GB}$ (chạy vừa trên một card GPU tiêu dùng hoặc Mac Studio!), và tốc độ đọc bộ nhớ **tăng gần $4\times$**.
+
+Cơ chế lượng tử hóa hậu huấn luyện (*Post-Training Quantization* — PTQ) phổ biến nhất là **lượng tử hóa đối xứng Absmax (*Symmetric Absmax Quantization*)**. Để ánh xạ một vector thực $\mathbf{w} \in \mathbb{R}^g$ sang lưới số nguyên $b$-bit nằm trong đoạn $[-q_{\max}, q_{\max}]$ với $q_{\max} = 2^{b-1} - 1$ (ví dụ $q_{\max} = 127$ cho INT8 và $q_{\max} = 7$ cho INT4), ta tìm giá trị tuyệt đối lớn nhất và định nghĩa hệ số tỷ lệ (*scale factor*) $s$:
+
+$$
+s = \frac{\max_i |w_i|}{q_{\max}}, \qquad w_i^{(q)} = \text{clip}\!\left(\text{round}\!\left(\frac{w_i}{s}\right),\, -q_{\max},\, q_{\max}\right).
+$$
+
+Khi thực hiện phép nhân ma trận trong lúc suy luận, các trọng số nguyên $w_i^{(q)}$ được nạp từ HBM lên SRAM với băng thông cực nhỏ, sau đó được **giải lượng tử hóa (*dequantize*)** ngay trên chip về lại số thực xấp xỉ $\hat{w}_i = s \cdot w_i^{(q)}$ để nhân với vector kích hoạt đầu vào $x$.
+
+Tuy nhiên, nếu dùng chung một hệ số tỷ lệ $s$ cho toàn bộ ma trận (*Per-Tensor Quantization*), một rắc rối lớn sẽ xuất hiện trên các LLM có quy mô từ 6.7 tỷ tham số trở lên [@dettmers2022llmint8]: **các đặc trưng ngoại lai (*emergent outlier features*)**. Một số kênh ẩn có độ lớn vượt trội gấp $10\times - 20\times$ các kênh bình thường. Khi một phần tử ngoại lai kéo $\max |w_i|$ lên rất cao, hệ số tỷ lệ $s$ trở nên quá lớn, khiến $99.9\%$ các trọng số nhỏ còn lại trong ma trận bị làm tròn hết về con số $0$!
+
+Để khắc phục hiện tượng này, bốn phương pháp kinh điển đã lần lượt ra đời:
+- **Chia nhóm (*Group-wise Quantization*)**: Thay vì lấy một hệ số $s$ cho cả ma trận hay cả hàng, ta chia mỗi hàng trọng số thành các nhóm nhỏ liên tiếp có kích thước $g \in \{32, 64, 128\}$ phần tử. Mỗi nhóm có một hệ số $s$ (FP16) riêng biệt. Một phần tử ngoại lai giờ đây chỉ ảnh hưởng tới 64 phần tử trong nhóm của nó thay vì làm hỏng cả ma trận, trong khi chi phí lưu thêm các hệ số $s$ chỉ tốn thêm $2\text{ bytes} / 64 = 0.25\text{ bits}$ mỗi tham số!
+- **LLM.int8() [@dettmers2022llmint8]**: Phát hiện ra rằng các giá trị ngoại lai luôn tập trung ở một vài chiều kênh cố định (*outlier dimensions*). `LLM.int8()` tách riêng $<0.1\%$ các cột ngoại lai này ra để nhân ở chuẩn `FP16`, còn $99.9\%$ ma trận còn lại được nhân bằng nhân phần cứng `INT8`.
+- **GPTQ [@frantar2023gptq]**: Lượng tử hóa từng cột trọng số xuống 4-bit và sử dụng thông tin đạo hàm bậc hai (nghịch đảo ma trận Hessian $H^{-1} = (2 X X^\top)^{-1}$ tính trên một tập dữ liệu hiệu chuẩn nhỏ) để cập nhật bù trừ sai số làm tròn của cột vừa lượng tử hóa sang các cột chưa lượng tử hóa phía sau.
+- **AWQ (*Activation-aware Weight Quantization*) [@lin2024awq]**: Nhận thấy rằng không phải mọi trọng số đều quan trọng như nhau — những kênh trọng số đi kèm với đầu vào kích hoạt $X$ có biên độ lớn mới là nơi quyết định sai số của tích $X W^\top$. AWQ nhân phóng đại (*per-channel scaling*) $1\%$ các kênh trọng số nhạy cảm nhất trước khi lượng tử hóa 4-bit để bảo vệ chúng khỏi sai số làm tròn mà không cần dùng độ chính xác hỗn hợp.
+
+Hãy tự tay cài đặt lượng tử hóa theo nhóm (Group-wise INT8 & INT4) và kiểm chứng tác động của các kênh ngoại lai trong Bài tập 5.4 dưới đây.
+
+<Exercise number="5.4" title="Cài đặt lượng tử hóa đối xứng theo nhóm (Group-wise INT8 & INT4)" data="Ma trận có kênh ngoại lai" nb="ch5-03-int8-quantization">
+
+Cho ma trận trọng số `W` kích thước `(256, 512)` có chứa hai kênh ngoại lai (cột `17` và cột `203` có biên độ lớn gấp $6\times - 8.5\times$ bình thường). Hãy viết hàm `quantize_dequantize(W, bits=8, group_size=None)`:
+1. Nếu `group_size is None` (lượng tử hóa toàn ma trận *Per-Tensor*), trải phẳng `W` thành 1 nhóm duy nhất `(1, -1)`; ngược lại, định hình lại `W` thành các nhóm có kích thước `(-1, group_size)`.
+2. Với mỗi nhóm (mỗi hàng của tensor đã reshape), tính giá trị lớn nhất tuyệt đối `abs_max`, suy ra hệ số tỷ lệ `scales = abs_max / q_max` (với `q_max = (1 << (bits - 1)) - 1`), và làm tròn `torch.round(W_g / scales)` kẹp trong đoạn `[-q_max, q_max]`.
+3. Giải lượng tử hóa `W_hat = (W_q * scales).reshape(W.shape)` và tính tổng dung lượng bộ nhớ (KB) gồm phần trọng số $b$-bit cộng với phần lưu trữ mảng `scales` ở chuẩn FP16 ($2\text{ bytes}$ mỗi hệ số tỷ lệ).
+
+So sánh tỷ lệ nén bộ nhớ và sai số chuẩn Frobenius tương đối $\frac{\|X W^\top - X \hat{W}^\top\|_F}{\|X W^\top\|_F}$ giữa chế độ *Per-Tensor* và *Group-wise (`g=64`)* cho cả `INT8` và `INT4`.
+
+<Starter nb="ch5-03-int8-quantization" />
+
+<Hints>
+
+<Hint>
+Trong bước (2), dùng `abs_max = W_g.abs().amax(dim=1, keepdim=True).clamp(min=1e-8)` để tìm biên độ cực đại của từng nhóm riêng biệt và giữ nguyên số chiều `(num_groups, 1)` khi chia `W_g / scales`.
+</Hint>
+
+<Hint>
+Dung lượng bộ nhớ (tính theo byte) của trọng số sau khi nén là `W.numel() * (bits / 8.0)`, và dung lượng của các hệ số tỷ lệ FP16 là `scales.numel() * 2.0`. Chia tổng hai con số này cho `1024.0` để đổi sang KB.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch5-03-int8-quantization">
+
+Ở chuẩn `INT4 Per-Tensor`, hai kênh ngoại lai làm sai số đầu ra vọt lên tới `31.25%` (mô hình hỏng hoàn toàn). Khi chia nhóm `INT4 Group-wise (g=64)`, sai số giảm mạnh gần 4 lần xuống còn `8.42%` trong khi chỉ tốn thêm `4.0 KB` cho các hệ số tỷ lệ (vẫn nén `3.76x` so với FP16). Với `INT8 Group-wise (g=64)`, sai số chỉ còn `0.49%`!
+
+</Checkpoint>
+
+<Solution nb="ch5-03-int8-quantization" />
+
+<WhatToNotice>
+Bài tập này minh họa trực tiếp lý do tại sao mọi định dạng lượng tử hóa 4-bit hiện đại (như `GGUF Q4_K_M` trong `llama.cpp`, `GPTQ`, hay `AWQ`) đều bắt buộc phải dùng **lượng tử hóa theo nhóm nhỏ ($g = 32, 64, 128$)**. Chỉ với chi phí phụ trội $4\text{ KB}$ trên $256\text{ KB}$ (tức thêm $0.25\text{ bit}$ cho mỗi trọng số), chúng ta cô lập được ảnh hưởng của các kênh ngoại lai trong phạm vi từng nhóm 64 phần tử thay vì để chúng phá hủy độ phân giải của toàn bộ $131{,}072$ tham số trong ma trận!
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 5. Giải mã suy đoán (Speculative Decoding)
+
+Ngay cả khi chúng ta đã trang bị KV Cache, GQA, FlashAttention và lượng tử hóa trọng số, bản chất tự hồi quy của pha Decode vẫn giữ nguyên một định luật khắc nghiệt: **muốn sinh ra $K$ token từ một mô hình đích khổng lồ (*Target Model*, ví dụ 70B), ta bắt buộc phải đọc toàn bộ trọng số của mô hình 70B đó từ HBM lên chip đúng $K$ lần tuần tự**.
+
+Trong khi đó, như ta đã thấy trên biểu đồ Roofline ở Mục 2.2, khi chạy với kích thước batch nhỏ ($B=1$), cường độ số học của GPU cực thấp: thời gian để mô hình 70B xử lý **1 token** và thời gian để nó xử lý song song **5 token cùng lúc** là gần như bằng nhau (vì cả hai đều chỉ đọc trọng số 70B từ HBM đúng 1 lần!).
+
+Câu hỏi táo bạo được đặt ra là: *Liệu ta có thể kiểm tra song song 5 token cùng lúc trong 1 lần chạy mô hình lớn, khi mà ta còn chưa biết 5 token đó là gì?*
+
+### 5.1 Nguyên lý Đề xuất và Kiểm chứng (Draft-and-Verify)
+
+Năm 2023, Yaniv Leviathan và các cộng sự tại Google Research đã đưa ra câu trả lời thông qua thuật toán **Giải mã Suy đoán (*Speculative Decoding*)** [@leviathan2023speculative]. Ý tưởng xuất phát từ một quan sát rất thực tế: trong bất kỳ đoạn văn bản nào, phần lớn các token tiếp theo đều là những từ nối, dấu câu hoặc cụm từ cố định rất dễ đoán (như `"Hà"` $\to$ `"Nội"`, `"Việt"` $\to$ `"Nam"`, `"import"` $\to$ `"torch"`); chỉ có một số ít vị trí mới thực sự cần đến trí thông minh của mô hình 70B.
+
+<PaperNote id="leviathan2023speculative" look="Thuật toán 1 (Speculative Decoding) và Hình 3: Chứng minh phân phối đầu ra bảo toàn chính xác p(x) và bảng hệ số tăng tốc từ 2.0× đến 3.4× trên mô hình T5-XXL 11B.">
+
+Được công bố tại ICML 2023 bởi Yaniv Leviathan, Matan Kalman và Yossi Matias (Google Research), bài báo này đã giới thiệu phương pháp tăng tốc suy luận không suy hao (*lossless acceleration*) quan trọng nhất cho các mô hình tự hồi quy. Bằng cách ghép cặp một mô hình đích lớn $M_p$ (ví dụ T5-XXL 11B) với một mô hình nháp nhỏ có sẵn $M_q$ (ví dụ T5-Small 60M, nhỏ hơn gần $200\times$), tác giả cho $M_q$ đoán trước $\gamma$ token rồi dùng $M_p$ đánh giá toàn bộ chuỗi nháp trong một lượt chạy song song duy nhất. Điểm đột phá lớn nhất của bài báo là thuật toán **Speculative Rejection Sampling**: ngay cả khi chọn mẫu ngẫu nhiên với nhiệt độ $T > 0$, chuỗi văn bản sinh ra được chứng minh toán học là có phân phối xác suất **trùng khớp 100%** với việc rút mẫu trực tiếp từ mô hình lớn $M_p$ một mình!
+</PaperNote>
+
+Thay vì dùng mô hình đích lớn $M_p$ (phân phối $p(x \mid x_{<t})$) để mò mẫm từng bước, ta đặt cạnh nó một **mô hình nháp nhỏ (*Draft Model* — $M_q$)** có phân phối $q(x \mid x_{<t})$ (ví dụ mô hình 1B cùng họ, nhẹ hơn và nhanh hơn gấp $15\times - 20\times$). Mỗi chu kỳ suy đoán gồm hai bước:
+
+1. **Bước Đề xuất (*Drafting*)**: Chạy tuần tự mô hình nháp nhỏ $M_q$ trong $\gamma$ bước (thường chọn $\gamma = 4$ hoặc $5$) để sinh nhanh một chuỗi $\gamma$ token ứng viên $\tilde{x}_1, \tilde{x}_2, \dots, \tilde{x}_\gamma$ cùng các xác suất nháp tương ứng $q_1(\tilde{x}_1), \dots, q_\gamma(\tilde{x}_\gamma)$.
+2. **Bước Kiểm chứng song song (*Parallel Verification*)**: Nối cả $\gamma$ token nháp này vào sau ngữ cảnh hiện tại và đưa qua mô hình đích lớn $M_p$ **chỉ trong 1 lượt chạy tiến (*forward pass*) duy nhất**. Nhờ tính chất song song của Transformer (giống hệt pha Prefill!), chỉ với 1 lần đọc trọng số từ HBM, mô hình lớn $M_p$ trả về đồng thời tất cả $\gamma + 1$ phân phối xác suất đích: $p_1(x), p_2(x), \dots, p_\gamma(x)$ và cả phân phối ở vị trí tiếp theo $p_{\gamma+1}(x)$!
+
+### 5.2 Thuật toán Lấy mẫu Bác bỏ Suy đoán (Speculative Rejection Sampling)
+
+Nếu chúng ta đang dùng giải mã tham lam ($T = 0$), việc kiểm chứng rất đơn giản: ta duyệt từ $i = 1$ đến $\gamma$, giữ lại các token nháp chừng nào $\tilde{x}_i == \arg\max p_i(x)$, và dừng lại ngay tại vị trí đầu tiên mà mô hình nháp đoán khác mô hình đích.
+
+Nhưng khi chọn mẫu ngẫu nhiên ($T > 0$), làm thế nào để chấp nhận hoặc bác bỏ các token nháp $\tilde{x}_i \sim q_i(x)$ sao cho token đầu ra cuối cùng tuân theo **đúng 100% phân phối đích $p_i(x)$** mà không hề bị thiên lệch theo mô hình nháp?
+
+Leviathan et al. [@leviathan2023speculative] giải quyết bài toán này bằng **Lấy mẫu Bác bỏ Suy đoán (*Speculative Rejection Sampling*)**. Duyệt tuần tự từng vị trí $i = 1, \dots, \gamma$:
+
+- Rút một số ngẫu nhiên phân phối đều $u \sim \text{Uniform}(0, 1)$ và so sánh với tỷ số xác suất giữa mô hình đích và mô hình nháp tại token ứng viên $\tilde{x}_i$:
+  $$
+  \text{Xác suất chấp nhận } \tilde{x}_i = \min\!\left(1,\, \frac{p_i(\tilde{x}_i)}{q_i(\tilde{x}_i)}\right).
+  $$
+- **Trường hợp 1 (Chấp nhận — $u < \frac{p_i(\tilde{x}_i)}{q_i(\tilde{x}_i)}$)**: Token $\tilde{x}_i$ được giữ lại chính thức! Ta chuyển sang kiểm tra vị trí $i + 1$. (Lưu ý: nếu mô hình đích đánh giá $\tilde{x}_i$ cao hơn hoặc bằng mô hình nháp, tức $p_i(\tilde{x}_i) \ge q_i(\tilde{x}_i)$, thì token đó **luôn luôn được chấp nhận $100\%$**).
+- **Trường hợp 2 (Bác bỏ — $u \ge \frac{p_i(\tilde{x}_i)}{q_i(\tilde{x}_i)}$)**: Ta bác bỏ $\tilde{x}_i$ cùng toàn bộ các token nháp phía sau nó ($i+1 \dots \gamma$). Tuy nhiên, ta **không** phải chạy lại mô hình lớn! Ta lập tức rút một token thay thế $x_i'$ tại vị trí $i$ từ **phân phối phần dư đã chuẩn hóa (*normalized residual distribution*)** $p'_i(x)$ chỉ chứa những token mà mô hình nháp đã đánh giá thấp hơn mô hình đích:
+  $$
+  p'_i(x) = \frac{\max\!\big(0,\, p_i(x) - q_i(x)\big)}{\sum_{w \in V} \max\!\big(0,\, p_i(w) - q_i(w)\big)},
+  $$
+  rồi kết thúc chu kỳ hiện tại.
+- **Trường hợp Thưởng đặc biệt**: Nếu toàn bộ $\gamma$ token nháp đều được chấp nhận, ta lấy mẫu thêm 1 token thứ $\gamma + 1$ hoàn toàn miễn phí từ phân phối $p_{\gamma+1}(x)$ mà mô hình lớn đã tính sẵn ở đầu ra cuối cùng! Như vậy, mỗi chu kỳ luôn sinh ra ít nhất $1$ token và tối đa $\gamma + 1$ token mới.
+
+<Inset title="Chứng minh ngắn gọn: Tại sao kết quả trùng khớp 100% với p(x)?" id="speculative-proof">
+Gọi $\alpha = \sum_{w \in V} \min(p(w), q(w)) = 1 - \sum_{w \in V} \max(0, p(w) - q(w))$ là tổng xác suất chấp nhận trung bình. Với một token $x$ bất kỳ, xác suất để thuật toán chọn ra $x$ là tổng của xác suất $x$ được đề xuất bởi $q$ và được chấp nhận, cộng với xác suất đề xuất bị bác bỏ (xác suất $1 - \alpha$) nhân với xác suất $x$ được rút bù từ $p'(x)$:
+
+$$
+\begin{aligned}
+P(\text{đầu ra} = x) &= q(x) \cdot \min\!\left(1, \frac{p(x)}{q(x)}\right) + (1 - \alpha) \cdot \frac{\max(0, p(x) - q(x))}{1 - \alpha} \\
+&= \min\!\big(q(x),\, p(x)\big) + \max\!\big(0,\, p(x) - q(x)\big) = \mathbf{p(x)!}
+\end{aligned}
+$$
+
+Hai số hạng $\min(q, p)$ và $\max(0, p - q)$ khớp vào nhau hoàn hảo như hai mảnh ghép để tái tạo chính xác $p(x)$ với mọi $x \in V$!
+</Inset>
+
+Nếu gọi $\alpha \in (0, 1)$ là tỷ lệ chấp nhận trung bình mỗi bước và $c = T_{\text{draft}} / T_{\text{target}}$ là tỷ số thời gian chạy 1 bước của mô hình nháp so với mô hình đích, thì kỳ vọng số token sinh ra trong một chu kỳ là $\mathbb{E}[\text{tokens}] = \frac{1 - \alpha^{\gamma + 1}}{1 - \alpha}$, và hệ số tăng tốc thực tế là:
+
+$$
+\text{Speedup}(\alpha, \gamma, c) = \frac{1 - \alpha^{\gamma + 1}}{(1 - \alpha)(\gamma c + 1)}.
+$$
+
+Hãy khám phá trực quan từng bước chấp nhận/bác bỏ và đường cong tăng tốc trên biểu đồ tương tác dưới đây.
+
+<HtmlEmbed
+  src="d3-ch5-speculative-decoding.html"
+  title="Mô phỏng tương tác Giải mã Suy đoán (Speculative Decoding)"
+  desc="Chuyển đổi giữa Kịch bản A (bác bỏ và sửa token thứ 4 bằng phân phối phần dư) và Kịch bản B (chấp nhận cả 4 token + nhận thêm token thưởng thứ 5). Điều chỉnh thanh trượt tỷ lệ chấp nhận α, độ dài nháp γ và chi phí mô hình nháp c để xem hệ số tăng tốc thực tế."
+/>
+
+Hãy kết thúc chương học bằng việc tự tay cài đặt bước kiểm chứng suy đoán và xác nhận định lý bảo toàn phân phối bằng mô phỏng Monte Carlo trong Bài tập 5.5.
+
+<Exercise number="5.5" title="Cài đặt và kiểm chứng Speculative Rejection Sampling" data="Phân phối đích p(x) và nháp q(x)" nb="ch5-04-speculative-decoding">
+
+Cho hai phân phối xác suất rời rạc trên 6 token: phân phối của mô hình đích `p_target` và phân phối của mô hình nháp `q_draft` (khác biệt nhau đáng kể). Hãy viết hàm `speculative_Verify_samples(p, q, num_trials=200_000)` mô phỏng song song `200,000` lượt rút mẫu suy đoán:
+1. Rút `num_trials` ứng viên nháp `x_draft` từ phân phối `q`.
+2. Tính xác suất chấp nhận `torch.clamp(p[x_draft] / q[x_draft], max=1.0)` cho từng mẫu và so sánh với biến ngẫu nhiên phân phối đều `u = torch.rand(num_trials)`.
+3. Với các mẫu bị bác bỏ (`~accepted`), rút mẫu thay thế từ phân phối phần dư chuẩn hóa `p_res = clamp(p - q, min=0) / sum(clamp(p - q, min=0))`.
+
+Tính tỷ lệ chấp nhận lý thuyết $\alpha = \sum_x \min(p(x), q(x))$, so sánh với tỷ lệ chấp nhận thực nghiệm và kiểm tra xem phân phối tần suất thu được `p_spec(x)` có hội tụ chính xác về `p_target(x)` hay không!
+
+<Starter nb="ch5-04-speculative-decoding" />
+
+<Hints>
+
+<Hint>
+Sử dụng `torch.multinomial(q, num_samples=num_trials, replacement=True)` để rút đồng thời toàn bộ `200,000` mẫu nháp mà không cần dùng vòng lặp `for` của Python.
+</Hint>
+
+<Hint>
+Để tính phân phối phần dư, viết `residual = torch.clamp(p - q, min=0.0)` rồi chia cho `residual.sum()`. Sau đó thay thế các vị trí bị bác bỏ bằng `x_final[~accepted] = torch.multinomial(p_res, num_samples=num_rej, replacement=True)`.
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch5-04-speculative-decoding">
+
+Tỷ lệ chấp nhận thực nghiệm đạt `77.96%`, khớp sát sao với giá trị lý thuyết $\alpha = \sum \min(p, q) = 78.00\%$. Mặc dù mô hình nháp `q_draft` đánh giá lệch hẳn (ví dụ gán cho `"Hà"` chỉ `0.22` thay vì `0.42`, và gán cho `"Nội"` tới `0.38` thay vì `0.25`), phân phối đầu ra sau bước sửa phần dư đạt `0.4191` cho `"Hà"` và `0.2514` cho `"Nội"` — sai lệch cực đại so với `p_target` chỉ là `0.0014`!
+
+</Checkpoint>
+
+<Solution nb="ch5-04-speculative-decoding" />
+
+<WhatToNotice>
+Hãy nhìn vào bảng kết quả ở hai dòng đầu tiên:
+- Với token `"Nội"`, mô hình nháp quá tự tin ($q = 0.38 > p = 0.25$), nên bước chấp nhận $\min(1, p/q) = 0.25 / 0.38$ đã tự động cắt giảm tần suất của `"Nội"` từ $38\%$ về đúng $25\%$.
+- Với token `"Hà"`, mô hình nháp đánh giá quá thấp ($q = 0.22 < p = 0.42$), nên mọi lần nháp đề xuất `"Hà"` đều được chấp nhận $100\%$, và phần thiếu hụt $0.42 - 0.22 = 0.20$ được bù đắp chính xác từ các lần bác bỏ thông qua phân phối phần dư $p'(x)$!
+
+**Đó là vẻ đẹp của Giải mã Suy đoán: bạn nhận được tốc độ của mô hình nhỏ, nhưng chất lượng và phân phối xác suất lại là của mô hình lớn 100%.**
+</WhatToNotice>
+
+</Exercise>
+
+<Optional title="Giải mã suy đoán không cần mô hình nháp riêng: Medusa và EAGLE">
+
+Trong thực tế triển khai, việc phải nạp và quản lý hai mô hình độc lập ($M_p$ và $M_q$) có cùng bộ từ vựng đôi khi gây phức tạp cho hệ thống phân tán. Gần đây, các kỹ thuật như **Medusa** (Cai et al., 2024) và **EAGLE** (Li et al., 2024) đã cải tiến Speculative Decoding bằng cách gắn thêm vài đầu dự đoán nhẹ (*drafting heads*) trực tiếp lên trên lớp ẩn cuối cùng của chính mô hình đích để dự đoán song song các token ở vị trí $t+1, t+2, t+3, t+4$, sau đó dùng mặt nạ chú ý hình cây (*tree attention*) để kiểm chứng nhiều nhánh ứng viên cùng lúc trong một lượt chạy duy nhất.
+
+</Optional>
+
+Nếu muốn đào sâu hơn nữa vào kỹ thuật tối ưu hóa suy luận, bạn có thể thử sức với các bài tập mở rộng dưới đây.
+
+<Bonus>
+**Đo băng thông bộ nhớ thực tế trên máy của bạn.** Viết một đoạn mã PyTorch tạo một ma trận lớn $W \in \mathbb{R}^{8192 \times 8192}$ ở chuẩn `float16` ($128\text{ MB}$) và đo thời gian thực hiện phép nhân Vector – Ma trận $x W$ ($B=1$) so với phép nhân Ma trận – Ma trận $X W$ ($B=256$). Tính cường độ số học và băng thông bộ nhớ thực tế (GB/s) mà CPU hoặc GPU của bạn đạt được ở hai chế độ này.
+</Bonus>
+
+<Bonus>
+**Lượng tử hóa bất đối xứng (Asymmetric Zero-Point Quantization).** Trong Bài tập 5.4, ta đã dùng lượng tử hóa đối xứng quanh điểm $0$. Nếu một nhóm trọng số có phân bố lệch (ví dụ nằm trong đoạn $[-0.1, 0.8]$), lượng tử hóa đối xứng sẽ lãng phí một nửa dải số nguyên âm. Hãy cài đặt lượng tử hóa bất đối xứng ánh xạ $[w_{\min}, w_{\max}]$ vào $[0, 2^b - 1]$ thông qua hệ số tỷ lệ $s = \frac{w_{\max} - w_{\min}}{2^b - 1}$ và điểm không $z = \text{round}(-w_{\min} / s)$, rồi so sánh sai số Frobenius với phương pháp đối xứng.
+</Bonus>
+
+<Bonus>
+**Cài đặt thuật toán Online Softmax một lượt duyệt.** Viết hàm `online_softmax_attention(q, K_blocks, V_blocks)` nhận vào một truy vấn $q \in \mathbb{R}^{1 \times d}$ và danh sách các khối $K^{(b)}, V^{(b)} \in \mathbb{R}^{B_{\text{tile}} \times d}$, cập nhật trực tiếp $(m, \ell, O)$ qua từng khối trong một vòng lặp duy nhất theo công thức ở Mục 4.1, và kiểm chứng kết quả trùng khớp với `torch.softmax(q @ K.T / sqrt(d)) @ V`.
+</Bonus>
+
+<Bonus extra>
+**Tìm độ dài suy đoán $\gamma^*$ tối ưu.** Viết một hàm Python vẽ đồ thị $\text{Speedup}(\gamma)$ theo $\gamma \in \{1, \dots, 16\}$ với các cặp $(\alpha, c)$ khác nhau. Khi $c = 0.05$ và $\alpha = 0.75$, giá trị $\gamma^*$ nào cho hệ số tăng tốc cao nhất? Tại sao khi tăng $\gamma$ quá lớn, hệ số tăng tốc lại bắt đầu giảm xuống?
+</Bonus>
+
+---
+
+## Tài liệu tham khảo
+
+<ReferenceList chapter={5} />

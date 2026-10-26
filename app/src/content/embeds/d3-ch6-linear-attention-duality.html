@@ -1,0 +1,299 @@
+<div class="d3-ch6-linear-attention-duality"></div>
+<style>
+  .d3-ch6-linear-attention-duality {
+    font-size: 12.5px;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 16px;
+    background: var(--surface-bg);
+  }
+  .d3-ch6-linear-attention-duality .lad-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .d3-ch6-linear-attention-duality .lad-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .d3-ch6-linear-attention-duality button {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 4%, transparent);
+    color: var(--text-color);
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.15s ease;
+  }
+  .d3-ch6-linear-attention-duality button.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-ch6-linear-attention-duality .lad-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .d3-ch6-linear-attention-duality .lad-controls input[type="range"] {
+    width: 110px;
+    accent-color: var(--primary-color);
+  }
+  .d3-ch6-linear-attention-duality svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch6-linear-attention-duality .lad-summary {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 5%, var(--page-bg));
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 16px;
+    font-size: 12px;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch6-linear-attention-duality'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch6-linear-attention-duality'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let mode = 'parallel'; // 'parallel' or 'recurrent'
+        let L = 8; // visual sequence length (representing L >> d)
+        const d = 3; // feature dimension d
+
+        const header = document.createElement('div');
+        header.className = 'lad-header';
+        header.innerHTML = `
+          <div class="lad-tabs">
+            <button type="button" data-mode="parallel" class="active">1. Dạng Song song: (φ(Q) · φ(K)ᵀ) · V  — O(L²d)</button>
+            <button type="button" data-mode="recurrent">2. Dạng Truy hồi / Tuyến tính: φ(Q) · (φ(K)ᵀ · V)  — O(Ld²)</button>
+          </div>
+          <div class="lad-controls">
+            <label>Chiều dài chuỗi $L$:</label>
+            <input type="range" id="lad-l-slider" min="5" max="10" value="8" step="1" />
+            <strong id="lad-l-val">L = 8</strong>
+          </div>
+        `;
+        container.appendChild(header);
+
+        const W = 740, H = 265;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        const summary = document.createElement('div');
+        summary.className = 'lad-summary';
+        container.appendChild(summary);
+
+        let colors = ['#4e79a7', '#f28e2b', '#59a14f', '#e15759'];
+        const readColors = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) colors = cat;
+            }
+          } catch (_) {}
+        };
+
+        const drawMatrix = (g, x, y, rows, cols, cellSize, col, labelTop, labelSub, causal = false) => {
+          const mw = cols * cellSize;
+          const mh = rows * cellSize;
+          g.append('text')
+            .attr('x', x + mw / 2).attr('y', y - 16)
+            .attr('text-anchor', 'middle')
+            .attr('font-weight', '700')
+            .attr('font-size', '12px')
+            .attr('fill', 'var(--text-color)')
+            .text(labelTop);
+          g.append('text')
+            .attr('x', x + mw / 2).attr('y', y - 4)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '10.5px')
+            .attr('fill', 'var(--muted-color)')
+            .text(labelSub);
+
+          for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+              const masked = causal && c > r;
+              g.append('rect')
+                .attr('x', x + c * cellSize)
+                .attr('y', y + r * cellSize)
+                .attr('width', cellSize - 1.5)
+                .attr('height', cellSize - 1.5)
+                .attr('rx', 2)
+                .attr('fill', masked
+                  ? 'color-mix(in oklab, var(--text-color) 6%, transparent)'
+                  : `color-mix(in oklab, ${col} ${50 + ((r * 3 + c * 5) % 40)}%, var(--surface-bg))`)
+                .attr('stroke', 'var(--border-color)')
+                .attr('stroke-width', 0.6);
+            }
+          }
+          return { right: x + mw, centerY: y + mh / 2, bottom: y + mh };
+        };
+
+        const render = () => {
+          readColors();
+          svg.selectAll('*').remove();
+          const cell = 17;
+          const y0 = 46;
+          const g = svg.append('g');
+
+          if (mode === 'parallel') {
+            // (phi(Q) [L x d] * phi(K)^T [d x L]) -> A [L x L] * V [L x d] -> O [L x d]
+            let x = 28;
+            // Left bracket
+            g.append('text').attr('x', x - 12).attr('y', y0 + (L * cell) / 2 + 6)
+              .attr('font-size', '28px').attr('font-weight', '300').attr('fill', colors[3]).text('(');
+
+            const mQ = drawMatrix(g, x, y0, L, d, cell, colors[0], 'φ(Q)', `${L} × ${d}`);
+            x = mQ.right + 18;
+            g.append('text').attr('x', x - 9).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('×');
+
+            const mKT = drawMatrix(g, x, y0 + ((L - d) * cell) / 2, d, L, cell, colors[1], 'φ(K)ᵀ', `${d} × ${L}`);
+            x = mKT.right + 14;
+            g.append('text').attr('x', x - 6).attr('y', y0 + (L * cell) / 2 + 6)
+              .attr('font-size', '28px').attr('font-weight', '300').attr('fill', colors[3]).text(')');
+
+            x += 18;
+            g.append('text').attr('x', x - 10).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('⇒');
+
+            // Intermediate L x L matrix!
+            const mA = drawMatrix(g, x, y0, L, L, cell, colors[3], 'Ma trận Chú ý A', `${L} × ${L} (Bậc hai O(L²))`, true);
+            x = mA.right + 22;
+            g.append('text').attr('x', x - 11).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('×');
+
+            const mV = drawMatrix(g, x, y0, L, d, cell, colors[2], 'V', `${L} × ${d}`);
+            x = mV.right + 24;
+            g.append('text').attr('x', x - 12).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('=');
+
+            drawMatrix(g, x, y0, L, d, cell, colors[0], 'Đầu ra Y', `${L} × ${d}`);
+
+            const flopsParallel = 2 * L * L * d;
+            const flopsLinear = 2 * L * d * d;
+            summary.innerHTML = `
+              <div><strong>Nút cổ chai:</strong> Phải cụ thể hóa ma trận chú ý kích thước <code>${L} × ${L}</code> (${L * L} ô nhớ).</div>
+              <div><strong>Số phép tính nhân-cộng:</strong> <code>2·L²·d = ${flopsParallel}</code> ops (so với <code>${flopsLinear}</code> ops ở dạng tuyến tính).</div>
+            `;
+          } else {
+            // phi(Q) [L x d] * (phi(K)^T [d x L] * V [L x d]) -> phi(Q) [L x d] * S_t [d x d] -> O [L x d]
+            let x = 28;
+            const mQ = drawMatrix(g, x, y0, L, d, cell, colors[0], 'φ(Q)', `${L} × ${d}`);
+            x = mQ.right + 22;
+            g.append('text').attr('x', x - 14).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('×');
+
+            g.append('text').attr('x', x - 2).attr('y', y0 + (L * cell) / 2 + 6)
+              .attr('font-size', '28px').attr('font-weight', '300').attr('fill', colors[2]).text('(');
+            x += 10;
+
+            const mKT = drawMatrix(g, x, y0 + ((L - d) * cell) / 2, d, L, cell, colors[1], 'φ(K)ᵀ', `${d} × ${L}`);
+            x = mKT.right + 18;
+            g.append('text').attr('x', x - 9).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('×');
+
+            const mV = drawMatrix(g, x, y0, L, d, cell, colors[2], 'V', `${L} × ${d}`);
+            x = mV.right + 12;
+            g.append('text').attr('x', x - 4).attr('y', y0 + (L * cell) / 2 + 6)
+              .attr('font-size', '28px').attr('font-weight', '300').attr('fill', colors[2]).text(')');
+
+            x += 22;
+            g.append('text').attr('x', x - 12).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('⇒');
+
+            // Compact recurrent state S_t [d x d]
+            const stateY = y0 + ((L - d) * cell) / 2;
+            const mS = drawMatrix(g, x + 12, stateY, d, d, cell + 4, colors[2], 'Trạng thái RNN S_t', `${d} × ${d} (Cố định O(d²))`);
+            g.append('text')
+              .attr('x', x + 12 + (d * (cell + 4)) / 2)
+              .attr('y', mS.bottom + 18)
+              .attr('text-anchor', 'middle')
+              .attr('font-size', '11px')
+              .attr('font-weight', '600')
+              .attr('fill', colors[2])
+              .text('S_t = S_{t-1} + φ(k_t) v_tᵀ');
+
+            x = mS.right + 34;
+            g.append('text').attr('x', x - 16).attr('y', mQ.centerY + 4).attr('text-anchor', 'middle').attr('font-weight', '700').text('=');
+
+            drawMatrix(g, x, y0, L, d, cell, colors[0], 'Đầu ra Y', `${L} × ${d}`);
+
+            const flopsLinear = 2 * L * d * d;
+            const flopsParallel = 2 * L * L * d;
+            summary.innerHTML = `
+              <div><strong>Trạng thái cố định:</strong> Nén toàn bộ lịch sử vào ma trận <code>S_t ∈ ℝ^{${d}×${d}}</code> (${d * d} ô nhớ, không phụ thuộc $L$!).</div>
+              <div><strong>Số phép tính nhân-cộng:</strong> <code>2·L·d² = ${flopsLinear}</code> ops (tiết kiệm <strong>${Math.round((1 - flopsLinear / flopsParallel) * 100)}%</strong> so với dạng $O(L^2 d)$).</div>
+            `;
+          }
+        };
+
+        const btnPar = header.querySelector('[data-mode="parallel"]');
+        const btnRec = header.querySelector('[data-mode="recurrent"]');
+        const slider = header.querySelector('#lad-l-slider');
+        const lVal = header.querySelector('#lad-l-val');
+
+        btnPar.addEventListener('click', () => {
+          mode = 'parallel';
+          btnPar.classList.add('active');
+          btnRec.classList.remove('active');
+          render();
+        });
+        btnRec.addEventListener('click', () => {
+          mode = 'recurrent';
+          btnRec.classList.add('active');
+          btnPar.classList.remove('active');
+          render();
+        });
+        slider.addEventListener('input', () => {
+          L = parseInt(slider.value, 10);
+          lVal.textContent = `L = ${L}`;
+          render();
+        });
+
+        document.addEventListener('palettes:updated', render);
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

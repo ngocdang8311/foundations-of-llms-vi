@@ -10,195 +10,195 @@ import WhatToNotice from '../../components/post/WhatToNotice.astro';
 import Bonus from '../../components/post/Bonus.astro';
 import Optional from '../../components/post/Optional.astro';
 
-## 2. Counting words: n-grams as the simplest language models
+## 2. Đếm từ: các mô hình ngôn ngữ đơn giản nhất dựa trên n-gram
 
-Since language models will be our main interest later in the series, it is worth starting with a historical example representing the simplest way of generating language in an autoregressive way: **the Markov model**.
+Vì các mô hình ngôn ngữ sẽ là mối quan tâm chính của chúng ta ở những phần sau của chuỗi bài giảng, rất đáng để bắt đầu bằng một ví dụ mang tính lịch sử, đại diện cho cách thức đơn giản nhất để sinh ngôn ngữ theo kiểu tự hồi quy: **mô hình Markov (Markov model)**.
 
 <PaperNote id="markov1913">
-Markov had defined his (now famous) "chains" in 1906, but this paper from 1913 is their first application to a text: the first 20,000 letters of Pushkin's book "Eugene Onegin". In this paper, Markov computed the transition probabilities between vowels and consonants in the text.
+Markov đã định nghĩa các "chuỗi" (*chains* — ngày nay đã trở nên vô cùng nổi tiếng) từ năm 1906, nhưng bài báo năm 1913 này mới là ứng dụng đầu tiên của chúng trên văn bản: 20.000 chữ cái đầu tiên trong tác phẩm "Eugene Onegin" của Pushkin. Trong công trình này, Markov đã tính toán xác suất chuyển trạng thái giữa các nguyên âm và phụ âm trong văn bản.
 </PaperNote>
 
-### 2.1 Markov model
+### 2.1 Mô hình Markov (Markov model)
 
-If you really want the simplest (and most inefficient) language model, you can simply draw words at random in the vocabulary, following their natural frequency in the language. This is called the *unigram* model, for which
+Nếu bạn thực sự muốn có một mô hình ngôn ngữ đơn giản nhất (và cũng kém hiệu quả nhất), bạn chỉ việc bốc ngẫu nhiên các từ trong bộ từ vựng theo đúng tần suất xuất hiện tự nhiên của chúng trong ngôn ngữ. Đây được gọi là mô hình *unigram* (1-gram), trong đó:
 $$
 p(x_{i} \mid x_1 \dots x_{i-1}) = p(x_i) = \frac{C(x_i)}{N}
 $$
-where $C(x_i)$ is the count of word $x_i$ in the training corpus, and $N = \sum C(x_i)$ is the corpus size. This is a very crude model! And we can at least improve it by considering *bigrams*, i.e. the Markov chain model.
+với $C(x_i)$ là số lần xuất hiện (tần số đếm) của từ $x_i$ trong kho ngữ liệu huấn luyện, và $N = \sum C(x_i)$ là tổng quy mô của kho ngữ liệu. Đây là một mô hình vô cùng thô sơ! Ít nhất chúng ta có thể cải thiện nó bằng cách xét các cặp từ liên tiếp — tức *bigram* (2-gram), hay chính là mô hình chuỗi Markov.
 
-#### Simple Markov chain
+#### Chuỗi Markov đơn giản (Simple Markov chain)
 
-In the simplest *bigram* Markov chain model, **the probability of a word in a sequence only depends on the word that comes just before it**.
+Trong mô hình chuỗi Markov *bigram* đơn giản nhất, **xác suất xuất hiện của một từ trong chuỗi chỉ phụ thuộc vào duy nhất từ đứng ngay trước nó**:
 $$
 p(x_{i} \mid x_1 \dots x_{i-1}) = p(x_i \mid x_{i-1})
 $$
-This assumption is of course incorrect for actual human languages, but it allows for very simple modeling using only a transition matrix.
+Giả định này tất nhiên là không đúng với ngôn ngữ tự nhiên của con người, nhưng đổi lại nó cho phép mô hình hóa cực kỳ đơn giản chỉ bằng một ma trận chuyển trạng thái (*transition matrix*).
 
-Using a training set, we simply count the occurrences of every word $C(v)$ and of every pair of consecutive words $C(v,w)$. We then use it to compute the probability $p(w \mid v) = C(v,w)/C(v)$ that the word $w$ follows the word $v$. These probabilities define a transition matrix that can then be used for autoregressive text generation using a Markov Chain model.
+Sử dụng tập huấn luyện, chúng ta chỉ cần đếm số lần xuất hiện của mỗi từ $C(v)$ và của mỗi cặp từ liên tiếp $C(v,w)$. Sau đó, ta dùng các số đếm này để tính xác suất $p(w \mid v) = C(v,w)/C(v)$ để từ $w$ xuất hiện ngay sau từ $v$. Các xác suất này xác định một ma trận chuyển trạng thái, có thể dùng trực tiếp để sinh văn bản tự hồi quy bằng mô hình Chuỗi Markov.
 
-Let's try that on the following exercise.
+Hãy thử nghiệm ngay ý tưởng đó qua bài tập dưới đây.
 
-<Exercise number="2.1" title="Build a Markov chain model" data="WikiText-2" nb="02-1-markov-chain">
-Using the WikiText-2 data, count the occurrences of consecutive words and use them to generate a sequence of 50 words with a Markov chain model.
+<Exercise number="2.1" title="Xây dựng mô hình chuỗi Markov" data="WikiText-2" nb="02-1-markov-chain">
+Sử dụng dữ liệu WikiText-2, hãy đếm số lần xuất hiện của các cặp từ liên tiếp và dùng chúng để sinh ra một chuỗi gồm 50 từ bằng mô hình chuỗi Markov.
 
 <Starter nb="02-1-markov-chain" />
 
 <Hints>
 
 <Hint>
-Look at a sample of WikiText-2. The text is already pre-processed, you just need to split it on spaces to get words. Keep every word as it is, including the `=` signs of the section titles (lines like ` = = History = = `), `@-@`, which stands for a hyphen (`role @-@ playing`), and `@,@` and `@.@`, which stand for the comma and the decimal point inside numbers (`14 @,@ 000`, `5 @.@ 5`).
+Hãy quan sát một mẫu dữ liệu của WikiText-2. Văn bản đã được tiền xử lý sẵn, bạn chỉ cần tách chuỗi theo khoảng trắng để thu được các từ. Hãy giữ nguyên mọi từ như hiện trạng, bao gồm cả các dấu `=` trong tiêu đề mục (những dòng như ` = = History = = `), ký hiệu `@-@` đại diện cho dấu gạch nối (`role @-@ playing`), cũng như `@,@` và `@.@` đại diện cho dấu phẩy và dấu chấm thập phân bên trong các con số (`14 @,@ 000`, `5 @.@ 5`).
 
-Note that the dataset replaces the rare words, those with a count below 3, with the `<unk>` word. So every word of the validation and test sets is also in the training text, and none of them gets a probability of 0 for being unknown.
+Lưu ý rằng bộ dữ liệu đã thay thế các từ hiếm (những từ có số lần xuất hiện dưới 3) bằng từ `<unk>`. Nhờ vậy, mọi từ trong tập xác thực (*validation set*) và tập kiểm tra (*test set*) đều có mặt trong văn bản huấn luyện, không có từ nào bị gán xác suất bằng 0 vì lý do ngoài từ vựng.
 </Hint>
 
 <Hint>
-The vocabulary is too large to actually efficiently store the $V\times V$ count matrix, which would be very sparse anyway. Use a nested dictionary `{'the' : {'dog' : 3, ...}, ...}` to count the occurrence of each pair of words.
+Bộ từ vựng quá lớn để có thể lưu trữ hiệu quả toàn bộ ma trận đếm kích thước $V\times V$ — vốn dĩ sẽ cực kỳ thưa (*sparse*). Hãy sử dụng một từ điển lồng nhau (*nested dictionary*) dạng `{'the' : {'dog' : 3, ...}, ...}` để đếm số lần xuất hiện của từng cặp từ.
 </Hint>
 
 <Hint>
-`random.choices(words, weights=counts)` draws a word with a probability proportional to its count, normalization is automatic.
+Hàm `random.choices(words, weights=counts)` giúp lấy mẫu ngẫu nhiên một từ với xác suất tỷ lệ thuận với số đếm của nó; bước chuẩn hóa xác suất được thực hiện tự động.
 </Hint>
 
 </Hints>
 
 <Checkpoint nb="02-1-markov-chain">
 
-The training split has 2,051,910 words. The vocabulary has 33,277 words, including `<unk>` and `=`. There are 618,405 distinct pairs, out of $33{,}277^2 \approx 1.1$ billion possible pairs.
+Tập huấn luyện có 2.051.910 từ. Bộ từ vựng gồm 33.277 từ, bao gồm cả `<unk>` và `=`. Có 618.405 cặp từ phân biệt trên tổng số $33{,}277^2 \approx 1{,}1$ tỷ cặp từ khả dĩ.
 
-With another seed, your sample will differ but should look similar: each pair of consecutive words is plausible, but the sentence as a whole is not.
+Với một hạt giống ngẫu nhiên (*seed*) khác, đoạn văn bản mẫu của bạn sẽ khác đi nhưng nhìn chung vẫn mang đặc điểm tương tự: từng cặp từ liên tiếp nghe rất hợp lý, nhưng tổng thể cả câu lại hoàn toàn vô nghĩa.
 </Checkpoint>
 
 <Solution nb="02-1-markov-chain" />
 
 <WhatToNotice>
-As you can see, the produced text is nonsense, but the word order is roughly grammatical.
+Như bạn có thể thấy, văn bản sinh ra không có ý nghĩa mạch lạc, nhưng trật tự từ cục bộ nhìn chung khá đúng ngữ pháp.
 </WhatToNotice>
 
 </Exercise>
 
-#### n-gram models
+#### Mô hình n-gram (n-gram models)
 
-We can also extend the model by using *n-grams*, that is, chunks of $n$ consecutive words. To predict the next word, we thus consider the sequence of the $n-1$ previous words as an input. The Markov chain model of 2.1 is $n = 2$, the unigram model is $n=1$ where no context at all is used.
+Chúng ta cũng có thể mở rộng mô hình bằng cách sử dụng các *n-gram*, tức các cụm gồm $n$ từ liên tiếp. Khi đó, để dự đoán từ tiếp theo, ta lấy chuỗi $n-1$ từ đứng ngay trước nó làm đầu vào. Mô hình chuỗi Markov ở mục 2.1 ứng với $n = 2$, còn mô hình unigram ứng với $n = 1$ (không sử dụng bất kỳ ngữ cảnh nào).
 
-Using n-grams, the transition matrix will be $V^{n-1} \times V$, which can quickly become overwhelming (for $n=3$ and $V=30{,}000$, we have about $3 \times 10^{13}$ entries). In practice, once again **we store only the n-grams that occur, in a dictionary of counts**, but not the full table.
+Khi dùng n-gram, ma trận chuyển trạng thái sẽ có kích thước $V^{n-1} \times V$, con số này bùng nổ cực kỳ nhanh chóng (chẳng hạn với $n=3$ và $V=30{,}000$, ta có khoảng $3 \times 10^{13}$ phần tử). Trong thực tế, một lần nữa **chúng ta chỉ lưu trữ những n-gram thực sự xuất hiện vào một từ điển đếm**, chứ không lưu toàn bộ bảng.
 
-Below you can see examples for WikiText-2 at various $n$.
+Dưới đây bạn có thể khám phá các ví dụ thực tế trên tập WikiText-2 với nhiều giá trị $n$ khác nhau.
 
-<PaperNote id="shannon1948" look="Section 3, “The Series of Approximations to English”.">
+<PaperNote id="shannon1948" look="Mục 3, “The Series of Approximations to English” (Chuỗi các xấp xỉ cho tiếng Anh).">
 
-To measure the information produced by English text, the famous mathematician **Claude Shannon** models it as a random process that writes one symbol after the other: letters drawn independently, then depending on the previous letter, then on the two previous ones, and the same with words. He calls these "Markov processes". And he made his samples by hand! Open a book at random, pick a letter, then open another page, read until you meet this letter, and write down the one that follows it. No wonder he found that *"the labor involved becomes enormous at the next stage"*!
+Để đo lường lượng thông tin do văn bản tiếng Anh tạo ra, nhà toán học lỗi lạc **Claude Shannon** đã mô hình hóa ngôn ngữ như một quá trình ngẫu nhiên viết ra lần lượt từng ký hiệu một: các chữ cái được rút độc lập, rồi phụ thuộc vào chữ cái đứng liền trước, rồi phụ thuộc vào hai chữ cái đứng trước, và tương tự ở cấp độ từ. Ông gọi đây là các "quá trình Markov" (*Markov processes*). Và đáng kinh ngạc là ông đã tự tay lấy mẫu thủ công! Mở ngẫu nhiên một cuốn sách, chọn lấy một chữ cái, sau đó lật sang một trang khác, đọc dò cho đến khi bắt gặp chữ cái đó rồi ghi lại chữ cái đứng ngay sau nó. Chẳng trách ông đã phải cảm thán rằng *"công sức bỏ ra sẽ trở nên khổng lồ ở bước tiếp theo"*!
 </PaperNote>
 
 <HtmlEmbed
   src="d3-ngram-explorer.html"
   data="ngram-explorer.json"
-  title="The next word after a context"
-  desc="The probability of the next word given its n − 1 previous words, from the counts of the training text of WikiText-2."
+  title="Từ tiếp theo sau một ngữ cảnh"
+  desc="Xác suất của từ tiếp theo khi biết n − 1 từ đứng trước nó, được tính từ tần số đếm trên văn bản huấn luyện của WikiText-2."
 />
 
-### 2.2 Comparing probability distributions
+### 2.2 So sánh các phân phối xác suất
 
-In language modeling, our goal is to approximate the "true" probability distribution of next word occurrence. Let's call it $p(x_{L+1} \mid x_1 \dots x_L)$. Any candidate language model will produce a candidate distribution $q(x_{L+1} \mid x_1 \dots x_L)$ (in the n-gram Markov model, it depends only on $x_{L-n+2} \dots x_L$).
+Trong bài toán mô hình hóa ngôn ngữ, mục tiêu của chúng ta là xấp xỉ phân phối xác suất "thực" của từ tiếp theo. Hãy ký hiệu phân phối thực này là $p(x_{L+1} \mid x_1 \dots x_L)$. Bất kỳ mô hình ngôn ngữ ứng viên nào cũng sẽ đưa ra một phân phối dự đoán $q(x_{L+1} \mid x_1 \dots x_L)$ (trong mô hình Markov n-gram, phân phối này chỉ phụ thuộc vào $x_{L-n+2} \dots x_L$).
 
-How do we measure success? That is, how do we quantify how similar $q$ is to $p$?
+Làm thế nào để đo lường mức độ thành công? Nói cách khác, làm sao ta định lượng được mức độ giống nhau giữa $q$ và $p$?
 
-#### KL Divergence and cross-entropy loss
+#### Phân kỳ KL (KL Divergence) và hàm mất mát entropy chéo (cross-entropy loss)
 
-To assess whether a certain probability distribution is a good approximation to another one, the tool of choice is the **Kullback–Leibler divergence**
+Để đánh giá xem một phân phối xác suất có phải là xấp xỉ tốt cho một phân phối khác hay không, công cụ tiêu chuẩn được lựa chọn là **phân kỳ Kullback–Leibler (Kullback–Leibler divergence — KL divergence)**:
 $$
 D_{KL}(p \,\|\, q) = \sum_x p(x) \log \frac{p(x)}{q(x)}.
 $$
-I write it with generic distribution $p$ and $q$, but note that this definition also works using conditional probabilities for instance in our case $p(x_{L+1} \mid x_1 \dots x_L)$ and $q(x_{L+1} \mid x_1 \dots x_L)$.
+Ở đây tôi viết công thức với hai phân phối tổng quát $p$ và $q$, nhưng lưu ý rằng định nghĩa này hoàn toàn áp dụng được cho các xác suất có điều kiện, chẳng hạn trong trường hợp của chúng ta là $p(x_{L+1} \mid x_1 \dots x_L)$ và $q(x_{L+1} \mid x_1 \dots x_L)$.
 
-Finding the distribution $q$ that best approximates a given $p$ means **minimizing the KL divergence**. Now, in our case, as $p$ a priori is unknown, exactly computing this quantity might seem impossible. But to minimize the KL divergence, we can first notice that its log part can be separated into
+Việc tìm phân phối $q$ xấp xỉ tốt nhất một phân phối $p$ cho trước đồng nghĩa với việc **cực tiểu hóa phân kỳ KL**. Tuy nhiên trong bài toán của chúng ta, vì phân phối thực $p$ chưa biết trước (*a priori*), việc tính chính xác đại lượng này thoạt nhìn có vẻ bất khả thi. Thế nhưng để cực tiểu hóa phân kỳ KL, trước hết ta có thể nhận xét rằng biểu thức logarit bên trong có thể tách thành hai phần:
 
 $$
 D_{KL}(p \,\|\, q) = \sum_x p(x) \log p(x) - \sum_x p(x) \log q(x)
 $$
 
-The first part is (minus) **the entropy of $p$** (which doesn't depend on $q$), while the second part is the so-called **cross-entropy**.
+Số hạng đầu tiên chính là (trừ) **entropy của $p$** (đại lượng này hoàn toàn không phụ thuộc vào $q$), còn số hạng thứ hai được gọi là **entropy chéo (cross-entropy)**.
 
-Since the cross-entropy
+Vì entropy chéo:
 $$
 H(p, q) = -\sum_x p(x) \log q(x).
 $$
-is the only part that actually depends on $q$, we are actually seeking $q$ that minimizes it.
+là thành phần duy nhất thực sự phụ thuộc vào $q$, nên bài toán quy về việc tìm phân phối $q$ sao cho đại lượng này đạt giá trị nhỏ nhất.
 
-**Finding $q$ that minimizes the KL-divergence $D_{KL}(p \,\|\, q)$ is equivalent to minimizing the cross-entropy $H(p,q)$.**
+**Việc tìm $q$ để cực tiểu hóa phân kỳ KL $D_{KL}(p \,\|\, q)$ hoàn toàn tương đương với việc cực tiểu hóa entropy chéo $H(p,q)$.**
 
-You can try it informally on a very simple example below, by dragging the bars of the orange distribution.
+Bạn có thể trực tiếp trải nghiệm trực giác này trên một ví dụ rất đơn giản dưới đây bằng cách kéo thả các cột của phân phối màu cam.
 <HtmlEmbed
   src="d3-kl-divergence.html"
-  title="Entropy, cross-entropy and KL divergence"
-  desc="Drag the bars of q, the model, and compare it with p: the cross-entropy is always at least the entropy of p; the difference is the KL divergence, zero only when q = p. These are fake distributions on only 6 words."
+  title="Entropy, entropy chéo và phân kỳ KL"
+  desc="Hãy kéo các cột của phân phối mô hình q và so sánh nó với phân phối thực p: entropy chéo luôn lớn hơn hoặc bằng entropy của p; phần chênh lệch chính là phân kỳ KL, và chỉ bằng 0 khi q = p. Đây là các phân phối giả lập trên vỏn vẹn 6 từ."
 />
 
-#### Likelihood
+#### Hợp lý cực đại (Likelihood)
 
-Now let's return to our notations, and remember that we are working with conditional probabilities $p(x \mid c)$ and $q(x \mid c)$ of having $x$ as the next word, knowing the context $c=(x_1,\dots,x_L)$.
+Bây giờ hãy quay lại với hệ thống ký hiệu của bài toán và nhớ rằng chúng ta đang làm việc với các xác suất có điều kiện $p(x \mid c)$ và $q(x \mid c)$ để từ $x$ xuất hiện tiếp theo khi biết ngữ cảnh $c=(x_1,\dots,x_L)$.
 
-If $q$ depends on some parameters $\theta$, we seek to minimize the cross-entropy
+Nếu phân phối $q$ phụ thuộc vào bộ tham số $\theta$, ta cần cực tiểu hóa entropy chéo:
 $$
 -\sum_x p(x \mid c) \log q_{\theta}(x \mid c),
 $$
-which can be seen as an expectation over distribution probability $x \sim p( . | c)$
+biểu thức này có thể được hiểu như kỳ vọng toán học trên phân phối xác suất $x \sim p( . | c)$:
 $$
 -\mathbb{E}_{x \sim p( \cdot \mid c)}[\log q_{\theta}(x \mid c)].
 $$
 
-Once again, *we cannot compute this quantity directly* because we do not know $p$, but **our text corpus is a sample from $p$**.
+Một lần nữa, *chúng ta không thể tính trực tiếp đại lượng này* vì không biết phân phối thực $p$, nhưng **kho ngữ liệu văn bản của chúng ta chính là một mẫu dữ liệu được rút ra từ $p$**.
 
-At each position $i$ of a text, the context $x_{<i} = x_1 \dots x_{i-1}$ is followed by the word $x_i$ that was actually written. Most contexts appear only once, so we never see the distribution $p(\cdot \mid x_{<i})$, only one word drawn from it. But the average over the $N$ positions of the text estimates the cross-entropy, averaged over the contexts as they occur in the language:
+Tại mỗi vị trí $i$ trong văn bản, ngữ cảnh $x_{<i} = x_1 \dots x_{i-1}$ được nối tiếp bởi từ $x_i$ thực sự xuất hiện tại đó. Hầu hết các ngữ cảnh dài chỉ xuất hiện đúng một lần, nên ta không bao giờ quan sát được toàn bộ phân phối $p(\cdot \mid x_{<i})$, mà chỉ thấy duy nhất một từ được lấy mẫu từ phân phối ấy. Tuy nhiên, giá trị trung bình tính trên toàn bộ $N$ vị trí của văn bản sẽ cho ta một ước lượng của entropy chéo, lấy trung bình theo đúng tần suất xuất hiện tự nhiên của các ngữ cảnh trong ngôn ngữ:
 
 $$
 \hat{H} = -\frac{1}{N} \sum_{i=1}^{N} \log q_\theta(x_i \mid x_{<i})
 $$
 
-This average has a simple meaning. A sum of logs is the log of a product, and by the chain rule of section 1.2, $\prod_i q_\theta(x_i \mid x_{<i})$ is the probability that the model gives to the whole text, its *likelihood*. So $\hat{H}$ is the negative log-likelihood of the text divided by its number of words, and **minimizing the cross-entropy amounts to maximizing the likelihood of the corpus**.
+Giá trị trung bình này mang một ý nghĩa rất trực quan. Tổng của các logarit chính là logarit của một tích, và theo quy tắc dây chuyền ở mục 1.2, tích $\prod_i q_\theta(x_i \mid x_{<i})$ chính là xác suất mà mô hình gán cho toàn bộ văn bản — hay còn gọi là *độ hợp lý (likelihood)* của văn bản. Do đó, $\hat{H}$ là trung bình log-hợp lý âm (*negative log-likelihood* — NLL) tính trên mỗi từ của văn bản, và **việc cực tiểu hóa entropy chéo hoàn toàn tương đương với việc cực đại hóa độ hợp lý (maximizing likelihood) của kho ngữ liệu**.
 
-To train a model, we choose the parameters $\theta$ (for instance the weights of a neural network) that minimize $\hat{H}$ on a *training* text. Each term of the sum is itself a cross-entropy: the one between $q_\theta$ and the distribution that puts all its probability on the observed word (a *one-hot* distribution), which stands in for the unknown $p$:
+Để huấn luyện mô hình, chúng ta chọn bộ tham số $\theta$ (chẳng hạn như các trọng số của mạng nơ-ron) sao cho cực tiểu hóa $\hat{H}$ trên một văn bản *huấn luyện*. Bản thân mỗi số hạng trong tổng trên cũng là một entropy chéo: đó là entropy chéo giữa $q_\theta$ và phân phối dồn toàn bộ xác suất bằng 1 vào đúng từ thực tế quan sát được (phân phối *one-hot*), đóng vai trò đại diện cho phân phối $p$ chưa biết:
 
 $$
 L_{CE} = -\sum_x \mathbf{1}[x = x_i] \log q_\theta(x \mid x_{<i}) = -\log q_\theta(x_i \mid x_{<i})
 $$
 
-This is the *cross-entropy loss* used to train language models, LLMs included. Such a single term is a noisy estimate, but on average over the words of the text, its gradient is $\nabla_\theta H(p, q_\theta)$. Since the entropy of $p$ does not depend on $\theta$, this is also $\nabla_\theta D_{KL}(p \,\|\, q_\theta)$.
+Đây chính là *hàm mất mát entropy chéo (cross-entropy loss)* được sử dụng để huấn luyện mọi mô hình ngôn ngữ, bao gồm cả các LLM hiện đại. Một số hạng đơn lẻ như vậy là một ước lượng nhiều nhiễu, nhưng khi lấy trung bình trên toàn bộ các từ của văn bản, đạo hàm (gradient) của nó chính là $\nabla_\theta H(p, q_\theta)$. Vì entropy của $p$ không phụ thuộc vào $\theta$, đại lượng này cũng chính bằng $\nabla_\theta D_{KL}(p \,\|\, q_\theta)$.
 
-**Maximizing the likelihood = Minimizing the cross-entropy loss = Minimizing the KL divergence**.
+**Cực đại hóa độ hợp lý (Likelihood) = Cực tiểu hóa hàm mất mát entropy chéo (Cross-entropy loss) = Cực tiểu hóa phân kỳ KL (KL divergence)**.
 
-For the n-gram models, we don't even need gradients: the ratio of counts $C(v,w)/C(v)$ of section 2.1 is exactly the $q$ that maximizes the likelihood of the training text.
+Đối với các mô hình n-gram, chúng ta thậm chí không cần dùng đến gradient: tỷ số đếm $C(v,w)/C(v)$ ở mục 2.1 chính là nghiệm giải tích $q$ giúp cực đại hóa độ hợp lý trên văn bản huấn luyện.
 
-#### Perplexity
+#### Độ hỗn loạn (Perplexity)
 
-Now a cross-entropy is not easy to read and interpret, so we usually report its exponential, the *perplexity* of the model on a text:
+Tuy nhiên, giá trị entropy chéo thường khó đọc và khó diễn giải trực quan, nên trong thực tế người ta thường báo cáo hàm mũ của nó, gọi là *độ hỗn loạn (perplexity)* của mô hình trên văn bản:
 
 $$
 {\cal P} = \exp\left(-\frac{1}{N} \sum_{i=1}^{N} \log q(x_i \mid x_{<i})\right) = \left(\prod_{i=1}^{N} \frac{1}{q(x_i \mid x_{<i})}\right)^{1/N}
 $$
 
-It is the inverse of the geometric average of the probabilities that the model gives to the words of the text. A model that is uniform over $V$ words has perplexity $V$, so **perplexity can be interpreted the number of words the model hesitates between.**
+Về mặt toán học, đây là nghịch đảo của trung bình nhân các xác suất mà mô hình gán cho từng từ trong văn bản. Một mô hình dự đoán phân phối đều (*uniform*) trên $V$ từ sẽ có perplexity bằng đúng $V$; vì vậy, **độ hỗn loạn (perplexity) có thể được diễn giải trực quan là số lượng từ mà mô hình đang phải phân vân lựa chọn ở mỗi bước dự đoán.**
 
-<PaperNote id="shannon1951" look="Section 6: the entropy of English estimated from the guesses, with up to 100 letters of context.">
+<PaperNote id="shannon1951" look="Mục 6: entropy của tiếng Anh được ước lượng từ các lần đoán của con người, với ngữ cảnh lên tới 100 chữ cái.">
 
-Three years later, Shannon decided to use people as a language model! He shows them a text, asks them to guess the next letter again and again, and estimates the entropy of English from the number of guesses they need: between 0.6 and 1.3 bits per letter with 100 letters of context. Compare with 4.14 bits from the letter frequencies alone, and 3.3 bits from triples of letters. One bit per letter means a perplexity of 2: with enough context, people hesitate between about two letters!
+Ba năm sau công trình đầu tiên, Shannon quyết định sử dụng chính con người làm mô hình ngôn ngữ! Ông cho người tham gia xem một đoạn văn bản, yêu cầu họ đoán chữ cái tiếp theo lặp đi lặp lại nhiều lần, rồi ước lượng entropy của tiếng Anh dựa trên số lần đoán mà họ cần: kết quả nằm trong khoảng từ 0,6 đến 1,3 bit trên mỗi chữ cái khi có ngữ cảnh dài 100 chữ cái. Hãy so sánh con số này với mức 4,14 bit nếu chỉ dựa vào tần suất chữ cái đơn lẻ, và 3,3 bit nếu dựa vào bộ ba chữ cái. Một bit trên mỗi chữ cái tương ứng với perplexity bằng 2: khi có đủ ngữ cảnh, con người chỉ phân vân giữa khoảng hai chữ cái mà thôi!
 
 </PaperNote>
 
-<Optional title="Validation and test sets" subtitle="why we need two held-out texts">
+<Optional title="Tập xác thực (validation) và tập kiểm tra (test)" subtitle="vì sao chúng ta cần hai văn bản tách biệt ngoài tập huấn luyện">
 
-Now, *on which text should we measure it?* Not on the training text: the model was fitted to these very words, so its perplexity there is too optimistic. A model that memorized the training text would give it a very high probability, and still predict new text badly. To estimate how well $q$ approximates $p$, we need another sample from $p$ that the model has never seen: a *held-out* set.
+Vậy *chúng ta nên đo perplexity trên văn bản nào?* Chắc chắn không phải trên văn bản huấn luyện: mô hình được khớp trực tiếp vào chính những từ đó, nên perplexity đo trên tập huấn luyện sẽ lạc quan một cách giả tạo. Một mô hình chỉ học thuộc lòng văn bản huấn luyện sẽ gán xác suất cực cao cho văn bản đó, nhưng lại dự đoán rất tệ trên văn bản mới. Để đánh giá khách quan mức độ $q$ xấp xỉ $p$ tốt đến đâu, ta cần một mẫu dữ liệu khác cũng sinh ra từ $p$ mà mô hình chưa từng nhìn thấy: một tập dữ liệu *tách biệt (held-out set)*.
 
-WikiText-2 comes with two held-out sets. The *validation set* is used for every choice we make about the model, such as the value of n (or the weights of the interpolation we'll introduce in section 2.3): we try several values and keep the one with the lowest validation perplexity. But a choice made this way is fitted to the validation set a little, so the validation perplexity of the chosen model is slightly optimistic too. The *test set* is used only once, at the end, to measure the perplexity we report.
+Bộ dữ liệu WikiText-2 đi kèm với hai tập tách biệt như vậy. *Tập xác thực (validation set)* được dùng cho mọi quyết định lựa chọn siêu tham số của mô hình, chẳng hạn như giá trị của $n$ (hoặc các trọng số nội suy mà ta sẽ giới thiệu ở mục 2.3): ta thử nghiệm nhiều giá trị và giữ lại cấu hình có perplexity trên tập xác thực thấp nhất. Tuy nhiên, việc lựa chọn theo cách này cũng khiến mô hình bị khớp nhẹ vào tập xác thực, nên perplexity trên tập xác thực của mô hình được chọn vẫn hơi lạc quan quá mức. Do đó, *tập kiểm tra (test set)* chỉ được sử dụng duy nhất một lần vào lúc cuối cùng, để đo con số perplexity chính thức được công bố.
 
 </Optional>
 
-In the exercises, we measure the perplexity on the validation set, and the test perplexity only to compare the models in section 6.
+Trong các bài tập thực hành, chúng ta sẽ đo perplexity trên tập xác thực, và chỉ tính perplexity trên tập kiểm tra để so sánh tổng thể các mô hình ở mục 6.
 
-<Exercise number="2.2" title="Measure the perplexity of the unigram and bigram models" data="WikiText-2" nb="02-2-perplexity">
+<Exercise number="2.2" title="Đo độ hỗn loạn (perplexity) của mô hình unigram và bigram" data="WikiText-2" nb="02-2-perplexity">
 
-Using the counts of exercise 2.1, compute the perplexity of the unigram model and of the bigram model on the validation set of WikiText-2. Do you notice a problem? Then compute the perplexity of the unigram model on the test set.
+Sử dụng kết quả đếm từ bài tập 2.1, hãy tính perplexity của mô hình unigram và mô hình bigram trên tập xác thực của WikiText-2. Bạn có nhận thấy vấn đề gì không? Sau đó, hãy tính perplexity của mô hình unigram trên tập kiểm tra.
 
-The starter code repeats steps (1) and (2) of the solution of exercise 2.1, which build the training sequence and the bigram counts. It also splits the validation and test sets into words in the same way.
+Đoạn mã khởi đầu lặp lại bước (1) và (2) trong lời giải bài tập 2.1 nhằm xây dựng chuỗi từ huấn luyện và bảng đếm bigram. Mã nguồn cũng tách sẵn tập xác thực và tập kiểm tra thành danh sách các từ theo đúng cách tương tự.
 
 <Starter nb="02-2-perplexity" />
 
@@ -206,13 +206,13 @@ The starter code repeats steps (1) and (2) of the solution of exercise 2.1, whic
 
 <Hint>
 
-Add up the log-probabilities instead of multiplying the probabilities: the product of 200,000 probabilities is too small to be stored as a floating-point number.
+Hãy cộng dồn các log-xác suất thay vì nhân trực tiếp các xác suất với nhau: tích của 200.000 xác suất là một con số quá nhỏ, vượt quá khả năng biểu diễn của số thực dấu phẩy động (*floating-point underflow*).
 
 </Hint>
 
 <Hint>
 
-For the bigram model, look for the pairs of the validation set that have a count of zero in training.
+Đối với mô hình bigram, hãy kiểm tra những cặp từ xuất hiện trong tập xác thực nhưng lại có số đếm bằng 0 trong tập huấn luyện.
 
 </Hint>
 
@@ -220,9 +220,9 @@ For the bigram model, look for the pairs of the validation set that have a count
 
 <Checkpoint nb="02-2-perplexity">
 
-Every word of the validation set appears in the training text, so the unigram model gives each of them a non-zero probability, and its perplexity is 996.5. But 46,338 pairs of the validation set, 21.7% of them, never appear in training: each of them gets the probability 0, so the bigram perplexity is infinite.
+Mọi từ đơn lẻ trong tập xác thực đều xuất hiện trong văn bản huấn luyện, do đó mô hình unigram gán cho tất cả chúng xác suất khác 0, và đạt perplexity là 996,5. Thế nhưng có tới 46.338 cặp từ trong tập xác thực (chiếm 21,7%) chưa từng xuất hiện trong lúc huấn luyện: mỗi cặp này đều nhận xác suất bằng 0, khiến perplexity của mô hình bigram tiến ra vô cùng ($\infty$).
 
-On the test set, the unigram perplexity is 941.7. It is lower than on the validation set. This is not a bug: the test articles of WikiText-2 happen to be easier to predict. Published models show the same gap: a Kneser-Ney 5-gram gets 219.3 on the test set and 233.9 on the validation set [@herel2023].
+Trên tập kiểm tra, perplexity của mô hình unigram là 941,7 — thấp hơn so với trên tập xác thực. Đây không phải là lỗi lập trình: các bài viết trong tập kiểm tra của WikiText-2 tình cờ dễ dự đoán hơn một chút. Các mô hình công bố trong các bài báo khoa học cũng cho thấy độ lệch tương tự: mô hình 5-gram Kneser-Ney đạt 219,3 trên tập kiểm tra và 233,9 trên tập xác thực [@herel2023].
 
 </Checkpoint>
 
@@ -230,21 +230,21 @@ On the test set, the unigram perplexity is 941.7. It is lower than on the valida
 
 <WhatToNotice>
 
-Just by knowing how frequent each word is, the unigram model hesitates between about 1,000 words, instead of 33,277 for a uniform guess. The bigram model should do much better, since it also knows the previous word, but one validation pair out of five never appears in training. A single zero probability is enough to make the perplexity infinite!
+Chỉ cần nắm được tần suất xuất hiện của từng từ, mô hình unigram đã thu hẹp phạm vi phân vân xuống còn khoảng 1.000 từ, thay vì 33.277 từ như khi đoán mò đồng đều. Đáng lẽ mô hình bigram phải làm tốt hơn nhiều vì biết thêm từ đứng liền trước, nhưng cứ năm cặp từ trong tập xác thực lại có một cặp chưa từng xuất hiện trong tập huấn luyện. Chỉ cần một xác suất bằng 0 duy nhất cũng đủ đẩy perplexity lên vô cùng!
 
 </WhatToNotice>
 
 </Exercise>
 
-### 2.3 Curse of dimensionality
+### 2.3 Lời nguyền số chiều (Curse of dimensionality)
 
-Zero counts arrive fast with words taken from a training corpus. With a vocabulary of 33,000 words, there are about 1.1 billion possible word pairs, but 2 million training words show at most 2 million of them (in exercise 2.1 we had about 618,000 distinct pairs, so 0.06%). Unseen pairs already appear in held-out text at n = 2 or 3. This is a manifestation of **the curse of dimensionality**: the number of possible contexts grows exponentially as $V^{n-1}$ while the training text stays the same size.
+Hiện tượng số đếm bằng 0 xảy ra cực kỳ nhanh khi làm việc với các từ trích từ kho ngữ liệu huấn luyện. Với bộ từ vựng 33.000 từ, có khoảng 1,1 tỷ cặp từ khả dĩ, nhưng một văn bản huấn luyện dài 2 triệu từ thì tối đa cũng chỉ chứa được 2 triệu cặp (trong bài tập 2.1 chúng ta chỉ thu được khoảng 618.000 cặp từ phân biệt, tức vỏn vẹn 0,06%). Các tổ hợp từ chưa từng thấy đã xuất hiện dày đặc trên văn bản kiểm tra ngay từ $n = 2$ hoặc $n = 3$. Đây chính là một biểu hiện điển hình của **lời nguyền số chiều (curse of dimensionality)**: số lượng ngữ cảnh khả dĩ tăng theo hàm mũ $V^{n-1}$, trong khi kích thước văn bản huấn luyện lại giữ nguyên.
 
-<Exercise number="2.3a" title="Count the n-grams for n = 1 to 5" data="WikiText-2" nb="02-3a-ngram-counts">
+<Exercise number="2.3a" title="Đếm n-gram với n từ 1 đến 5" data="WikiText-2" nb="02-3a-ngram-counts">
 
-Extend the counts of exercise 2.1 to n = 1 to 5, with nested dictionaries keyed by the tuple of the n − 1 previous words. Generate a text with each n. Then measure, for each n, the fraction of the n-grams of the validation set never seen in training.
+Hãy mở rộng bộ đếm ở bài tập 2.1 cho $n = 1$ đến $5$, sử dụng từ điển lồng nhau có khóa (*key*) là bộ tuple gồm $n - 1$ từ đứng trước. Hãy sinh một đoạn văn bản mẫu ứng với mỗi giá trị $n$. Sau đó, với mỗi $n$, hãy đo tỷ lệ các n-gram trong tập xác thực chưa từng xuất hiện trong tập huấn luyện.
 
-The starter code builds the training sequence, with step (1) of the solution of exercise 2.1, and the validation and test sequences, as in the starter of exercise 2.2.
+Đoạn mã khởi đầu xây dựng chuỗi huấn luyện theo bước (1) trong lời giải bài tập 2.1, cùng các chuỗi xác thực và kiểm tra giống như ở bài tập 2.2.
 
 <Starter nb="02-3a-ngram-counts" />
 
@@ -252,13 +252,13 @@ The starter code builds the training sequence, with step (1) of the solution of 
 
 <Hint>
 
-For n = 1, the context is the empty tuple `()`. The counts for n = 1 to 5 take about 1.5 GB of memory.
+Với $n = 1$, ngữ cảnh là một tuple rỗng `()`. Bảng đếm cho $n = 1$ đến $5$ sẽ tiêu tốn khoảng 1,5 GB bộ nhớ RAM.
 
 </Hint>
 
 <Hint>
 
-When you generate a text, the first words have fewer than n − 1 words before them: use the counts of a smaller n for them.
+Khi sinh văn bản, những từ đầu tiên sẽ có ít hơn $n - 1$ từ đứng trước chúng: hãy dùng bảng đếm của giá trị $n$ nhỏ hơn tương ứng cho những vị trí đầu này.
 
 </Hint>
 
@@ -266,7 +266,7 @@ When you generate a text, the first words have fewer than n − 1 words before t
 
 <Checkpoint nb="02-3a-ngram-counts">
 
-The fraction of the n-grams of the validation set never seen in training grows from 0% for n = 1 (every word is in the vocabulary, thanks to `<unk>`) to 21.7% for n = 2 and 95.2% for n = 5. Your samples will differ, unless you use the same seed and the same first word.
+Tỷ lệ n-gram trong tập xác thực chưa từng xuất hiện trong tập huấn luyện tăng vọt từ 0% ở $n = 1$ (mọi từ đơn đều nằm trong từ vựng nhờ token `<unk>`) lên 21,7% ở $n = 2$ và tới 95,2% ở $n = 5$. Các đoạn văn bản mẫu sinh ra của bạn sẽ khác nhau, trừ khi bạn dùng cùng hạt giống ngẫu nhiên (*seed*) và cùng từ bắt đầu.
 
 </Checkpoint>
 
@@ -274,30 +274,30 @@ The fraction of the n-grams of the validation set never seen in training grows f
 
 <WhatToNotice>
 
-As n grows, the samples become more and more readable, and at n = 5 they almost look like real sentences. But don't be fooled: 95% of the 5-grams of the validation set never appear in training, so the 5-gram model rarely has a choice. It copies long pieces of the training text word for word (12 to 30 words in our samples), and jumps from one to another when they share 4 words. **The 5-gram model writes well because it memorizes the training text.**
+Khi $n$ tăng lên, các đoạn văn bản sinh ra ngày càng dễ đọc hơn, và đến $n = 5$ thì chúng trông gần như những câu văn thực thụ. Nhưng đừng để vẻ ngoài đó đánh lừa: 95% số 5-gram của tập xác thực chưa từng xuất hiện trong tập huấn luyện, đồng nghĩa với việc hầu hết các ngữ cảnh 4 từ trong tập huấn luyện chỉ xuất hiện đúng một lần và mô hình 5-gram hiếm khi có nhiều hơn một lựa chọn tiếp theo. Thực chất, nó đang sao chép nguyên văn từng đoạn dài từ văn bản huấn luyện (dài từ 12 đến 30 từ trong mẫu của chúng ta), và chỉ nhảy từ đoạn này sang đoạn khác khi hai đoạn tình cờ có chung một cụm 4 từ. **Mô hình 5-gram viết có vẻ hay chỉ vì nó học thuộc lòng văn bản huấn luyện.**
 
 </WhatToNotice>
 
 </Exercise>
 
-There are several options to avoid the infinite perplexity due to zero probabilities associated with the curse of dimensionality:
-    - **Smoothing:** giving unseen sequences a small non-zero probability. The simplest is *add-one smoothing* (add 1 to every count), but it works badly with words: it gives too much probability to the billions of unseen pairs.
-    - **Interpolation** works better: it mixes the n-gram estimate with the (n−1)-gram estimate, using a weight tuned on validation data. The estimate is applied step-by-step (recursively) down to the unigram, and since the unigram is non-zero for every word in the vocabulary, the mix is never zero.
-    - More sophisticated techniques have been devised since, see for instance the Kneser-Ney below, that has long been state-of-the-art.
+Có một số phương pháp giúp tránh tình trạng perplexity tiến ra vô cùng do các xác suất bằng 0 gây ra bởi lời nguyền số chiều:
+    - **Làm mượt (Smoothing):** gán cho các chuỗi chưa từng xuất hiện một xác suất nhỏ khác 0. Cách đơn giản nhất là *làm mượt cộng một (add-one smoothing / Laplace smoothing)* — cộng thêm 1 vào mọi ô đếm — nhưng cách này hoạt động rất tệ với dữ liệu từ vựng: nó san sẻ quá nhiều tổng xác suất cho hàng tỷ cặp từ chưa từng xuất hiện.
+    - **Nội suy (Interpolation)** cho kết quả tốt hơn hẳn: phương pháp này pha trộn ước lượng xác suất của n-gram với ước lượng của $(n-1)$-gram theo một trọng số được tinh chỉnh trên tập xác thực. Công thức ước lượng được áp dụng đệ quy từng bước lùi dần về đến tận unigram; và vì xác suất unigram luôn khác 0 với mọi từ trong từ vựng, xác suất pha trộn cuối cùng sẽ không bao giờ bằng 0.
+    - Nhiều kỹ thuật tinh vi hơn đã được phát triển sau đó, tiêu biểu là phương pháp Kneser-Ney dưới đây — vốn giữ ngôi vị tối tân (*state-of-the-art*) suốt một thời gian dài.
 
-<Optional title="Backoff and Kneser-Ney" subtitle="the best smoothing of the counting era">
+<Optional title="Backoff và Kneser-Ney" subtitle="kỹ thuật làm mượt tốt nhất của kỷ nguyên đếm từ">
 
-Many variants of smoothing followed, such as *backoff* [@katz1987], which falls back on the (n−1)-gram estimate only when the n-gram was never seen. The best of them, according to the large comparison of Chen and Goodman [@chen1999], is *Kneser-Ney smoothing*. Its trick is in the shorter contexts: a word gets a probability according to the number of different words it follows, rather than according to its count (think of "Francisco", frequent but almost always after "San"). It remained for years the baseline that neural language models had to beat.
+Nhiều biến thể làm mượt khác đã nối tiếp ra đời, chẳng hạn như *backoff* [@katz1987] — chỉ lùi về dùng ước lượng $(n-1)$-gram khi và chỉ khi cụm n-gram hoàn toàn chưa từng xuất hiện. Phương pháp xuất sắc nhất trong số đó, theo nghiên cứu đối chiếu quy mô lớn của Chen và Goodman [@chen1999], là *làm mượt Kneser-Ney (Kneser-Ney smoothing)*. Bí quyết của nó nằm ở cách xử lý các ngữ cảnh ngắn hơn: thay vì gán xác suất cho một từ dựa trên tổng số lần từ đó xuất hiện, Kneser-Ney gán xác suất dựa trên sự đa dạng của các từ có thể đứng ngay trước nó (hãy nghĩ đến từ "Francisco": xuất hiện rất nhiều lần trong văn bản, nhưng hầu như chỉ đi sau duy nhất từ "San"). Suốt nhiều năm trời, Kneser-Ney chính là cột mốc cơ sở (*baseline*) sừng sững mà các mô hình ngôn ngữ mạng nơ-ron phải nỗ lực vượt qua.
 
 </Optional>
 
-Smoothing deals with unseen sequences of known words. Unseen *words* are another problem, which WikiText-2 hides by replacing rare words with `<unk>`. This is our first encounter with the vocabulary problem: it comes back in section 3.2, but *tokenizers* (the topic of the next post) solve it.
+Kỹ thuật làm mượt giải quyết bài toán các *chuỗi từ mới* được ghép từ những từ đã biết. Còn bản thân các *từ mới chưa từng gặp* (*unseen words* / *out-of-vocabulary*) lại là một vấn đề khác, vốn đã được WikiText-2 che giấu đi bằng cách thay thế toàn bộ các từ hiếm bằng token `<unk>`. Đây là lần đầu tiên chúng ta chạm trán với bài toán từ vựng: vấn đề này sẽ quay lại ở mục 3.2, và các *bộ tách từ (tokenizers)* — chủ đề của bài viết tiếp theo — sẽ giải quyết triệt để nó.
 
-<Exercise number="2.3b" star title="Smooth the n-gram models" data="WikiText-2" nb="02-3b-smoothing">
+<Exercise number="2.3b" star title="Làm mượt các mô hình n-gram" data="WikiText-2" nb="02-3b-smoothing">
 
-With the counts of exercise 2.3a, compute the perplexity of the n-gram models on the validation set, for n = 1 to 5, with add-one smoothing and with interpolation. Tune the weights of the interpolation on the validation set, and plot the perplexity against n. Then compute the test perplexity of the interpolated 5-gram model.
+Với các bảng đếm từ bài tập 2.3a, hãy tính perplexity của các mô hình n-gram trên tập xác thực với $n = 1$ đến $5$, sử dụng phương pháp làm mượt cộng một (*add-one smoothing*) và phương pháp nội suy (*interpolation*). Hãy tinh chỉnh các trọng số nội suy trên tập xác thực, và vẽ biểu đồ perplexity theo $n$. Sau đó, hãy tính perplexity trên tập kiểm tra của mô hình 5-gram nội suy.
 
-The starter code builds the three sequences, as in exercises 2.1 and 2.2, then the counts for n = 1 to 5 with step (1) of the solution of exercise 2.3a: `counts[n][context][word]`.
+Đoạn mã khởi đầu xây dựng ba chuỗi văn bản như ở bài tập 2.1 và 2.2, sau đó tạo các bảng đếm cho $n = 1$ đến $5$ theo bước (1) trong lời giải bài tập 2.3a: `counts[n][context][word]`.
 
 <Starter nb="02-3b-smoothing" />
 
@@ -305,19 +305,19 @@ The starter code builds the three sequences, as in exercises 2.1 and 2.2, then t
 
 <Hint>
 
-Work with log-probabilities, as in exercise 2.2. Many n-grams of the validation set are not in the counts: look them up with `.get`, which returns a default value for a missing key. With add-one smoothing, the count of every possible n-gram grows by 1, so the count of each context grows by V, the size of the vocabulary.
+Hãy tính toán với log-xác suất giống như ở bài tập 2.2. Rất nhiều n-gram trong tập xác thực không nằm trong từ điển đếm: hãy tra cứu chúng bằng phương thức `.get()` để trả về giá trị mặc định khi khóa không tồn tại. Với làm mượt cộng một, số đếm của mọi n-gram khả dĩ đều tăng thêm 1, do đó tổng số đếm ở mẫu số của mỗi ngữ cảnh sẽ tăng thêm một lượng bằng đúng $V$ (kích thước bộ từ vựng).
 
 </Hint>
 
 <Hint>
 
-For interpolation, start with two orders and a single weight $\lambda$: $q(w \mid a) = \lambda \, p_2(w \mid a) + (1 - \lambda) \, p_1(w)$, where $p_2$ and $p_1$ are the probabilities from the bigram and unigram counts. Tune $\lambda$ by a grid search on the validation set. Then add the orders one at a time, each with its own weight. When a context was never seen in training, skip its order.
+Đối với phương pháp nội suy, hãy bắt đầu với hai bậc và một trọng số duy nhất $\lambda$: $q(w \mid a) = \lambda \, p_2(w \mid a) + (1 - \lambda) \, p_1(w)$, trong đó $p_2$ và $p_1$ là xác suất tính từ bảng đếm bigram và unigram. Tinh chỉnh $\lambda$ bằng cách tìm kiếm lưới (*grid search*) trên tập xác thực. Sau đó, lần lượt thêm từng bậc cao hơn vào, mỗi bậc đi kèm một trọng số riêng. Khi gặp một ngữ cảnh chưa từng xuất hiện trong tập huấn luyện, hãy bỏ qua bậc tương ứng của ngữ cảnh đó.
 
 </Hint>
 
 <Hint>
 
-To try many weights quickly, compute once, for each word of the validation set and each n, the count of the n-gram that ends with this word and the count of its context. The perplexity for given weights is then a few operations on arrays.
+Để thử nghiệm nhanh nhiều bộ trọng số, với mỗi từ trong tập xác thực và mỗi giá trị $n$, hãy tính sẵn một lần số đếm của cụm n-gram kết thúc bằng từ đó cùng tổng số đếm của ngữ cảnh đứng trước nó. Khi đó, việc tính perplexity cho một bộ trọng số bất kỳ chỉ còn là vài phép tính mảng vector đơn giản.
 
 </Hint>
 
@@ -325,7 +325,7 @@ To try many weights quickly, compute once, for each word of the validation set a
 
 <Checkpoint nb="02-3b-smoothing">
 
-With add-one smoothing, the validation perplexity grows with n, from 999.1 for n = 1 to 31,024.1 for n = 5. With interpolation, it goes down from 996.5 for n = 1 to 296.2 for n = 5, and the interpolated 5-gram model has a test perplexity of 277.7. The charts below show all the values.
+Với làm mượt cộng một, perplexity trên tập xác thực lại tăng vọt theo $n$, từ 999,1 ở $n = 1$ lên tới 31.024,1 ở $n = 5$. Ngược lại, với phương pháp nội suy, perplexity giảm mạnh từ 996,5 ở $n = 1$ xuống còn 296,2 ở $n = 5$, và mô hình 5-gram nội suy đạt perplexity trên tập kiểm tra là 277,7. Biểu đồ trong lời giải thể hiện đầy đủ tất cả các giá trị này.
 
 </Checkpoint>
 
@@ -333,40 +333,40 @@ With add-one smoothing, the validation perplexity grows with n, from 999.1 for n
 
 <WhatToNotice>
 
-Add-one smoothing is a disaster: with n = 5, its perplexity is 31,024, barely better than a uniform guess over the 33,277 words! Interpolation does much better, but look at the chart: almost all the gain comes from n = 2, and going from n = 2 to n = 5 only takes the perplexity from 346 to 296. The tuned weights say the same thing: 0.68 for the bigrams, but only 0.09 for the 5-grams. **Longer contexts should help a lot, yet with counts we can hardly use them.**
+Làm mượt cộng một thực sự là một thảm họa: ở $n = 5$, perplexity của nó lên tới 31.024, hầu như chẳng khá hơn việc đoán mò đồng đều trên toàn bộ 33.277 từ! Phương pháp nội suy hoạt động tốt hơn nhiều, nhưng hãy nhìn vào biểu đồ: gần như toàn bộ mức cải thiện đều đến từ bước nhảy $n = 2$, còn việc tăng từ $n = 2$ lên $n = 5$ chỉ giúp giảm perplexity từ 346 xuống 296. Các trọng số sau khi tinh chỉnh cũng phản ánh đúng điều đó: trọng số dành cho bigram là 0,68, nhưng trọng số dành cho 5-gram chỉ vỏn vẹn 0,09. **Ngữ cảnh dài hơn đáng lẽ phải giúp ích rất nhiều, nhưng với phương pháp đếm thuần túy, chúng ta hầu như không thể khai thác được chúng.**
 
 </WhatToNotice>
 
 </Exercise>
 
-If you want to dig deeper, below are a few bonus exercises.
+Nếu bạn muốn đào sâu hơn, dưới đây là một số bài tập mở rộng.
 
 <Bonus>
 
-**Kneser-Ney smoothing.** Implement it, and compare it with interpolation. How close does it get to the neural models of the next sections? For reference, a Kneser-Ney 5-gram reaches a test perplexity of 219 on WikiText-2 [@herel2023].
+**Làm mượt Kneser-Ney.** Hãy tự cài đặt thuật toán này và so sánh nó với phương pháp nội suy. Kết quả của nó tiến gần đến mức nào so với các mô hình mạng nơ-ron ở các phần tiếp theo? Để tham khảo, một mô hình 5-gram Kneser-Ney đạt perplexity trên tập kiểm tra là 219 trên bộ dữ liệu WikiText-2 [@herel2023].
 
 </Bonus>
 
 <Bonus>
 
-**Characters instead of words.** Train character n-gram models on TinyShakespeare (`jchwenger/tiny_shakespeare`, loaded with `sample_by="document"`), for n = 1 to 10. At which n do unseen n-grams appear? At which n do the samples become readable? Their perplexity cannot be compared with that of the word models, because the unit is not the same (see the box in section 7.3).
+**Ký tự thay vì từ.** Hãy huấn luyện các mô hình n-gram cấp độ ký tự trên tập dữ liệu TinyShakespeare (`jchwenger/tiny_shakespeare`, nạp với tham số `sample_by="document"`), với $n = 1$ đến $10$. Ở giá trị $n$ nào thì các n-gram chưa từng thấy bắt đầu xuất hiện? Ở giá trị $n$ nào thì văn bản sinh ra bắt đầu đọc được? Lưu ý rằng không thể so sánh trực tiếp perplexity của chúng với perplexity của mô hình cấp độ từ, vì đơn vị đo lường cơ sở không giống nhau (xem khung giải thích ở mục 7.3).
 
 </Bonus>
 
 <Bonus>
 
-**Albert or Alfred?** Score "General relativity was formulated by Albert Einstein" and "General relativity was formulated by Alfred Einstein" with your models (the example of section 1.2). Which n is needed to prefer Albert?
+**Albert hay Alfred?** Hãy dùng các mô hình bạn vừa xây dựng để chấm điểm hai câu "General relativity was formulated by Albert Einstein" và "General relativity was formulated by Alfred Einstein" (ví dụ ở mục 1.2). Cần đến bậc $n$ bằng bao nhiêu để mô hình ưu tiên chọn Albert?
 
 </Bonus>
 
 <Bonus>
 
-**Word order.** Compare the perplexity of a few sentences with that of the same sentences, with their words shuffled.
+**Trật tự từ.** Hãy so sánh perplexity của một vài câu văn bình thường với chính những câu văn đó sau khi đã xáo trộn ngẫu nhiên thứ tự các từ.
 
 </Bonus>
 
 <Bonus>
 
-**Memory.** How many distinct n-grams does the model store, for each n?
+**Bộ nhớ.** Với mỗi giá trị $n$, mô hình phải lưu trữ bao nhiêu n-gram phân biệt trong bộ nhớ?
 
 </Bonus>

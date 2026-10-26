@@ -1,0 +1,549 @@
+<div class="d3-ch7-constrained-json"></div>
+<style>
+  .d3-ch7-constrained-json {
+    font-size: 12.5px;
+    color: var(--text-color);
+    margin: 12px 0;
+  }
+  .d3-ch7-constrained-json .cj-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 14px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-bg);
+    margin-bottom: 12px;
+  }
+  .d3-ch7-constrained-json .cj-btns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .d3-ch7-constrained-json button,
+  .d3-ch7-constrained-json label {
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .d3-ch7-constrained-json button {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+  }
+  .d3-ch7-constrained-json button.primary {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+    font-weight: 600;
+  }
+  .d3-ch7-constrained-json .cj-buffer {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13.5px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    margin-bottom: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px;
+  }
+  .d3-ch7-constrained-json .cj-tok {
+    padding: 2px 5px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .d3-ch7-constrained-json .cj-tok.done {
+    background: color-mix(in oklab, var(--primary-color) 14%, transparent);
+    border-color: color-mix(in oklab, var(--primary-color) 40%, transparent);
+  }
+  .d3-ch7-constrained-json .cj-tok.current {
+    background: var(--primary-color);
+    color: #fff;
+    font-weight: 700;
+  }
+  .d3-ch7-constrained-json .cj-tok.future {
+    opacity: 0.32;
+  }
+  .d3-ch7-constrained-json svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto 10px;
+    overflow: visible;
+  }
+  .d3-ch7-constrained-json .cj-table {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 680px) {
+    .d3-ch7-constrained-json .cj-table {
+      grid-template-columns: 1fr;
+    }
+  }
+  .d3-ch7-constrained-json .cj-panel {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--surface-bg);
+  }
+  .d3-ch7-constrained-json .cj-panel-title {
+    font-weight: 700;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+  .d3-ch7-constrained-json .cj-row {
+    display: grid;
+    grid-template-columns: 95px 1fr 110px;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    border-top: 1px solid color-mix(in oklab, var(--border-color) 60%, transparent);
+    font-size: 12px;
+  }
+  .d3-ch7-constrained-json .cj-row:first-of-type {
+    border-top: none;
+  }
+  .d3-ch7-constrained-json .cj-cand {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 600;
+  }
+  .d3-ch7-constrained-json .cj-bar-wrap {
+    height: 8px;
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--text-color) 9%, transparent);
+    overflow: hidden;
+  }
+  .d3-ch7-constrained-json .cj-bar {
+    height: 100%;
+    transition: width 0.2s ease;
+  }
+  .d3-ch7-constrained-json .cj-val {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 11.5px;
+  }
+</style>
+<script>
+  (() => {
+    const STEPS = [
+      {
+        token: '{"',
+        state: 'S0',
+        stateDesc: 'Bắt đầu đối tượng JSON: Chỉ cho phép mở ngoặc nhọn `{` hoặc `{"`',
+        rule: 'Regex trạng thái S0: /^\\{"?$/',
+        candidates: [
+          { tok: 'Sure! ', logit: 4.2, valid: false, reason: 'Văn bản tán gẫu ngoài JSON' },
+          { tok: '{"', logit: 3.6, valid: true, reason: 'Mở đối tượng JSON hợp lệ' },
+          { tok: '```json', logit: 2.9, valid: false, reason: 'Markdown fence vi phạm JSON thuần' },
+          { tok: '{', logit: 2.1, valid: true, reason: 'Mở ngoặc nhọn hợp lệ' },
+          { tok: 'tool:', logit: 1.0, valid: false, reason: 'Thiếu dấu mở ngoặc {' },
+        ],
+      },
+      {
+        token: 'tool',
+        state: 'S1',
+        stateDesc: 'Tên trường thứ nhất: Lược đồ bắt buộc khóa `"tool"`',
+        rule: 'Schema Key #1: "tool"',
+        candidates: [
+          { tok: 'function', logit: 3.9, valid: false, reason: 'Sai tên khóa trong lược đồ' },
+          { tok: 'tool', logit: 3.7, valid: true, reason: 'Khớp khóa bắt buộc "tool"' },
+          { tok: 'name', logit: 2.8, valid: false, reason: 'Sai tên khóa trong lược đồ' },
+          { tok: 'cmd', logit: 1.5, valid: false, reason: 'Sai tên khóa trong lược đồ' },
+          { tok: 'action', logit: 1.2, valid: false, reason: 'Sai tên khóa trong lược đồ' },
+        ],
+      },
+      {
+        token: '": "',
+        state: 'S2',
+        stateDesc: 'Dấu phân cách khóa – giá trị: Phải là `": "`',
+        rule: 'Cú pháp JSON: ":" theo sau bởi "\""',
+        candidates: [
+          { tok: '": "', logit: 4.5, valid: true, reason: 'Đúng dấu phân cách chuỗi' },
+          { tok: ' = "', logit: 2.0, valid: false, reason: 'Cú pháp Python, không phải JSON' },
+          { tok: '": ', logit: 2.4, valid: true, reason: 'Đúng dấu hai chấm' },
+          { tok: '\': \'', logit: 1.4, valid: false, reason: 'JSON cấm dùng dấu nháy đơn' },
+          { tok: '":', logit: 1.8, valid: true, reason: 'Đúng dấu hai chấm' },
+        ],
+      },
+      {
+        token: 'calc',
+        state: 'S3',
+        stateDesc: 'Giá trị Enum của `"tool"`: Chỉ thuộc tập `{"calc", "search"}`',
+        rule: 'Enum constraint: "calc" | "search"',
+        candidates: [
+          { tok: 'python_eval', logit: 4.1, valid: false, reason: 'Tên hàm ảo giác không tồn tại' },
+          { tok: 'calc', logit: 3.8, valid: true, reason: 'Thuộc tập công cụ cho phép' },
+          { tok: 'calculator', logit: 3.2, valid: false, reason: 'Không khớp chính xác Enum' },
+          { tok: 'search', logit: 1.9, valid: true, reason: 'Thuộc tập công cụ cho phép' },
+          { tok: 'wolfram', logit: 1.1, valid: false, reason: 'Không thuộc danh sách công cụ' },
+        ],
+      },
+      {
+        token: '", "expr": "',
+        state: 'S4',
+        stateDesc: 'Chuyển sang trường thứ hai: Khóa bắt buộc `"expr"`',
+        rule: 'Schema Key #2: ", \\"expr\\": \\""',
+        candidates: [
+          { tok: '", "expr": "', logit: 4.0, valid: true, reason: 'Đúng khóa tiếp theo của Schema' },
+          { tok: '"}', logit: 3.5, valid: false, reason: 'Đóng sớm khi thiếu trường bắt buộc "expr"' },
+          { tok: '", "code": "', logit: 2.7, valid: false, reason: 'Sai tên tham số ("code" ≠ "expr")' },
+          { tok: '", ', logit: 2.1, valid: true, reason: 'Tiền tố hợp lệ dẫn tới "expr"' },
+          { tok: ', expr:', logit: 0.9, valid: false, reason: 'Thiếu dấu ngoặc kép quanh khóa' },
+        ],
+      },
+      {
+        token: '(14*8)+5',
+        state: 'S5',
+        stateDesc: 'Nội dung biểu thức số học: Chỉ nhận ký tự toán học `[0-9+\\-*/().]+`',
+        rule: 'Regex tham số: /^[0-9+\\-*/().]+$/',
+        candidates: [
+          { tok: '(14*8)+5', logit: 4.3, valid: true, reason: 'Biểu thức số học hợp lệ' },
+          { tok: '14 * 8 + 5 = 117', logit: 3.4, valid: false, reason: 'Chứa dấu "=" không hợp lệ' },
+          { tok: '14*8', logit: 2.6, valid: true, reason: 'Biểu thức con hợp lệ' },
+          { tok: '__import__("os")', logit: 0.5, valid: false, reason: 'Chứa chữ cái bị cấm bởi Regex số học' },
+          { tok: 'None', logit: 0.3, valid: false, reason: 'Không khớp mẫu số học' },
+        ],
+      },
+      {
+        token: '"}',
+        state: 'S6',
+        stateDesc: 'Kết thúc đối tượng JSON: Đóng chuỗi và đóng ngoặc nhọn `"}"`',
+        rule: 'Trạng thái kết thúc (Accept State): `"}"`',
+        candidates: [
+          { tok: '"}', logit: 4.6, valid: true, reason: 'Đóng đối tượng JSON hoàn chỉnh' },
+          { tok: '", // xong', logit: 2.5, valid: false, reason: 'JSON chuẩn không cho phép chú thích //' },
+          { tok: '",}', logit: 2.1, valid: false, reason: 'JSON cấm dấu phẩy thừa (trailing comma)' },
+          { tok: '"', logit: 1.9, valid: true, reason: 'Đóng chuỗi trước khi đóng ngoặc }' },
+          { tok: '}\\nHope this helps!', logit: 3.0, valid: false, reason: 'Sinh thừa văn bản sau JSON' },
+        ],
+      },
+    ];
+
+    const STATES = [
+      { id: 'S0', label: 'S0: Mở {', x: 58, y: 42 },
+      { id: 'S1', label: 'S1: Khóa "tool"', x: 168, y: 42 },
+      { id: 'S2', label: 'S2: Dấu ":"', x: 278, y: 42 },
+      { id: 'S3', label: 'S3: Enum', x: 388, y: 42 },
+      { id: 'S4', label: 'S4: Khóa "expr"', x: 498, y: 42 },
+      { id: 'S5', label: 'S5: Biểu thức', x: 608, y: 42 },
+      { id: 'S6', label: 'S6: Đóng "}', x: 708, y: 42 },
+    ];
+
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch7-constrained-json'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch7-constrained-json'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let stepIdx = 0;
+        let maskEnabled = true;
+
+        let cValid = '#59a14f';
+        let cInvalid = '#e15759';
+        let cAccent = '#4e79a7';
+
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) {
+                cAccent = cat[0];
+                cValid = cat[2];
+                cInvalid = cat[3];
+              }
+            }
+          } catch (_) {}
+        };
+        readPalette();
+
+        const top = document.createElement('div');
+        top.className = 'cj-top';
+
+        const btns = document.createElement('div');
+        btns.className = 'cj-btns';
+
+        const btnPrev = document.createElement('button');
+        btnPrev.type = 'button';
+        btnPrev.textContent = '← Token trước';
+
+        const btnNext = document.createElement('button');
+        btnNext.type = 'button';
+        btnNext.className = 'primary';
+        btnNext.textContent = 'Token tiếp →';
+
+        const maskToggleLabel = document.createElement('label');
+        maskToggleLabel.style.display = 'inline-flex';
+        maskToggleLabel.style.alignItems = 'center';
+        maskToggleLabel.style.gap = '6px';
+        maskToggleLabel.style.marginLeft = '8px';
+        maskToggleLabel.style.fontWeight = '600';
+        const maskCheck = document.createElement('input');
+        maskCheck.type = 'checkbox';
+        maskCheck.checked = maskEnabled;
+        const maskText = document.createElement('span');
+        maskText.textContent = 'Bật Mặt nạ Văn phạm FSM (Logit Mask = −∞ cho token sai cú pháp)';
+        maskToggleLabel.append(maskCheck, maskText);
+
+        btns.append(btnPrev, btnNext, maskToggleLabel);
+        top.appendChild(btns);
+
+        const buffer = document.createElement('div');
+        buffer.className = 'cj-buffer';
+
+        const svgWrap = document.createElement('div');
+        const table = document.createElement('div');
+        table.className = 'cj-table';
+
+        container.append(top, buffer, svgWrap, table);
+
+        const W = 760, H = 92;
+        const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+        svg.append('defs').append('marker')
+          .attr('id', 'cj-arrow')
+          .attr('viewBox', '0 0 10 10')
+          .attr('refX', 8)
+          .attr('refY', 5)
+          .attr('markerWidth', 5)
+          .attr('markerHeight', 5)
+          .attr('orient', 'auto')
+          .append('path')
+          .attr('d', 'M0,1 L9,5 L0,9 z')
+          .attr('fill', 'var(--muted-color)');
+
+        for (let i = 0; i < STATES.length - 1; i++) {
+          svg.append('line')
+            .attr('x1', STATES[i].x + 44)
+            .attr('y1', STATES[i].y)
+            .attr('x2', STATES[i + 1].x - 44)
+            .attr('y2', STATES[i + 1].y)
+            .attr('stroke', 'var(--muted-color)')
+            .attr('stroke-width', 1.4)
+            .attr('marker-end', 'url(#cj-arrow)');
+        }
+
+        const stateNodes = svg.selectAll('g.cj-state')
+          .data(STATES)
+          .enter()
+          .append('g')
+          .attr('class', 'cj-state')
+          .style('cursor', 'pointer')
+          .on('click', (_, d) => {
+            const idx = STATES.findIndex((s) => s.id === d.id);
+            if (idx >= 0) {
+              stepIdx = idx;
+              render();
+            }
+          });
+
+        stateNodes.append('rect')
+          .attr('x', (d) => d.x - 42)
+          .attr('y', (d) => d.y - 18)
+          .attr('width', 84)
+          .attr('height', 36)
+          .attr('rx', 7)
+          .attr('fill', 'var(--surface-bg)')
+          .attr('stroke', 'var(--border-color)')
+          .attr('stroke-width', 1.5);
+
+        stateNodes.append('text')
+          .attr('x', (d) => d.x)
+          .attr('y', (d) => d.y + 4)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10.5)
+          .attr('font-weight', 700)
+          .attr('fill', 'var(--text-color)')
+          .text((d) => d.label);
+
+        const stateBanner = svg.append('text')
+          .attr('x', W / 2)
+          .attr('y', 82)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 11.5)
+          .attr('fill', 'var(--text-color)');
+
+        const softmax = (logits) => {
+          const finite = logits.filter((x) => Number.isFinite(x));
+          if (!finite.length) return logits.map(() => 0);
+          const m = Math.max(...finite);
+          const exps = logits.map((x) => (Number.isFinite(x) ? Math.exp(x - m) : 0));
+          const z = exps.reduce((a, b) => a + b, 0);
+          return exps.map((e) => (z > 0 ? e / z : 0));
+        };
+
+        const render = () => {
+          readPalette();
+          const st = STEPS[stepIdx];
+
+          buffer.innerHTML = '<span style="font-size:11px;color:var(--muted-color);margin-right:6px;">Chuỗi JSON đang sinh:</span>';
+          STEPS.forEach((s, idx) => {
+            const span = document.createElement('span');
+            span.className = 'cj-tok ' + (idx < stepIdx ? 'done' : idx === stepIdx ? 'current' : 'future');
+            span.textContent = s.token;
+            span.title = `Bước ${idx + 1}: ${s.state}`;
+            span.addEventListener('click', () => {
+              stepIdx = idx;
+              render();
+            });
+            buffer.appendChild(span);
+          });
+
+          stateNodes.select('rect')
+            .attr('stroke', (d, i) => (i === stepIdx ? cAccent : i < stepIdx ? cValid : 'var(--border-color)'))
+            .attr('stroke-width', (d, i) => (i === stepIdx ? 2.5 : 1.4))
+            .attr('fill', (d, i) =>
+              i === stepIdx
+                ? `color-mix(in oklab, ${cAccent} 18%, var(--surface-bg))`
+                : i < stepIdx
+                  ? `color-mix(in oklab, ${cValid} 10%, var(--surface-bg))`
+                  : 'var(--surface-bg)'
+            );
+
+          stateBanner.text(`${st.stateDesc}  ·  [${st.rule}]`);
+
+          const rawLogits = st.candidates.map((c) => c.logit);
+          const rawProbs = softmax(rawLogits);
+
+          const maskedLogits = st.candidates.map((c) => (maskEnabled && !c.valid ? -Infinity : c.logit));
+          const maskedProbs = softmax(maskedLogits);
+
+          table.innerHTML = '';
+
+          // Left panel: Unmasked
+          const pLeft = document.createElement('div');
+          pLeft.className = 'cj-panel';
+          const tLeft = document.createElement('div');
+          tLeft.className = 'cj-panel-title';
+          tLeft.textContent = '1. Đầu ra LLM gốc (Chưa áp dụng mặt nạ FSM)';
+          pLeft.appendChild(tLeft);
+
+          st.candidates.forEach((c, i) => {
+            const row = document.createElement('div');
+            row.className = 'cj-row';
+            const cand = document.createElement('span');
+            cand.className = 'cj-cand';
+            cand.style.color = c.valid ? cValid : cInvalid;
+            cand.textContent = JSON.stringify(c.tok);
+
+            const bw = document.createElement('div');
+            bw.className = 'cj-bar-wrap';
+            const b = document.createElement('div');
+            b.className = 'cj-bar';
+            b.style.width = `${Math.round(rawProbs[i] * 100)}%`;
+            b.style.background = c.valid ? cValid : cInvalid;
+            bw.appendChild(b);
+
+            const val = document.createElement('span');
+            val.className = 'cj-val';
+            val.textContent = `z=${c.logit.toFixed(1)} (${(rawProbs[i] * 100).toFixed(1)}%)`;
+
+            row.append(cand, bw, val);
+            pLeft.appendChild(row);
+          });
+
+          // Right panel: Masked
+          const pRight = document.createElement('div');
+          pRight.className = 'cj-panel';
+          const tRight = document.createElement('div');
+          tRight.className = 'cj-panel-title';
+          tRight.textContent = maskEnabled
+            ? '2. Sau khi áp mặt nạ Grammar Mask (z_invalid = −∞ → P = 0%)'
+            : '2. Đang TẮT mặt nạ (Rủi ro cao chọn phải token làm hỏng JSON!)';
+          pRight.appendChild(tRight);
+
+          st.candidates.forEach((c, i) => {
+            const row = document.createElement('div');
+            row.className = 'cj-row';
+            const cand = document.createElement('span');
+            cand.className = 'cj-cand';
+            const isBlocked = maskEnabled && !c.valid;
+            cand.style.color = isBlocked ? 'var(--muted-color)' : c.valid ? cValid : cInvalid;
+            if (isBlocked) cand.style.textDecoration = 'line-through';
+            cand.textContent = JSON.stringify(c.tok);
+            cand.title = c.reason;
+
+            const bw = document.createElement('div');
+            bw.className = 'cj-bar-wrap';
+            const b = document.createElement('div');
+            b.className = 'cj-bar';
+            b.style.width = `${Math.round(maskedProbs[i] * 100)}%`;
+            b.style.background = c.valid ? cValid : cInvalid;
+            bw.appendChild(b);
+
+            const val = document.createElement('span');
+            val.className = 'cj-val';
+            val.textContent = isBlocked
+              ? 'z = −∞ (0.0%)'
+              : `P = ${(maskedProbs[i] * 100).toFixed(1)}%`;
+
+            row.append(cand, bw, val);
+            pRight.appendChild(row);
+          });
+
+          table.append(pLeft, pRight);
+
+          btnPrev.disabled = stepIdx <= 0;
+          btnNext.disabled = stepIdx >= STEPS.length - 1;
+        };
+
+        btnPrev.addEventListener('click', () => {
+          if (stepIdx > 0) {
+            stepIdx--;
+            render();
+          }
+        });
+        btnNext.addEventListener('click', () => {
+          if (stepIdx < STEPS.length - 1) {
+            stepIdx++;
+            render();
+          }
+        });
+        maskCheck.addEventListener('change', () => {
+          maskEnabled = maskCheck.checked;
+          render();
+        });
+
+        render();
+        document.addEventListener('palettes:updated', render);
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

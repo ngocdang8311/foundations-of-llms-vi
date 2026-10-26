@@ -1,0 +1,22 @@
+export const cells = 1;
+
+```python
+import math
+
+# Hệ số thực nghiệm của phương trình tham số hóa Chinchilla
+# L(N, D) = E + A * N^(-alpha) + B * D^(-beta)
+E = 1.693
+A, alpha = 406.4, 0.34
+B, beta = 410.7, 0.28
+
+# Ngân sách tính toán của Gopher & Chinchilla: C = 5.76e23 FLOPs
+C_budget = 5.76e23
+
+def chinchilla_loss(N, D):
+    return E + A * (N ** -alpha) + B * (D ** -beta)
+
+print(f"Loss dự đoán cho Gopher (280B, 300B tokens): "
+      f"{chinchilla_loss(280e9, 300e9):.4f}")
+```
+
+<section className="code-output"><pre>{"Loss dự đoán cho Gopher (280B, 300B tokens): 2.0046"}</pre></section>

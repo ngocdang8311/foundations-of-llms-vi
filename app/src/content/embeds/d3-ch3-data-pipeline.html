@@ -1,0 +1,368 @@
+<div class="d3-ch3-data-pipeline"></div>
+<style>
+  .d3-ch3-data-pipeline {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch3-data-pipeline svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 750px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch3-data-pipeline .stage-group {
+    cursor: pointer;
+    outline: none;
+  }
+  .d3-ch3-data-pipeline .stage-group:hover .funnel-poly {
+    filter: brightness(1.08);
+  }
+  .d3-ch3-data-pipeline .inspector {
+    margin-top: 12px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 14px;
+    align-items: start;
+  }
+  .d3-ch3-data-pipeline .insp-title {
+    font-weight: 800;
+    font-size: 13.5px;
+    margin-bottom: 4px;
+  }
+  .d3-ch3-data-pipeline .insp-desc {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-color);
+    margin-bottom: 6px;
+  }
+  .d3-ch3-data-pipeline .insp-sample {
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--surface-bg);
+    border: 1px dashed var(--border-color);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--muted-color);
+  }
+  .d3-ch3-data-pipeline .insp-sample strong {
+    color: var(--text-color);
+    display: block;
+    margin-bottom: 3px;
+  }
+  @media (max-width: 640px) {
+    .d3-ch3-data-pipeline .inspector {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch3-data-pipeline'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch3-data-pipeline'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      const STAGES = [
+        {
+          step: 0,
+          name: '0. Dữ liệu Web thô (CommonCrawl WARC)',
+          short: 'CommonCrawl thô',
+          pct: 100.0,
+          score: 32.4,
+          arc: 29.5,
+          mmlu: 35.3,
+          desc: '96 bản chụp CommonCrawl (2013–2024) chứa hàng trăm tỷ trang HTML thô, đầy mã quảng cáo, spam SEO và các bản sao trùng lặp.',
+          removed: 'Chưa lọc: <div>Home | Login | Buy Cheap Viagra Now! Click here...</div>'
+        },
+        {
+          step: 1,
+          name: '1. Lọc URL & Danh sách chặn tên miền (Blocklist)',
+          short: '1. Lọc URL',
+          pct: 92.0,
+          score: 33.1,
+          arc: 30.2,
+          mmlu: 36.0,
+          desc: 'Loại bỏ ngay các URL thuộc tên miền đen (nội dung người lớn, cờ bạc, trang tự sinh spam) trước khi tốn CPU xử lý văn bản.',
+          removed: 'Bị loại: http://free-casino-seo-spam.biz/item?id=99812'
+        },
+        {
+          step: 2,
+          name: '2. Trích xuất văn bản sạch từ HTML (trafilatura)',
+          short: '2. Tách HTML',
+          pct: 76.0,
+          score: 35.2,
+          arc: 32.6,
+          mmlu: 37.8,
+          desc: 'Dùng trình phân tích DOM trafilatura để chỉ lấy phần nội dung bài viết chính, cắt bỏ menu điều hướng, header/footer và mã kịch bản.',
+          removed: 'Bị loại: "Menu > Sản phẩm > Giỏ hàng (0) | Bản quyền © 2023 Bảo lưu mọi quyền"'
+        },
+        {
+          step: 3,
+          name: '3. Phân loại ngôn ngữ (fastText ≥ 0.65)',
+          short: '3. Lọc ngôn ngữ',
+          pct: 38.0,
+          score: 36.8,
+          arc: 34.4,
+          mmlu: 39.2,
+          desc: 'Sử dụng bộ phân loại fastText 176 ngôn ngữ để giữ lại văn bản thuộc ngôn ngữ mục tiêu với xác suất tin cậy từ 0.65 trở lên.',
+          removed: 'Bị loại: Các trang hỗn tạp đa ngôn ngữ hoặc chuỗi ký tự mã hóa lỗi Mojibake.'
+        },
+        {
+          step: 4,
+          name: '4. Bộ quy tắc chất lượng Gopher (Quality Heuristics)',
+          short: '4. Luật Gopher',
+          pct: 26.5,
+          score: 38.4,
+          arc: 36.3,
+          mmlu: 40.5,
+          desc: 'Loại bỏ tài liệu có độ dài từ trung bình bất thường (< 3 hoặc > 10 ký tự), quá nhiều ký tự "#" / "...", hoặc lặp lại câu quá 30%.',
+          removed: 'Bị loại: "#tag1 #tag2 #tag3 ... Mua ngay! Mua ngay! Mua ngay! Mua ngay!"'
+        },
+        {
+          step: 5,
+          name: '5. Khử trùng lặp mờ MinHash LSH (5-gram)',
+          short: '5. MinHash Dedup',
+          pct: 8.2,
+          score: 41.6,
+          arc: 40.1,
+          mmlu: 43.1,
+          desc: 'Băm từng văn bản thành chữ ký MinHash 112 chiều trên các cụm 5 từ (5-grams), gom nhóm LSH 14 dải để xóa các bài viết gần giống nhau.',
+          removed: 'Bị loại: ~70% văn bản còn lại (thông cáo báo chí đăng lại trên hàng nghìn trang tin).'
+        },
+        {
+          step: 6,
+          name: '6. Bộ lọc tinh chỉnh C4 & FineWeb Custom Filters',
+          short: '6. Lọc tinh FineWeb',
+          pct: 5.6,
+          score: 43.9,
+          arc: 42.8,
+          mmlu: 45.0,
+          desc: 'Loại bỏ văn bản chứa "lorem ipsum", "{javascript}", hoặc có tỷ lệ dòng kết thúc bằng dấu chấm câu quá thấp. Thu được 15 nghìn tỷ token sạch!',
+          removed: 'Bị loại: "Lorem ipsum dolor sit amet... function(){ document.cookie = ... }"'
+        }
+      ];
+
+      let activeIdx = 5;
+
+      const W = 750, H = 290;
+      const svg = d3.select(container).append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Sơ đồ phễu lọc dữ liệu FineWeb và mức tăng điểm đánh giá');
+
+      const inspector = document.createElement('div');
+      inspector.className = 'inspector';
+      const inspLeft = document.createElement('div');
+      const inspTitle = document.createElement('div');
+      inspTitle.className = 'insp-title';
+      const inspDesc = document.createElement('div');
+      inspDesc.className = 'insp-desc';
+      inspLeft.append(inspTitle, inspDesc);
+
+      const inspSample = document.createElement('div');
+      inspSample.className = 'insp-sample';
+      inspector.append(inspLeft, inspSample);
+      container.appendChild(inspector);
+
+      let COL_FUNNEL = '#4e79a7', COL_SCORE = '#f28e2b', COL_MMLU = '#59a14f';
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 3);
+            if (cat && cat.length >= 3) {
+              COL_FUNNEL = cat[0];
+              COL_SCORE = cat[1];
+              COL_MMLU = cat[2];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      // Left panel: Funnel (x from 16 to 380)
+      const funnelCx = 205;
+      const maxFunnelW = 300;
+      const minFunnelW = 46;
+      const topY = 34, rowH = 34;
+
+      const widthForPct = (pct) => minFunnelW + (maxFunnelW - minFunnelW) * Math.pow(pct / 100, 0.55);
+
+      const funnelG = svg.append('g');
+      funnelG.append('text')
+        .attr('x', funnelCx).attr('y', 18)
+        .attr('text-anchor', 'middle').attr('font-weight', '700').attr('font-size', '12.5px')
+        .attr('fill', 'var(--text-color)')
+        .text('Phễu lọc dữ liệu (Tỷ lệ dữ liệu giữ lại %)');
+
+      // Right panel: Benchmark Line Chart (x from 435 to 725)
+      const chartX = 445, chartY = 36, chartW = 280, chartH = 216;
+      const chartG = svg.append('g').attr('transform', `translate(${chartX},${chartY})`);
+
+      chartG.append('text')
+        .attr('x', chartW / 2).attr('y', -18)
+        .attr('text-anchor', 'middle').attr('font-weight', '700').attr('font-size', '12.5px')
+        .attr('fill', 'var(--text-color)')
+        .text('Điểm chuẩn mô hình 1.8B (MMLU & ARC-C %)');
+
+      const xScale = d3.scaleLinear().domain([0, 6]).range([12, chartW - 12]);
+      const yScale = d3.scaleLinear().domain([28, 47]).range([chartH, 0]);
+
+      const xAxis = chartG.append('g').attr('transform', `translate(0,${chartH})`);
+      xAxis.call(d3.axisBottom(xScale).ticks(7).tickFormat((d) => `B${d}`));
+      const yAxis = chartG.append('g');
+      yAxis.call(d3.axisLeft(yScale).ticks(5).tickFormat((d) => `${d}%`));
+      chartG.selectAll('.domain, .tick line').attr('stroke', 'var(--border-color)');
+      chartG.selectAll('.tick text').attr('fill', 'var(--muted-color)').attr('font-size', '10px');
+
+      const lineMMLU = d3.line().x((d) => xScale(d.step)).y((d) => yScale(d.mmlu));
+      const lineARC = d3.line().x((d) => xScale(d.step)).y((d) => yScale(d.arc));
+
+      const pathMMLU = chartG.append('path').datum(STAGES).attr('fill', 'none').attr('stroke-width', 2.4);
+      const pathARC = chartG.append('path').datum(STAGES).attr('fill', 'none').attr('stroke-width', 2.4).attr('stroke-dasharray', '4,2');
+
+      const cursorV = chartG.append('line').attr('y1', 0).attr('y2', chartH).attr('stroke-width', 1.4).attr('stroke-dasharray', '3,3');
+      const dotsMMLU = chartG.selectAll('.dot-mmlu').data(STAGES).join('circle')
+        .attr('class', 'dot-mmlu')
+        .attr('cx', (d) => xScale(d.step))
+        .attr('cy', (d) => yScale(d.mmlu))
+        .attr('r', 4.5)
+        .style('cursor', 'pointer')
+        .on('mouseenter click', (_, d) => { activeIdx = d.step; render(); });
+
+      const dotsARC = chartG.selectAll('.dot-arc').data(STAGES).join('circle')
+        .attr('class', 'dot-arc')
+        .attr('cx', (d) => xScale(d.step))
+        .attr('cy', (d) => yScale(d.arc))
+        .attr('r', 4.5)
+        .style('cursor', 'pointer')
+        .on('mouseenter click', (_, d) => { activeIdx = d.step; render(); });
+
+      // Legend inside chart
+      const leg = chartG.append('g').attr('transform', 'translate(14, 8)');
+      const leg1Rect = leg.append('rect').attr('width', 12).attr('height', 3).attr('y', -4);
+      leg.append('text').attr('x', 17).attr('font-size', '10.5px').attr('fill', 'var(--text-color)').text('MMLU (5-shot)');
+      const leg2 = leg.append('g').attr('transform', 'translate(0, 15)');
+      const leg2Rect = leg2.append('rect').attr('width', 12).attr('height', 3).attr('y', -4);
+      leg2.append('text').attr('x', 17).attr('font-size', '10.5px').attr('fill', 'var(--text-color)').text('ARC-Challenge');
+
+      const stageGroups = STAGES.map((st, i) => {
+        const g = funnelG.append('g')
+          .attr('class', 'stage-group')
+          .attr('tabindex', 0)
+          .on('mouseenter focus click', () => {
+            activeIdx = i;
+            render();
+          });
+
+        const y0 = topY + i * rowH;
+        const y1 = y0 + rowH - 3;
+        const w0 = widthForPct(i === 0 ? 100 : STAGES[i - 1].pct);
+        const w1 = widthForPct(st.pct);
+
+        const pts = [
+          [funnelCx - w0 / 2, y0],
+          [funnelCx + w0 / 2, y0],
+          [funnelCx + w1 / 2, y1],
+          [funnelCx - w1 / 2, y1]
+        ].map((p) => p.join(',')).join(' ');
+
+        const poly = g.append('polygon')
+          .attr('class', 'funnel-poly')
+          .attr('points', pts)
+          .attr('stroke-width', 1.4);
+
+        const label = g.append('text')
+          .attr('x', funnelCx)
+          .attr('y', (y0 + y1) / 2)
+          .attr('dy', '0.35em')
+          .attr('text-anchor', 'middle')
+          .attr('font-size', '11px')
+          .attr('font-weight', '700')
+          .attr('fill', 'var(--text-color)')
+          .text(`${st.short} (${st.pct}%)`);
+
+        return { g, poly, label, st };
+      });
+
+      const render = () => {
+        stageGroups.forEach(({ poly, label, st }, i) => {
+          const isAct = i === activeIdx;
+          const alpha = Math.round(18 + 42 * (i / 6));
+          poly
+            .attr('fill', isAct
+              ? `color-mix(in oklab, ${COL_SCORE} 42%, var(--surface-bg))`
+              : `color-mix(in oklab, ${COL_FUNNEL} ${alpha}%, var(--surface-bg))`)
+            .attr('stroke', isAct ? COL_SCORE : COL_FUNNEL)
+            .attr('stroke-width', isAct ? 2.2 : 1.1);
+          label.attr('font-weight', isAct ? '800' : '600');
+        });
+
+        pathMMLU.attr('d', lineMMLU).attr('stroke', COL_MMLU);
+        pathARC.attr('d', lineARC).attr('stroke', COL_SCORE);
+        leg1Rect.attr('fill', COL_MMLU);
+        leg2Rect.attr('fill', COL_SCORE);
+
+        const cx = xScale(activeIdx);
+        cursorV.attr('x1', cx).attr('x2', cx).attr('stroke', 'var(--text-color)');
+
+        dotsMMLU
+          .attr('fill', (d) => d.step === activeIdx ? COL_MMLU : 'var(--page-bg)')
+          .attr('stroke', COL_MMLU)
+          .attr('stroke-width', (d) => d.step === activeIdx ? 2.5 : 1.8)
+          .attr('r', (d) => d.step === activeIdx ? 6 : 4);
+
+        dotsARC
+          .attr('fill', (d) => d.step === activeIdx ? COL_SCORE : 'var(--page-bg)')
+          .attr('stroke', COL_SCORE)
+          .attr('stroke-width', (d) => d.step === activeIdx ? 2.5 : 1.8)
+          .attr('r', (d) => d.step === activeIdx ? 6 : 4);
+
+        const cur = STAGES[activeIdx];
+        const prev = activeIdx > 0 ? STAGES[activeIdx - 1] : null;
+        const deltaScore = prev ? `(+${(cur.score - prev.score).toFixed(1)}% điểm TB)` : '(Mốc cơ sở)';
+        inspTitle.textContent = `${cur.name} — Giữ lại ${cur.pct}% dữ liệu · Điểm TB: ${cur.score}% ${deltaScore}`;
+        inspTitle.style.color = COL_FUNNEL;
+        inspDesc.textContent = cur.desc;
+        inspSample.innerHTML = `<strong>Mẫu dữ liệu bị loại bỏ ở tầng này:</strong>${cur.removed}`;
+      };
+
+      render();
+      document.addEventListener('palettes:updated', () => { readPalette(); render(); });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

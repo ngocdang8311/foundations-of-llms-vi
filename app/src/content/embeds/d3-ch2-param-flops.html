@@ -1,0 +1,291 @@
+<div class="d3-ch2-param-flops"></div>
+<style>
+  .d3-ch2-param-flops {
+    margin: 1.2rem 0;
+    padding: 16px 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 13px;
+  }
+  .d3-ch2-param-flops .pf-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .d3-ch2-param-flops .pf-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-ch2-param-flops .pf-btn {
+    padding: 5px 11px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch2-param-flops .pf-btn.active {
+    border-color: var(--pf-accent, var(--primary-color));
+    background: color-mix(in oklab, var(--pf-accent, var(--primary-color)) 18%, var(--page-bg));
+  }
+  .d3-ch2-param-flops svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch2-param-flops .pf-cards {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .d3-ch2-param-flops .pf-card {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    border: 1px solid var(--border-color);
+  }
+  .d3-ch2-param-flops .pf-card-label {
+    font-size: 11.5px;
+    color: var(--muted-color);
+    margin-bottom: 4px;
+  }
+  .d3-ch2-param-flops .pf-card-val {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-color);
+  }
+  @media (max-width: 640px) {
+    .d3-ch2-param-flops .pf-cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch2-param-flops'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch2-param-flops'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+
+        const MODELS = {
+          gpt2: {
+            name: 'GPT-2 Small (124M)',
+            L: 12, d: 768, H: 12, kvH: 12, dff: 3072, V: 50257,
+            swiglu: false, tiedEmb: true, ctx: 1024,
+          },
+          llama3_8b: {
+            name: 'Llama-3 8B (8.03B)',
+            L: 32, d: 4096, H: 32, kvH: 8, dff: 14336, V: 128256,
+            swiglu: true, tiedEmb: false, ctx: 8192,
+          },
+          llama3_70b: {
+            name: 'Llama-3 70B (70.6B)',
+            L: 80, d: 8192, H: 64, kvH: 8, dff: 28672, V: 128256,
+            swiglu: true, tiedEmb: false, ctx: 8192,
+          },
+        };
+
+        let activeKey = 'llama3_8b';
+        let colors = ['#4e79a7', '#f28e2b', '#59a14f'];
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 3);
+              if (cat && cat.length >= 3) colors = cat;
+            }
+          } catch (_) {}
+          container.style.setProperty('--pf-accent', colors[0]);
+        };
+        readPalette();
+
+        const header = document.createElement('div');
+        header.className = 'pf-header';
+        const presets = document.createElement('div');
+        presets.className = 'pf-presets';
+        const btns = {};
+
+        Object.entries(MODELS).forEach(([k, m]) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `pf-btn${k === activeKey ? ' active' : ''}`;
+          b.textContent = m.name;
+          b.addEventListener('click', () => {
+            activeKey = k;
+            Object.entries(btns).forEach(([key, btn]) => btn.classList.toggle('active', key === activeKey));
+            render();
+          });
+          btns[k] = b;
+          presets.appendChild(b);
+        });
+
+        const cfgNote = document.createElement('div');
+        cfgNote.style.fontSize = '12px';
+        cfgNote.style.color = 'var(--muted-color)';
+        header.append(presets, cfgNote);
+        container.appendChild(header);
+
+        const W = 760, H = 152;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img')
+          .attr('aria-label', 'Biểu đồ phân rã tỷ lệ tham số giữa Embedding, Attention và FFN');
+
+        const cards = document.createElement('div');
+        cards.className = 'pf-cards';
+        container.appendChild(cards);
+
+        const fmtCount = (n) => {
+          if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+          return `${(n / 1e6).toFixed(1)}M`;
+        };
+
+        const render = () => {
+          svg.selectAll('*').remove();
+          const m = MODELS[activeKey];
+          const dHead = m.d / m.H;
+
+          const embParams = (m.tiedEmb ? 1 : 2) * m.V * m.d;
+          const attnPerLayer = m.d * (m.H * dHead + 2 * m.kvH * dHead) + m.d * m.d;
+          const attnParams = m.L * attnPerLayer;
+          const ffnMult = m.swiglu ? 3 : 2;
+          const ffnPerLayer = ffnMult * m.d * m.dff;
+          const ffnParams = m.L * ffnPerLayer;
+          const totalParams = embParams + attnParams + ffnParams;
+          const nonEmbParams = attnParams + ffnParams;
+
+          cfgNote.textContent = `L = ${m.L} tầng · d_model = ${m.d} · H_Q = ${m.H}, H_KV = ${m.kvH} · d_ff = ${m.dff} · |V| = ${m.V.toLocaleString()}`;
+
+          const parts = [
+            { label: 'Nhúng & LM Head', val: embParams, pct: (embParams / totalParams) * 100, col: colors[2] },
+            { label: `Attention (${m.L} tầng)`, val: attnParams, pct: (attnParams / totalParams) * 100, col: colors[0] },
+            { label: `${m.swiglu ? 'SwiGLU' : 'GELU'} FFN (${m.L} tầng)`, val: ffnParams, pct: (ffnParams / totalParams) * 100, col: colors[1] },
+          ];
+
+          const barX = 18, barY = 36, barW = W - 36, barH = 44;
+
+          svg.append('text')
+            .attr('x', barX).attr('y', 20)
+            .attr('fill', 'var(--text-color)')
+            .attr('font-weight', 700)
+            .attr('font-size', 12.5)
+            .text(`Phân bổ tổng số tham số N = ${fmtCount(totalParams)} (${totalParams.toLocaleString()} tham số)`);
+
+          let curX = barX;
+          parts.forEach((p, idx) => {
+            const w = (p.pct / 100) * barW;
+            svg.append('rect')
+              .attr('x', curX).attr('y', barY)
+              .attr('width', Math.max(2, w - 2)).attr('height', barH)
+              .attr('rx', 5)
+              .attr('fill', p.col);
+
+            if (w > 70) {
+              svg.append('text')
+                .attr('x', curX + w / 2).attr('y', barY + 19)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#fff')
+                .attr('font-weight', 700)
+                .attr('font-size', 11.5)
+                .text(`${p.pct.toFixed(1)}%`);
+              svg.append('text')
+                .attr('x', curX + w / 2).attr('y', barY + 34)
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#fff')
+                .attr('font-size', 10.5)
+                .text(fmtCount(p.val));
+            }
+
+            // Legend below bar
+            const legX = barX + idx * 248;
+            svg.append('rect')
+              .attr('x', legX).attr('y', barY + barH + 18)
+              .attr('width', 12).attr('height', 12)
+              .attr('rx', 3).attr('fill', p.col);
+            svg.append('text')
+              .attr('x', legX + 18).attr('y', barY + barH + 28)
+              .attr('fill', 'var(--text-color)')
+              .attr('font-weight', 700)
+              .attr('font-size', 11.5)
+              .text(`${p.label}: ${fmtCount(p.val)} (${p.pct.toFixed(1)}%)`);
+
+            curX += w;
+          });
+
+          const fwdFlopsLinear = 2 * nonEmbParams;
+          const trainFlops6N = 6 * nonEmbParams;
+          const attnCtxFlops = 4 * m.L * m.ctx * m.d; // 2 QK^T + 2 AV per token in forward pass
+
+          cards.innerHTML = `
+            <div class="pf-card">
+              <div class="pf-card-label">Tham số mỗi tầng (Attention + FFN)</div>
+              <div class="pf-card-val">${fmtCount(attnPerLayer + ffnPerLayer)} / tầng</div>
+              <div class="pf-card-label" style="margin-top:4px">FFN chiếm ${((ffnPerLayer / (attnPerLayer + ffnPerLayer)) * 100).toFixed(1)}% mỗi khối</div>
+            </div>
+            <div class="pf-card">
+              <div class="pf-card-label">FLOPs Suy luận (1 token, xấp xỉ 2N)</div>
+              <div class="pf-card-val">${(fwdFlopsLinear / 1e9).toFixed(2)} GFLOPs</div>
+              <div class="pf-card-label" style="margin-top:4px">+ ${(attnCtxFlops / 1e9).toFixed(2)} GFLOPs ngữ cảnh (L=${m.ctx})</div>
+            </div>
+            <div class="pf-card">
+              <div class="pf-card-label">FLOPs Huấn luyện (Forward + Backward ≈ 6N)</div>
+              <div class="pf-card-val">${(trainFlops6N / 1e9).toFixed(2)} GFLOPs / token</div>
+              <div class="pf-card-label" style="margin-top:4px">2N (chiều tiến) + 4N (đạo hàm x & W)</div>
+            </div>
+          `;
+        };
+
+        render();
+        document.addEventListener('palettes:updated', () => {
+          readPalette();
+          render();
+        });
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

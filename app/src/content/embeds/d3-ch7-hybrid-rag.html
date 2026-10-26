@@ -1,0 +1,423 @@
+<div class="d3-ch7-hybrid-rag"></div>
+<style>
+  .d3-ch7-hybrid-rag {
+    font-size: 12.5px;
+    color: var(--text-color);
+    margin: 12px 0;
+  }
+  .d3-ch7-hybrid-rag .rag-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-bg);
+    margin-bottom: 12px;
+  }
+  .d3-ch7-hybrid-rag .rag-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .d3-ch7-hybrid-rag select,
+  .d3-ch7-hybrid-rag input[type="range"] {
+    font: inherit;
+    cursor: pointer;
+  }
+  .d3-ch7-hybrid-rag select {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+  }
+  .d3-ch7-hybrid-rag .rag-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 720px) {
+    .d3-ch7-hybrid-rag .rag-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+  .d3-ch7-hybrid-rag .rag-col {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px;
+    background: var(--surface-bg);
+  }
+  .d3-ch7-hybrid-rag .rag-col-title {
+    font-weight: 700;
+    font-size: 12.5px;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .d3-ch7-hybrid-rag .rag-col-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+    margin-bottom: 8px;
+  }
+  .d3-ch7-hybrid-rag .rag-card {
+    padding: 7px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    margin-bottom: 6px;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+    cursor: pointer;
+  }
+  .d3-ch7-hybrid-rag .rag-card:last-child {
+    margin-bottom: 0;
+  }
+  .d3-ch7-hybrid-rag .rag-card.gold {
+    border-width: 1.8px;
+  }
+  .d3-ch7-hybrid-rag .rag-card.hovered {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px color-mix(in oklab, var(--text-color) 12%, transparent);
+  }
+  .d3-ch7-hybrid-rag .rag-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+  .d3-ch7-hybrid-rag .rag-card-text {
+    font-size: 11.5px;
+    line-height: 1.38;
+    color: var(--text-color);
+  }
+  .d3-ch7-hybrid-rag .rag-meter {
+    height: 4px;
+    border-radius: 2px;
+    margin-top: 5px;
+    background: color-mix(in oklab, var(--text-color) 10%, transparent);
+    overflow: hidden;
+  }
+  .d3-ch7-hybrid-rag .rag-meter > span {
+    display: block;
+    height: 100%;
+  }
+  .d3-ch7-hybrid-rag .rag-formula {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+    font-size: 11.8px;
+    color: var(--muted-color);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+<script>
+  (() => {
+    const QUERIES = [
+      {
+        label: 'Truy vấn 1 (Mã lỗi chính xác + Ý nghĩa): "Lỗi CUDA error 710 device-side assert khi huấn luyện Embedding"',
+        insight: 'BM25 bắt trúng mã số "710" và "device-side assert", còn Dense Vector hiểu nguyên nhân sâu xa là chỉ số token vượt quá kích thước từ vựng |V|. RRF đưa cả hai tài liệu vàng (#D1, #D2) lên Top 2!',
+        docs: [
+          {
+            id: 'D1',
+            title: 'Tài liệu #D1 · Sổ tay gỡ lỗi CUDA Runtime',
+            snippet: 'Mã lỗi CUDA error 710 (device-side assert triggered) thường xuất hiện khi một kernel trên GPU vi phạm điều kiện assert.',
+            bm25: 9.42,
+            dense: 0.61,
+            gold: true,
+          },
+          {
+            id: 'D2',
+            title: 'Tài liệu #D2 · PyTorch nn.Embedding Index Bounds',
+            snippet: 'Khi chỉ số token đầu vào lớn hơn hoặc bằng num_embeddings, lớp tra cứu bảng vector sẽ gây sập tiến trình GPU bất đồng bộ.',
+            bm25: 1.15,
+            dense: 0.89,
+            gold: true,
+          },
+          {
+            id: 'D3',
+            title: 'Tài liệu #D3 · Nhật ký lỗi máy chủ #710',
+            snippet: 'Báo cáo bảo trì định kỳ cụm máy chủ số 710: kiểm tra nhiệt độ card đồ họa CUDA và quạt tản nhiệt.',
+            bm25: 6.80,
+            dense: 0.34,
+            gold: false,
+          },
+          {
+            id: 'D4',
+            title: 'Tài liệu #D4 · Tối ưu hóa lớp Word2Vec',
+            snippet: 'Huấn luyện biểu diễn từ nhúng (Embedding) trên tập văn bản lớn với tốc độ học thích ứng.',
+            bm25: 3.10,
+            dense: 0.72,
+            gold: false,
+          },
+          {
+            id: 'D5',
+            title: 'Tài liệu #D5 · Hướng dẫn cài đặt trình điều khiển',
+            snippet: 'Cách cập nhật CUDA Toolkit 12.1 và kiểm tra tương thích phần cứng trên Linux.',
+            bm25: 2.40,
+            dense: 0.48,
+            gold: false,
+          },
+        ],
+      },
+      {
+        label: 'Truy vấn 2 (Thuật ngữ chuyên ngành): "Làm sao giảm bộ nhớ đệm trạng thái chú ý với GQA?"',
+        insight: 'Người dùng hỏi bằng cụm từ diễn giải ("bộ nhớ đệm trạng thái chú ý") kèm từ viết tắt "GQA". BM25 tìm đúng từ khóa "GQA" (#D1), trong khi Dense Retriever nhận diện khái niệm tương đương "KV Cache" (#D2).',
+        docs: [
+          {
+            id: 'D1',
+            title: 'Tài liệu #D1 · Cấu hình tham số GQA trong Llama-3',
+            snippet: 'Thiết lập num_key_value_heads = 8 để bật chế độ GQA (Grouped-Query Attention) trong file config.json.',
+            bm25: 8.95,
+            dense: 0.66,
+            gold: true,
+          },
+          {
+            id: 'D2',
+            title: 'Tài liệu #D2 · Chia sẻ đầu Key/Value để nén KV Cache',
+            snippet: 'Bằng cách gom nhóm nhiều đầu truy vấn dùng chung một cặp khóa-giá trị, dung lượng VRAM lưu trữ lịch sử giảm đi 4–8 lần.',
+            bm25: 0.85,
+            dense: 0.92,
+            gold: true,
+          },
+          {
+            id: 'D3',
+            title: 'Tài liệu #D3 · Tổng quan về bộ nhớ đệm CPU L1/L2',
+            snippet: 'Giảm độ trễ truy xuất bộ nhớ đệm trạng thái trên vi xử lý đa nhân hiện đại.',
+            bm25: 5.40,
+            dense: 0.39,
+            gold: false,
+          },
+          {
+            id: 'D4',
+            title: 'Tài liệu #D4 · Lượng tử hóa trọng số AWQ 4-bit',
+            snippet: 'Giảm dung lượng VRAM của ma trận trọng số tuyến tính xuống 4-bit mà không cần huấn luyện lại.',
+            bm25: 2.20,
+            dense: 0.74,
+            gold: false,
+          },
+          {
+            id: 'D5',
+            title: 'Tài liệu #D5 · So sánh MHA và MQA của Shazeer (2019)',
+            snippet: 'Multi-Query Attention dùng duy nhất 1 đầu Key/Value cho toàn bộ các đầu Query.',
+            bm25: 1.90,
+            dense: 0.78,
+            gold: false,
+          },
+        ],
+      },
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch7-hybrid-rag'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch7-hybrid-rag'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let qIdx = 0;
+      let rrfK = 2; // small k in demo makes rank differences visually clear, adjustable up to 60
+      let hoveredId = null;
+
+      let cBM25 = '#4e79a7';
+      let cDense = '#f28e2b';
+      let cRRF = '#59a14f';
+
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 3) {
+              cBM25 = cat[0];
+              cDense = cat[1];
+              cRRF = cat[2];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const bar = document.createElement('div');
+      bar.className = 'rag-bar';
+
+      const leftCtrl = document.createElement('div');
+      leftCtrl.className = 'rag-control';
+      const select = document.createElement('select');
+      select.setAttribute('aria-label', 'Chọn câu truy vấn');
+      QUERIES.forEach((q, i) => {
+        const o = document.createElement('option');
+        o.value = String(i);
+        o.textContent = q.label;
+        select.appendChild(o);
+      });
+      leftCtrl.appendChild(select);
+
+      const rightCtrl = document.createElement('div');
+      rightCtrl.className = 'rag-control';
+      const kLabel = document.createElement('span');
+      const kSlider = document.createElement('input');
+      kSlider.type = 'range';
+      kSlider.min = '1';
+      kSlider.max = '60';
+      kSlider.value = String(rrfK);
+      rightCtrl.append(kLabel, kSlider);
+
+      bar.append(leftCtrl, rightCtrl);
+
+      const grid = document.createElement('div');
+      grid.className = 'rag-grid';
+
+      const formula = document.createElement('div');
+      formula.className = 'rag-formula';
+
+      container.append(bar, grid, formula);
+
+      const render = () => {
+        readPalette();
+        kLabel.innerHTML = `Hằng số làm mịn <strong>k = ${rrfK}</strong>:`;
+        const q = QUERIES[qIdx];
+
+        const byBM25 = [...q.docs].sort((a, b) => b.bm25 - a.bm25);
+        const byDense = [...q.docs].sort((a, b) => b.dense - a.dense);
+
+        const rankBM25 = {};
+        const rankDense = {};
+        byBM25.forEach((d, idx) => { rankBM25[d.id] = idx + 1; });
+        byDense.forEach((d, idx) => { rankDense[d.id] = idx + 1; });
+
+        const withRRF = q.docs.map((d) => {
+          const r1 = rankBM25[d.id];
+          const r2 = rankDense[d.id];
+          const rrf = 1 / (rrfK + r1) + 1 / (rrfK + r2);
+          return { ...d, r1, r2, rrf };
+        }).sort((a, b) => b.rrf - a.rrf);
+
+        const maxBM25 = Math.max(...q.docs.map((d) => d.bm25));
+        const maxRRF = Math.max(...withRRF.map((d) => d.rrf));
+
+        grid.innerHTML = '';
+
+        const makeCol = (title, sub, items, color, scoreFn, ratioFn) => {
+          const col = document.createElement('div');
+          col.className = 'rag-col';
+          const h = document.createElement('div');
+          h.className = 'rag-col-title';
+          h.style.color = color;
+          h.textContent = title;
+          const s = document.createElement('div');
+          s.className = 'rag-col-sub';
+          s.textContent = sub;
+          col.append(h, s);
+
+          items.forEach((d, idx) => {
+            const card = document.createElement('div');
+            card.className = 'rag-card' + (d.gold ? ' gold' : '') + (hoveredId === d.id ? ' hovered' : '');
+            if (d.gold) {
+              card.style.borderColor = color;
+            }
+            if (hoveredId === d.id) {
+              card.style.background = `color-mix(in oklab, ${color} 12%, var(--page-bg))`;
+            }
+
+            const top = document.createElement('div');
+            top.className = 'rag-card-top';
+            const rankSpan = document.createElement('span');
+            rankSpan.textContent = `#${idx + 1} · ${d.id}${d.gold ? ' ★ (Cần tìm)' : ''}`;
+            const scoreSpan = document.createElement('span');
+            scoreSpan.style.color = color;
+            scoreSpan.textContent = scoreFn(d);
+            top.append(rankSpan, scoreSpan);
+
+            const txt = document.createElement('div');
+            txt.className = 'rag-card-text';
+            txt.textContent = d.snippet;
+
+            const meter = document.createElement('div');
+            meter.className = 'rag-meter';
+            const fill = document.createElement('span');
+            fill.style.width = `${Math.max(6, Math.min(100, ratioFn(d) * 100))}%`;
+            fill.style.background = color;
+            meter.appendChild(fill);
+
+            card.append(top, txt, meter);
+            card.addEventListener('mouseenter', () => {
+              hoveredId = d.id;
+              render();
+            });
+            card.addEventListener('mouseleave', () => {
+              hoveredId = null;
+              render();
+            });
+            col.appendChild(card);
+          });
+          return col;
+        };
+
+        grid.append(
+          makeCol(
+            '1. Tìm kiếm Thưa (BM25)',
+            'Khớp từ khóa chính xác (TF-IDF bão hòa)',
+            byBM25,
+            cBM25,
+            (d) => `BM25 = ${d.bm25.toFixed(2)}`,
+            (d) => d.bm25 / maxBM25
+          ),
+          makeCol(
+            '2. Tìm kiếm Đặc (Dense Vector)',
+            'Tương đồng Cosine trong không gian nhúng',
+            byDense,
+            cDense,
+            (d) => `cos = ${d.dense.toFixed(2)}`,
+            (d) => d.dense
+          ),
+          makeCol(
+            '3. Kết hợp Thứ bậc (RRF)',
+            `RRF(d) = 1/(${rrfK} + r_BM25) + 1/(${rrfK} + r_Dense)`,
+            withRRF,
+            cRRF,
+            (d) => `RRF = ${d.rrf.toFixed(3)} (hạng ${d.r1} + ${d.r2})`,
+            (d) => d.rrf / maxRRF
+          )
+        );
+
+        if (hoveredId) {
+          const item = withRRF.find((x) => x.id === hoveredId);
+          if (item) {
+            formula.innerHTML = `Đang chọn <strong>${item.title}</strong>: Hạng BM25 = <strong>${item.r1}</strong>, Hạng Dense = <strong>${item.r2}</strong> → Điểm RRF = 1/(${rrfK}+${item.r1}) + 1/(${rrfK}+${item.r2}) = <strong>${item.rrf.toFixed(4)}</strong>.`;
+            return;
+          }
+        }
+        formula.innerHTML = `<strong>Nhận xét:</strong> ${q.insight} <em>(Di chuột vào từng thẻ tài liệu để đối chiếu thứ hạng giữa 3 cột)</em>`;
+      };
+
+      select.addEventListener('change', () => {
+        qIdx = Number(select.value) || 0;
+        render();
+      });
+      kSlider.addEventListener('input', () => {
+        rrfK = Number(kSlider.value) || 2;
+        render();
+      });
+
+      render();
+      document.addEventListener('palettes:updated', render);
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

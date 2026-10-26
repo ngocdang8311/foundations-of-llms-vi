@@ -73,7 +73,7 @@
       const fill = (v) => `color-mix(in oklab, ${v >= 0 ? POS : NEG} ${Math.round(8 + 70 * Math.min(1, Math.abs(v)))}%, transparent)`;
       const fmt = (v) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
 
-      container.innerHTML = `<div class="words" role="group" aria-label="Word"></div>`;
+      container.innerHTML = `<div class="words" role="group" aria-label="Từ"></div>`;
       const wordsEl = container.querySelector('.words');
       WORDS.forEach((w, v) => {
         const b = document.createElement('button');
@@ -98,7 +98,7 @@
 
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W_TOTAL} ${H_TOTAL}`)
         .attr('role', 'img')
-        .attr('aria-label', 'The embedding matrix W times the one-hot vector of a word gives the column of W of this word: its embedding.');
+        .attr('aria-label', 'Ma trận nhúng W nhân với vector one-hot của một từ sẽ trích ra cột tương ứng của từ đó trong W: chính là vector nhúng của nó.');
       const g = svg.append('g');
 
       // W: the columns, their words, and the "…" of the other words and dimensions
@@ -144,9 +144,9 @@
         g.append('text').attr('class', 'caption-strong').attr('x', x).attr('y', captionY).attr('text-anchor', 'middle').text(strong);
         g.append('text').attr('class', 'caption').attr('x', x).attr('y', captionY + 15).attr('text-anchor', 'middle').text(sub);
       };
-      caption((wLeft + wRight) / 2, 'W', 'D rows, one column per word');
-      caption(xLeft + xW / 2 + 30, 'one-hot vector', 'size V');
-      caption(eLeft + cellW / 2, 'embedding', 'size D');
+      caption((wLeft + wRight) / 2, 'W', 'D hàng, mỗi cột một từ');
+      caption(xLeft + xW / 2 + 30, 'vector one-hot', 'kích thước V');
+      caption(eLeft + cellW / 2, 'vector nhúng', 'kích thước D');
 
       function select(v) {
         selected = v;

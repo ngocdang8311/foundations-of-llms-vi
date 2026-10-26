@@ -1,0 +1,59 @@
+{
+  "title": "Nền tảng Mô hình Ngôn ngữ Lớn",
+  "short_title": "Nền tảng LLM",
+  "tagline": "Học qua Thực hành",
+  "author": {
+    "name": "David Louapre (Bản dịch & Mở rộng Tiếng Việt)",
+    "url": "https://huggingface.co/dlouapre"
+  },
+  "chapters": [
+    {
+      "number": 0,
+      "title": "Xử lý Ngôn ngữ Tự nhiên trước thời kỳ LLM",
+      "short_title": "NLP trước LLM",
+      "url": "/"
+    },
+    {
+      "number": 1,
+      "title": "Bộ tách từ (Tokenizers)",
+      "short_title": "Tokenizers",
+      "url": "/chapter-1"
+    },
+    {
+      "number": 2,
+      "title": "Kiến trúc Transformer",
+      "short_title": "Transformers",
+      "url": "/chapter-2"
+    },
+    {
+      "number": 3,
+      "title": "Tiền huấn luyện (Pre-training)",
+      "short_title": "Pre-training",
+      "url": "/chapter-3"
+    },
+    {
+      "number": 4,
+      "title": "Hậu huấn luyện & Căn chỉnh (Post-training)",
+      "short_title": "Post-training",
+      "url": "/chapter-4"
+    },
+    {
+      "number": 5,
+      "title": "Suy luận & Tối ưu hóa (Inference)",
+      "short_title": "Inference",
+      "url": "/chapter-5"
+    },
+    {
+      "number": 6,
+      "title": "Các Kiến trúc Thay thế",
+      "short_title": "Kiến trúc thay thế",
+      "url": "/chapter-6"
+    },
+    {
+      "number": 7,
+      "title": "Tác tử Thông minh (Agents)",
+      "short_title": "Agents",
+      "url": "/chapter-7"
+    }
+  ]
+}

@@ -53,7 +53,7 @@
       const uid = Math.random().toString(36).slice(2, 8);
       const controls = document.createElement('div');
       controls.className = 'controls';
-      controls.innerHTML = `<label for="char-step-${uid}">Training steps</label>
+      controls.innerHTML = `<label for="char-step-${uid}">Bước huấn luyện</label>
         <input type="range" id="char-step-${uid}" min="0" max="0" step="1" value="0">
         <span class="value" aria-live="polite"></span>`;
       container.appendChild(controls);
@@ -69,7 +69,7 @@
         const show = () => {
           const s = samples[Number(slider.value)];
           const steps = s.step.toLocaleString('en-US');
-          value.textContent = `${steps} batches · ${s.bits_per_char.toFixed(2)} bits per character`;
+          value.textContent = `${steps} lô (batches) · ${s.bits_per_char.toFixed(2)} bit/ký tự`;
           pre.textContent = s.text;
         };
         slider.addEventListener('input', show);

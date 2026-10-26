@@ -8,9 +8,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Tách 5.000 bài đánh giá huấn luyện làm tập xác thực, và
+# thay thế các thẻ xuống dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -28,10 +28,10 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# (2) Count the words of each review, over the 10,000 most
-# frequent words of the training reviews. The pattern makes every
-# run of letters or digits a word, even a single letter like "a".
-# [Copied from the solution of 3.2, step (2)]
+# (2) Đếm từ trong mỗi bài đánh giá trên 10.000 từ phổ biến nhất
+# của tập huấn luyện. Biểu thức chính quy coi mọi chuỗi chữ cái
+# hoặc chữ số là một từ, kể cả từ chỉ gồm một chữ cái như "a".
+# [Sao chép từ lời giải bài 3.2, bước (2)]
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
@@ -41,15 +41,15 @@ X_val = vectorizer.transform(val_texts)
 X_test = vectorizer.transform(test_texts)
 
 
-# The hard reviews: (review, label), with 1 for positive
-# [Copied from the starter of 3.4]
+# Các bài đánh giá khó: (bài đánh giá, nhãn), với 1 là tích cực
+# [Sao chép từ mã khởi đầu bài 3.4]
 hard_reviews = [
-    # Negation
+    # Phủ định
     ("Not bad at all, actually.", 1),
     ("Nothing about this movie is good.", 0),
     ("I wouldn't call it a masterpiece, but I didn't regret "
      "a minute.", 1),
-    # Contrast
+    # Tương phản
     ("Great acting, great lighting and a flabbergasting soundtrack, "
      "but not even Zendaya could save this boring, boring plot.", 0),
     ("The first hour is slow and the dialogue is clumsy, but the "
@@ -57,20 +57,20 @@ hard_reviews = [
     ("Everyone told me it would be the film of the year: great "
      "cast, amazing trailer, brilliant director. What a "
      "disappointment.", 0),
-    # Sarcasm
+    # Mỉa mai / Châm biếm
     ("Wow, what a masterpiece. Two hours of pure brilliance, and I "
      "only checked my watch twenty times. The acting was so "
      "convincing that I truly believed the actors wanted to be "
      "somewhere else. A perfect film if you love naps.", 0),
     ("Brilliant. Another sequel nobody asked for, with the same "
      "jokes as the first one.", 0),
-    # The same words in a different order
+    # Cùng các từ nhưng khác thứ tự
     ("I expected it to be terrible, but it was great.", 1),
     ("I expected it to be great, but it was terrible.", 0),
-    # Synonyms, no word in common
+    # Từ đồng nghĩa, không có từ chung
     ("Excellent movie, awesome soundtrack.", 1),
     ("Superb film, wonderful score.", 1),
-    # Rare words
+    # Từ hiếm gặp
     ("A flabbergasting, mesmerizing tour de force.", 1),
 ]
 

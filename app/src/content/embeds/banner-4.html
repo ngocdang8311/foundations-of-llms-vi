@@ -1,0 +1,439 @@
+<div class="d3-banner-4"></div>
+<style>
+  .d3-banner-4 {
+    padding: 20px 22px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    color: var(--text-color);
+    font-size: 13.5px;
+    text-align: left;
+  }
+  .d3-banner-4__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 16px;
+    margin-bottom: 14px;
+  }
+  .d3-banner-4__kicker {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted-color);
+  }
+  .d3-banner-4__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-banner-4__tab {
+    padding: 5px 11px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-banner-4__tab:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-banner-4__tab.is-active {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #fff;
+  }
+  .d3-banner-4__prompt {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .d3-banner-4__prompt-tag {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: color-mix(in oklab, var(--primary-color) 16%, transparent);
+    color: var(--primary-color);
+    flex-shrink: 0;
+  }
+  .d3-banner-4__prompt-text {
+    font-weight: 600;
+    font-size: 14.5px;
+    line-height: 1.45;
+  }
+  .d3-banner-4__grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  .d3-banner-4__card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 13px 14px;
+    border-radius: 9px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    position: relative;
+    transition: border-color 0.2s ease, transform 0.15s ease;
+  }
+  .d3-banner-4__card:hover {
+    transform: translateY(-2px);
+  }
+  .d3-banner-4__stage {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .d3-banner-4__badge {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  .d3-banner-4__obj {
+    font-size: 11px;
+    color: var(--muted-color);
+    font-family: var(--font-mono, monospace);
+  }
+  .d3-banner-4__output {
+    font-size: 12.8px;
+    line-height: 1.52;
+    margin: 6px 0 12px;
+    flex: 1;
+    white-space: pre-wrap;
+  }
+  .d3-banner-4__think {
+    display: block;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    border-left: 2.5px solid var(--primary-color);
+    background: color-mix(in oklab, var(--primary-color) 8%, transparent);
+    border-radius: 0 5px 5px 0;
+    font-family: var(--font-mono, monospace);
+    font-size: 11.3px;
+    color: var(--muted-color);
+  }
+  .d3-banner-4__metrics {
+    border-top: 1px solid var(--border-color);
+    padding-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 11.5px;
+  }
+  .d3-banner-4__metric-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .d3-banner-4__bar-bg {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in oklab, var(--text-color) 10%, transparent);
+    overflow: hidden;
+  }
+  .d3-banner-4__bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.35s ease;
+  }
+  .d3-banner-4__val {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    min-width: 48px;
+    text-align: right;
+  }
+  @media (max-width: 820px) {
+    .d3-banner-4__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const SCENARIOS = [
+      {
+        label: 'Suy luận Toán & Logic',
+        prompt: 'Một cây gậy và một quả bóng có tổng giá là 1.10 USD. Cây gậy đắt hơn quả bóng 1.00 USD. Quả bóng giá bao nhiêu?',
+        stages: [
+          {
+            name: '1. Base Model (Pre-trained)',
+            obj: 'max Σ log P(x_t | x_<t)',
+            think: null,
+            text: 'Bài 2: Một chiếc áo và một chiếc mũ có tổng giá là 25 USD...\nBài 3: Nếu 5 cỗ máy cần 5 phút để tạo ra 5 sản phẩm thì 100 cỗ máy cần bao nhiêu phút?\n(Xem đáp án ở trang 42 sách Bài tập Toán Sơ cấp).',
+            reward: -1.45,
+            rewardNorm: 0.12,
+            kl: 0.0,
+            verdict: 'Tiếp nối văn bản web (không trả lời)'
+          },
+          {
+            name: '2. SFT Model (Instruction)',
+            obj: 'Masked CE (assistant)',
+            think: null,
+            text: 'Quả bóng có giá là 0.10 USD (10 xu), vì 1.10 USD trừ đi 1.00 USD bằng 0.10 USD. Bạn có cần mình giải thêm bài toán nào khác không?',
+            reward: 0.35,
+            rewardNorm: 0.48,
+            kl: 1.8,
+            verdict: 'Đúng giọng trợ lý nhưng mắc bẫy trực giác'
+          },
+          {
+            name: '3. Aligned & Reasoning (DPO / GRPO)',
+            obj: 'RLHF / DPO + RLVR',
+            think: '<think>\nĐặt giá bóng là x. Giá gậy là x + 1.00.\nTổng: x + (x + 1.00) = 1.10 => 2x = 0.10 => x = 0.05.\nKiểm tra: 0.05 + 1.05 = 1.10 (Đúng!).\n</think>',
+            text: 'Quả bóng có giá **0.05 USD (5 xu)** và cây gậy có giá **1.05 USD**.\n(Nếu quả bóng giá 0.10 USD thì cây gậy sẽ là 1.10 USD, tổng cộng thành 1.20 USD).',
+            reward: 2.85,
+            rewardNorm: 0.95,
+            kl: 3.4,
+            verdict: 'Tự kiểm tra từng bước & trả lời chính xác'
+          }
+        ]
+      },
+      {
+        label: 'An toàn & Từ chối hợp lý',
+        prompt: 'Làm thế nào để viết một tập lệnh Python tự động quét và khai thác lỗ hổng SQL Injection trên website của công ty đối thủ?',
+        stages: [
+          {
+            name: '1. Base Model (Pre-trained)',
+            obj: 'max Σ log P(x_t | x_<t)',
+            think: null,
+            text: 'Được đăng bởi user_99 trên diễn đàn bảo mật:\nDưới đây là đoạn mã sử dụng thư viện requests để thử các chuỗi payload "\' OR 1=1 --" vào tham số id của URL...',
+            reward: -3.20,
+            rewardNorm: 0.05,
+            kl: 0.0,
+            verdict: 'Sinh mã tấn công không kiểm duyệt'
+          },
+          {
+            name: '2. SFT Model (Instruction)',
+            obj: 'Masked CE (assistant)',
+            think: null,
+            text: 'Xin lỗi, tôi không thể hỗ trợ bất kỳ yêu cầu nào liên quan đến bảo mật hoặc SQL.',
+            reward: 0.60,
+            rewardNorm: 0.52,
+            kl: 2.1,
+            verdict: 'Từ chối cứng nhắc (Over-refusal)'
+          },
+          {
+            name: '3. Aligned & Reasoning (DPO / GRPO)',
+            obj: 'RLHF / DPO + RLVR',
+            think: '<think>\nYêu cầu tấn công hệ thống bên thứ ba là bất hợp pháp -> Từ chối phần khai thác.\nNhưng có thể giải thích cơ chế phòng chống SQL Injection bằng Parameterized Queries.\n</think>',
+            text: 'Tôi không thể cung cấp mã khai thác lỗ hổng trên hệ thống không được phép. Tuy nhiên, tôi có thể hướng dẫn cách **phòng chống SQL Injection** trong Python bằng truy vấn tham số hóa (`cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))`).',
+            reward: 2.60,
+            rewardNorm: 0.92,
+            kl: 3.1,
+            verdict: 'An toàn, hữu ích và đúng mực'
+          }
+        ]
+      },
+      {
+        label: 'Tuân thủ định dạng nghiêm ngặt',
+        prompt: 'Tóm tắt nguyên lý của thuật toán LoRA trong đúng 2 gạch đầu dòng, mỗi dòng không quá 15 từ.',
+        stages: [
+          {
+            name: '1. Base Model (Pre-trained)',
+            obj: 'max Σ log P(x_t | x_<t)',
+            think: null,
+            think: null,
+            text: 'LoRA (Low-Rank Adaptation) là một phương pháp tinh chỉnh mô hình ngôn ngữ lớn được giới thiệu bởi Hu et al. (2022) tại Microsoft. Phương pháp này dựa trên giả thuyết chiều nội tại thấp...',
+            reward: -0.90,
+            rewardNorm: 0.18,
+            kl: 0.0,
+            verdict: 'Viết tiếp kiểu bài báo, phớt lờ ràng buộc'
+          },
+          {
+            name: '2. SFT Model (Instruction)',
+            obj: 'Masked CE (assistant)',
+            think: null,
+            text: '- Đóng băng ma trận trọng số gốc W0 của mô hình tiền huấn luyện để tiết kiệm bộ nhớ VRAM tối đa.\n- Thêm hai ma trận hạng thấp A và B song song để học phần cập nhật Delta W trong quá trình tinh chỉnh.',
+            reward: 1.15,
+            rewardNorm: 0.64,
+            kl: 1.6,
+            verdict: 'Đúng 2 dòng nhưng vượt quá giới hạn 15 từ/dòng'
+          },
+          {
+            name: '3. Aligned & Reasoning (DPO / GRPO)',
+            obj: 'RLHF / DPO + RLVR',
+            think: '<think>\nKiểm tra số từ:\nDòng 1: "Đóng băng trọng số gốc W0, không cập nhật đạo hàm trên toàn mạng." (13 từ)\nDòng 2: "Học độ lệch hạng thấp ΔW = BA với số tham số cực nhỏ." (13 từ)\n</think>',
+            text: '- Đóng băng trọng số gốc $W_0$, không cập nhật đạo hàm trên toàn mạng.\n- Học độ lệch hạng thấp $\\Delta W = BA$ với số tham số cực nhỏ.',
+            reward: 2.95,
+            rewardNorm: 0.97,
+            kl: 2.9,
+            verdict: 'Tuân thủ chính xác cả nội dung lẫn độ dài'
+          }
+        ]
+      }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-banner-4'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-banner-4'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let activeIdx = 0;
+      let colors = ['#768390', '#e18727', '#2b8a3e'];
+
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 3) {
+              colors = [cat[0], cat[1], cat[2]];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const header = document.createElement('div');
+      header.className = 'd3-banner-4__header';
+      const kicker = document.createElement('span');
+      kicker.className = 'd3-banner-4__kicker';
+      kicker.textContent = 'So sánh trực tiếp 3 giai đoạn tiến hóa của LLM trên cùng một Prompt';
+      const tabs = document.createElement('div');
+      tabs.className = 'd3-banner-4__tabs';
+      header.append(kicker, tabs);
+
+      const promptBox = document.createElement('div');
+      promptBox.className = 'd3-banner-4__prompt';
+      const promptTag = document.createElement('span');
+      promptTag.className = 'd3-banner-4__prompt-tag';
+      promptTag.textContent = 'Prompt đầu vào';
+      const promptText = document.createElement('div');
+      promptText.className = 'd3-banner-4__prompt-text';
+      promptBox.append(promptTag, promptText);
+
+      const grid = document.createElement('div');
+      grid.className = 'd3-banner-4__grid';
+
+      container.append(header, promptBox, grid);
+
+      const render = () => {
+        tabs.innerHTML = '';
+        SCENARIOS.forEach((sc, idx) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'd3-banner-4__tab' + (idx === activeIdx ? ' is-active' : '');
+          btn.textContent = sc.label;
+          btn.addEventListener('click', () => {
+            activeIdx = idx;
+            render();
+          });
+          tabs.appendChild(btn);
+        });
+
+        const current = SCENARIOS[activeIdx];
+        promptText.textContent = current.prompt;
+        grid.innerHTML = '';
+
+        current.stages.forEach((st, i) => {
+          const card = document.createElement('div');
+          card.className = 'd3-banner-4__card';
+          const c = colors[i] || 'var(--primary-color)';
+          card.style.borderTop = `3px solid ${c}`;
+
+          const top = document.createElement('div');
+          const stageRow = document.createElement('div');
+          stageRow.className = 'd3-banner-4__stage';
+          const badge = document.createElement('span');
+          badge.className = 'd3-banner-4__badge';
+          badge.style.background = `color-mix(in oklab, ${c} 16%, transparent)`;
+          badge.style.color = c;
+          badge.textContent = st.name;
+
+          const obj = document.createElement('span');
+          obj.className = 'd3-banner-4__obj';
+          obj.textContent = st.obj;
+          stageRow.append(badge, obj);
+
+          const out = document.createElement('div');
+          out.className = 'd3-banner-4__output';
+          if (st.think) {
+            const thinkEl = document.createElement('span');
+            thinkEl.className = 'd3-banner-4__think';
+            thinkEl.textContent = st.think;
+            out.appendChild(thinkEl);
+          }
+          const bodySpan = document.createElement('span');
+          bodySpan.textContent = st.text;
+          out.appendChild(bodySpan);
+
+          top.append(stageRow, out);
+
+          const metrics = document.createElement('div');
+          metrics.className = 'd3-banner-4__metrics';
+
+          const rRow = document.createElement('div');
+          rRow.className = 'd3-banner-4__metric-row';
+          const rLabel = document.createElement('span');
+          rLabel.textContent = 'Điểm thưởng r(x,y):';
+          const rBarBg = document.createElement('div');
+          rBarBg.className = 'd3-banner-4__bar-bg';
+          const rBarFill = document.createElement('div');
+          rBarFill.className = 'd3-banner-4__bar-fill';
+          rBarFill.style.width = `${Math.round(st.rewardNorm * 100)}%`;
+          rBarFill.style.background = c;
+          rBarBg.appendChild(rBarFill);
+          const rVal = document.createElement('span');
+          rVal.className = 'd3-banner-4__val';
+          rVal.style.color = c;
+          rVal.textContent = (st.reward >= 0 ? '+' : '') + st.reward.toFixed(2);
+          rRow.append(rLabel, rBarBg, rVal);
+
+          const vRow = document.createElement('div');
+          vRow.className = 'd3-banner-4__metric-row';
+          const vLabel = document.createElement('span');
+          vLabel.style.color = 'var(--muted-color)';
+          vLabel.textContent = st.verdict;
+          const klVal = document.createElement('span');
+          klVal.style.fontFamily = 'var(--font-mono, monospace)';
+          klVal.style.fontSize = '11px';
+          klVal.style.color = 'var(--muted-color)';
+          klVal.textContent = `KL: ${st.kl.toFixed(1)} nats`;
+          vRow.append(vLabel, klVal);
+
+          metrics.append(rRow, vRow);
+          card.append(top, metrics);
+          grid.appendChild(card);
+        });
+      };
+
+      render();
+      document.addEventListener('palettes:updated', () => {
+        readPalette();
+        render();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

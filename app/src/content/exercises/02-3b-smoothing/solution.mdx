@@ -10,8 +10,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -20,8 +20,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# The validation and test sequences, built in the same way
-# [Copied from the starter of 2.2]
+# Chuỗi xác thực (validation) và kiểm tra (test), tạo tương tự
+# [Sao chép từ mã khởi đầu bài 2.2]
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())
@@ -34,11 +34,11 @@ print(f"validation: {len(val_sequence)} words")
 print(f"test: {len(test_sequence)} words")
 
 
-# (1) For each n, count the n-grams in a nested dict:
-# counts[n][context][word] is the number of times `word` follows
-# `context`, the tuple of the n - 1 words before it.
-# For n = 1, the context is the empty tuple ().
-# [Copied from the solution of 2.3a, step (1)]
+# (1) Với mỗi n, đếm các n-gram trong một từ điển lồng nhau:
+# counts[n][context][word] là số lần `word` xuất hiện ngay sau
+# `context` (tuple gồm n - 1 từ đứng trước nó).
+# Với n = 1, ngữ cảnh là tuple rỗng ().
+# [Sao chép từ lời giải bài 2.3a, bước (1)]
 counts = {}
 for n in range(1, 6):
     counts[n] = {}
@@ -55,10 +55,10 @@ for n in range(1, 6):
 <section className="code-output"><pre>{"text: 2051910 words\nvocabulary: 33277 words\nvalidation: 213886 words\ntest: 241211 words"}</pre></section>
 
 ```python
-# (1) For each word of a sequence and each n, look up two counts
-# in training: the n-gram that ends with this word, and its
-# context. Start at the 5th word, so that every word has 4 words
-# before it. The counts are stored in numpy arrays.
+# (1) Với mỗi từ trong chuỗi và mỗi n, tra cứu hai số đếm từ tập
+# huấn luyện: số lần xuất hiện của n-gram kết thúc tại từ đó, và
+# số lần xuất hiện của ngữ cảnh. Bắt đầu từ từ thứ 5 để mọi từ
+# đều có đủ 4 từ đứng trước. Lưu kết quả vào mảng numpy.
 import numpy as np
 
 context_totals = {}
@@ -88,9 +88,9 @@ def perplexity(probs):
     return np.exp(-np.mean(np.log(probs)))
 
 
-# (2) Add-one smoothing: add 1 to the count of every possible
-# n-gram, so the count of each context grows by V, the size of
-# the vocabulary
+# (2) Làm mịn cộng một (add-one): cộng 1 vào số đếm của mọi
+# n-gram khả dĩ, nên tổng số đếm của mỗi ngữ cảnh tăng thêm V
+# (kích thước từ vựng)
 V = len(set(train_sequence))
 add_one = []
 for n in range(1, 6):
@@ -99,20 +99,20 @@ for n in range(1, 6):
     print(f"n = {n}: add-one perplexity {add_one[-1]:.1f}")
 
 
-# (3) Interpolation: q_n = w * p_n + (1 - w) * q_(n-1), where p_n
-# is the probability from the n-gram counts. When the context was
-# never seen in training, q_n = q_(n-1).
+# (3) Nội suy: q_n = w * p_n + (1 - w) * q_(n-1), trong đó p_n
+# là xác suất tính từ số đếm n-gram. Khi ngữ cảnh chưa từng gặp
+# trong tập huấn luyện, đặt q_n = q_(n-1).
 def interpolate(ngram_count, context_count, weights):
     q = ngram_count[1] / context_count[1]   # n = 1
     for n in range(2, len(weights) + 2):
-        w = weights[n - 2]   # weights[0] is the weight of n = 2
+        w = weights[n - 2]   # weights[0] là trọng số của n = 2
         seen = context_count[n] > 0
         p = np.zeros(len(q))
         p[seen] = ngram_count[n][seen] / context_count[n][seen]
         q = np.where(seen, w * p + (1 - w) * q, q)
     return q
 
-# Tune the weight of each n in turn, by a grid search
+# Tinh chỉnh lần lượt trọng số của từng n bằng tìm kiếm lưới
 weights = []
 interpolation = [perplexity(interpolate(val_ngram, val_context, []))]
 print()
@@ -129,7 +129,7 @@ for n in range(2, 6):
           f"interpolated perplexity {best_perplexity:.1f}")
 
 
-# (4) Test perplexity of the interpolated 5-gram model
+# (4) Độ bối rối trên tập kiểm tra của mô hình 5-gram nội suy
 test_ngram, test_context = lookup_counts(test_sequence)
 q = interpolate(test_ngram, test_context, weights)
 test_perplexity = perplexity(q)

@@ -1,0 +1,16 @@
+export const cells = 1;
+
+```python
+import math
+import torch
+import torch.nn.functional as F
+
+torch.manual_seed(42)
+B, L, d_k = 2, 6, 16
+Q = torch.randn(B, L, d_k)
+K = torch.randn(B, L, d_k)
+V = torch.randn(B, L, d_k)
+print("Kích thước Q, K, V:", tuple(Q.shape))
+```
+
+<section className="code-output"><pre>{"Kích thước Q, K, V: (2, 6, 16)"}</pre></section>

@@ -1,0 +1,561 @@
+<div class="d3-ch5-sampling"></div>
+<style>
+  .d3-ch5-sampling {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch5-sampling .s5-top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .d3-ch5-sampling .s5-context-box {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 320px;
+  }
+  .d3-ch5-sampling .s5-select {
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .d3-ch5-sampling .s5-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-ch5-sampling .s5-btn {
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch5-sampling .s5-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+  }
+  .d3-ch5-sampling .s5-btn--draw {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-ch5-sampling .s5-btn--draw:hover {
+    opacity: 0.9;
+    color: #fff;
+  }
+  .d3-ch5-sampling .s5-sliders {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+  }
+  .d3-ch5-sampling .s5-slider-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .d3-ch5-sampling .s5-slider-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .d3-ch5-sampling .s5-slider-val {
+    font-family: var(--font-mono, monospace);
+    color: var(--primary-color);
+    font-weight: 700;
+  }
+  .d3-ch5-sampling .s5-slider-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+  }
+  .d3-ch5-sampling input[type="range"] {
+    width: 100%;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch5-sampling svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .d3-ch5-sampling .s5-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    font-size: 12px;
+  }
+  .d3-ch5-sampling .s5-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .d3-ch5-sampling .s5-stat strong {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-color);
+  }
+  .d3-ch5-sampling .s5-sampled {
+    font-family: var(--font-mono, monospace);
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 5px;
+    background: color-mix(in oklab, var(--primary-color) 18%, var(--surface-bg));
+    color: var(--text-color);
+  }
+  @media (max-width: 680px) {
+    .d3-ch5-sampling .s5-sliders {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const SCENARIOS = [
+      {
+        label: 'Ngữ cảnh sáng tạo: "Cánh cửa gỗ mở ra, bên trong là một..."',
+        tokens: [
+          { word: 'căn', logit: 3.1 },
+          { word: 'thế', logit: 2.7 },
+          { word: 'kho', logit: 2.4 },
+          { word: 'hành', logit: 2.0 },
+          { word: 'bóng', logit: 1.7 },
+          { word: 'khu', logit: 1.3 },
+          { word: 'người', logit: 0.9 },
+          { word: 'chiếc', logit: 0.5 },
+          { word: 'con', logit: 0.1 },
+          { word: 'trái', logit: -0.6 },
+        ],
+      },
+      {
+        label: 'Ngữ cảnh sự kiện: "Thủ đô của nước Pháp là thành phố..."',
+        tokens: [
+          { word: 'Paris', logit: 5.2 },
+          { word: 'Lyon', logit: 1.9 },
+          { word: 'lớn', logit: 1.4 },
+          { word: 'cổ', logit: 0.9 },
+          { word: 'Marseille', logit: 0.5 },
+          { word: 'xinh', logit: 0.1 },
+          { word: 'châu', logit: -0.4 },
+          { word: 'London', logit: -0.9 },
+          { word: 'biển', logit: -1.5 },
+          { word: 'tuyết', logit: -2.2 },
+        ],
+      },
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch5-sampling'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch5-sampling'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let KEEP_COL = '#4e79a7';
+        let CUT_COL = '#9ca3af';
+        let ACCENT_COL = '#f28e2b';
+
+        const readColors = () => {
+          try {
+            const cat = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 2) {
+              KEEP_COL = cat[0];
+              ACCENT_COL = cat[1];
+            }
+          } catch (_) {}
+        };
+        readColors();
+
+        let scenarioIdx = 0;
+        let temp = 0.9;
+        let topK = 10;
+        let topP = 0.90;
+        let sampledIdx = -1;
+
+        // Top controls
+        const topRow = document.createElement('div');
+        topRow.className = 's5-top';
+        const ctxBox = document.createElement('div');
+        ctxBox.className = 's5-context-box';
+        const select = document.createElement('select');
+        select.className = 's5-select';
+        SCENARIOS.forEach((sc, i) => {
+          const opt = document.createElement('option');
+          opt.value = String(i);
+          opt.textContent = sc.label;
+          select.appendChild(opt);
+        });
+        ctxBox.appendChild(select);
+
+        const presets = document.createElement('div');
+        presets.className = 's5-presets';
+        const makePreset = (label, t, k, p) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 's5-btn';
+          b.textContent = label;
+          b.addEventListener('click', () => {
+            temp = t;
+            topK = k;
+            topP = p;
+            sampledIdx = -1;
+            syncInputs();
+            update();
+          });
+          presets.appendChild(b);
+        };
+        makePreset('Tham lam (Greedy)', 0.1, 1, 1.0);
+        makePreset('Cân bằng (T=0.8, p=0.9)', 0.8, 10, 0.9);
+        makePreset('Sáng tạo (T=1.3, k=5)', 1.3, 5, 0.95);
+        makePreset('Phẳng (T=2.0)', 2.0, 10, 1.0);
+
+        topRow.append(ctxBox, presets);
+
+        // Sliders
+        const sliders = document.createElement('div');
+        sliders.className = 's5-sliders';
+
+        const createSlider = (title, min, max, step, val, subText, onChange) => {
+          const grp = document.createElement('div');
+          grp.className = 's5-slider-group';
+          const head = document.createElement('div');
+          head.className = 's5-slider-head';
+          const nameSpan = document.createElement('span');
+          nameSpan.textContent = title;
+          const valSpan = document.createElement('span');
+          valSpan.className = 's5-slider-val';
+          head.append(nameSpan, valSpan);
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.min = String(min);
+          input.max = String(max);
+          input.step = String(step);
+          input.value = String(val);
+          const sub = document.createElement('div');
+          sub.className = 's5-slider-sub';
+          sub.textContent = subText;
+          input.addEventListener('input', () => {
+            onChange( parseFloat(input.value) );
+          });
+          grp.append(head, input, sub);
+          sliders.appendChild(grp);
+          return { input, valSpan };
+        };
+
+        const slTemp = createSlider(
+          'Nhiệt độ (Temperature T)',
+          0.1, 2.0, 0.05, temp,
+          'T < 1 làm nhọn đỉnh; T > 1 san phẳng phân phối',
+          (v) => { temp = v; sampledIdx = -1; update(); }
+        );
+        const slTopK = createSlider(
+          'Giới hạn Top-k',
+          1, 10, 1, topK,
+          'Chỉ giữ lại tối đa k ứng viên có xác suất cao nhất',
+          (v) => { topK = Math.round(v); sampledIdx = -1; update(); }
+        );
+        const slTopP = createSlider(
+          'Hạt nhân Top-p (Nucleus)',
+          0.10, 1.00, 0.05, topP,
+          'Giữ tập nhỏ nhất có tổng xác suất tích lũy ≥ p',
+          (v) => { topP = v; sampledIdx = -1; update(); }
+        );
+
+        const syncInputs = () => {
+          slTemp.input.value = String(temp);
+          slTopK.input.value = String(topK);
+          slTopP.input.value = String(topP);
+        };
+
+        // SVG
+        const W = 720;
+        const H = 310;
+        const margin = { top: 24, right: 90, bottom: 26, left: 82 };
+        const innerW = W - margin.left - margin.right;
+        const innerH = H - margin.top - margin.bottom;
+
+        const svg = d3.select(container)
+          .append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        // Insert topRow and sliders before SVG
+        container.insertBefore(topRow, svg.node());
+        container.insertBefore(sliders, svg.node());
+
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        // Footer
+        const footer = document.createElement('div');
+        footer.className = 's5-footer';
+        const statsDiv = document.createElement('div');
+        statsDiv.className = 's5-stats';
+
+        const drawBox = document.createElement('div');
+        drawBox.style.display = 'flex';
+        drawBox.style.alignItems = 'center';
+        drawBox.style.gap = '8px';
+        const btnDraw = document.createElement('button');
+        btnDraw.type = 'button';
+        btnDraw.className = 's5-btn s5-btn--draw';
+        btnDraw.textContent = '🎲 Rút mẫu ngẫu nhiên';
+        const sampledSpan = document.createElement('span');
+        sampledSpan.className = 's5-sampled';
+        sampledSpan.textContent = 'Chưa rút';
+        drawBox.append(btnDraw, sampledSpan);
+
+        footer.append(statsDiv, drawBox);
+        container.appendChild(footer);
+
+        const computeDist = () => {
+          const raw = SCENARIOS[scenarioIdx].tokens;
+          const scaled = raw.map((d) => d.logit / Math.max(0.05, temp));
+          const maxL = d3.max(scaled);
+          const exps = scaled.map((x) => Math.exp(x - maxL));
+          const sumExp = d3.sum(exps);
+          const probs = exps.map((e) => e / sumExp);
+
+          let cum = 0;
+          const items = raw.map((d, i) => {
+            const prevCum = cum;
+            cum += probs[i];
+            // Kept if i < topK AND previous cumulative prob < topP (always keep at least index 0)
+            const keptByK = i < topK;
+            const keptByP = i === 0 || prevCum < topP - 1e-9;
+            const kept = keptByK && keptByP;
+            return {
+              index: i,
+              word: d.word,
+              logit: d.logit,
+              probT: probs[i],
+              cumProb: cum,
+              kept,
+              reason: !kept ? (!keptByK ? `Cắt bởi Top-k (>${topK})` : `Cắt bởi Top-p (tích lũy >${topP.toFixed(2)})`) : 'Giữ lại',
+            };
+          });
+
+          const keptMass = d3.sum(items, (d) => (d.kept ? d.probT : 0));
+          items.forEach((d) => {
+            d.finalProb = d.kept ? d.probT / keptMass : 0;
+          });
+
+          let entropy = 0;
+          items.forEach((d) => {
+            if (d.finalProb > 1e-9) {
+              entropy -= d.finalProb * Math.log2(d.finalProb);
+            }
+          });
+
+          return { items, keptMass, entropy };
+        };
+
+        const update = () => {
+          slTemp.valSpan.textContent = `T = ${temp.toFixed(2)}`;
+          slTopK.valSpan.textContent = `k = ${topK}`;
+          slTopP.valSpan.textContent = `p = ${topP.toFixed(2)}`;
+
+          const { items, keptMass, entropy } = computeDist();
+          const keptCount = items.filter((d) => d.kept).length;
+
+          const x = d3.scaleLinear().domain([0, 1]).range([0, innerW]);
+          const y = d3.scaleBand()
+            .domain(items.map((d) => d.word))
+            .range([0, innerH])
+            .padding(0.24);
+
+          g.selectAll('*').remove();
+
+          // Grid lines
+          const ticks = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
+          g.selectAll('.grid-line')
+            .data(ticks)
+            .join('line')
+            .attr('x1', (t) => x(t))
+            .attr('x2', (t) => x(t))
+            .attr('y1', 0)
+            .attr('y2', innerH)
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', '3,3');
+
+          g.selectAll('.grid-label')
+            .data(ticks)
+            .join('text')
+            .attr('x', (t) => x(t))
+            .attr('y', -7)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10.5)
+            .attr('fill', 'var(--muted-color)')
+            .text((t) => `${Math.round(t * 100)}%`);
+
+          const rows = g.selectAll('.tok-row')
+            .data(items)
+            .join('g')
+            .attr('class', 'tok-row')
+            .attr('transform', (d) => `translate(0,${y(d.word)})`);
+
+          // Token label on left
+          rows.append('text')
+            .attr('x', -10)
+            .attr('y', y.bandwidth() / 2)
+            .attr('dy', '0.35em')
+            .attr('text-anchor', 'end')
+            .attr('font-family', 'var(--font-mono, monospace)')
+            .attr('font-size', 12)
+            .attr('font-weight', (d) => (d.kept ? 700 : 400))
+            .attr('fill', (d) => (d.kept ? 'var(--text-color)' : 'var(--muted-color)'))
+            .attr('text-decoration', (d) => (d.kept ? 'none' : 'line-through'))
+            .text((d) => `"${d.word}"`);
+
+          // Ghost bar: pre-cutoff probability p_i(T)
+          rows.append('rect')
+            .attr('x', 0)
+            .attr('y', 0)
+            .attr('width', (d) => Math.max(2, x(d.probT)))
+            .attr('height', y.bandwidth())
+            .attr('rx', 3)
+            .attr('fill', (d) => (d.kept ? KEEP_COL : CUT_COL))
+            .attr('opacity', 0.22);
+
+          // Solid bar: renormalized probability \tilde{p}_i
+          rows.append('rect')
+            .attr('x', 0)
+            .attr('y', 0)
+            .attr('width', (d) => (d.kept ? Math.max(3, x(d.finalProb)) : 0))
+            .attr('height', y.bandwidth())
+            .attr('rx', 3)
+            .attr('fill', (d) => (d.index === sampledIdx ? ACCENT_COL : KEEP_COL))
+            .attr('stroke', (d) => (d.index === sampledIdx ? 'var(--text-color)' : 'none'))
+            .attr('stroke-width', 1.5);
+
+          // Value labels on right of bars
+          rows.append('text')
+            .attr('x', (d) => x(Math.max(d.probT, d.finalProb)) + 6)
+            .attr('y', y.bandwidth() / 2)
+            .attr('dy', '0.35em')
+            .attr('font-size', 11)
+            .attr('fill', (d) => (d.kept ? 'var(--text-color)' : 'var(--muted-color)'))
+            .text((d) => {
+              if (!d.kept) return `bị loại (${(d.probT * 100).toFixed(1)}% · ${d.reason})`;
+              return `${(d.finalProb * 100).toFixed(1)}% (gốc ${(d.probT * 100).toFixed(1)}%, tích lũy ${(d.cumProb * 100).toFixed(0)}%)`;
+            });
+
+          // Draw horizontal cutoff divider after last kept token
+          if (keptCount < items.length) {
+            const lastKept = items[keptCount - 1];
+            const nextCut = items[keptCount];
+            const cutY = (y(lastKept.word) + y.bandwidth() + y(nextCut.word)) / 2;
+
+            g.append('line')
+              .attr('x1', -72)
+              .attr('x2', innerW + 80)
+              .attr('y1', cutY)
+              .attr('y2', cutY)
+              .attr('stroke', ACCENT_COL)
+              .attr('stroke-width', 1.8)
+              .attr('stroke-dasharray', '5,4');
+
+            g.append('text')
+              .attr('x', innerW + 76)
+              .attr('y', cutY - 5)
+              .attr('text-anchor', 'end')
+              .attr('font-size', 10.5)
+              .attr('font-weight', 700)
+              .attr('fill', ACCENT_COL)
+              .text(`▲ Ranh giới cắt hạt nhân (Giữ ${keptCount}/${items.length} token)`);
+          }
+
+          statsDiv.innerHTML = `
+            <span class="s5-stat">Ứng viên hợp lệ: <strong>${keptCount} / ${items.length}</strong></span>
+            <span class="s5-stat">Khối lượng xác suất giữ lại: <strong>${(keptMass * 100).toFixed(1)}%</strong></span>
+            <span class="s5-stat">Entropy đầu ra H(p̃): <strong>${entropy.toFixed(2)} bits</strong></span>
+          `;
+        };
+
+        select.addEventListener('change', () => {
+          scenarioIdx = parseInt(select.value, 10) || 0;
+          sampledIdx = -1;
+          sampledSpan.textContent = 'Chưa rút';
+          update();
+        });
+
+        btnDraw.addEventListener('click', () => {
+          const { items } = computeDist();
+          const r = Math.random();
+          let acc = 0;
+          let chosen = items[0];
+          for (const it of items) {
+            if (!it.kept) continue;
+            acc += it.finalProb;
+            if (r <= acc) {
+              chosen = it;
+              break;
+            }
+          }
+          sampledIdx = chosen.index;
+          sampledSpan.textContent = `"${chosen.word}" (${(chosen.finalProb * 100).toFixed(1)}%)`;
+          update();
+        });
+
+        document.addEventListener('palettes:updated', () => {
+          readColors();
+          update();
+        });
+
+        update();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

@@ -1,0 +1,14 @@
+export const cells = 1;
+
+```python
+import torch
+
+torch.manual_seed(123)
+d_head = 16
+q = torch.randn(d_head)
+k = torch.randn(d_head)
+print("Vector q và k (16 chiều), chuẩn L2:",
+      round(q.norm().item(), 4), round(k.norm().item(), 4))
+```
+
+<section className="code-output"><pre>{"Vector q và k (16 chiều), chuẩn L2: 3.7483 3.9112"}</pre></section>

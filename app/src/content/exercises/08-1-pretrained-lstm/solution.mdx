@@ -10,9 +10,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Giữ lại 5.000 bài đánh giá huấn luyện làm tập xác thực và
+# thay thế các thẻ ngắt dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -30,24 +30,24 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# The vocabulary of exercise 3.2: the 10,000 most frequent words
-# of the training reviews. build_analyzer() returns the function
-# that CountVectorizer uses to cut a text into words.
-# [Copied from the starter of 7.2b]
+# Từ vựng của bài 3.2: 10.000 từ phổ biến nhất trong các bài đánh
+# giá huấn luyện. build_analyzer() trả về hàm mà CountVectorizer
+# dùng để tách văn bản thành các từ.
+# [Sao chép từ phần khởi đầu bài 7.2b]
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
                              token_pattern=r"\b\w+\b")
 vectorizer.fit(train_texts)
 split_words = vectorizer.build_analyzer()
-word_index = {word: int(i)   # word -> index, from 0 to V - 1
+word_index = {word: int(i)   # từ -> chỉ số, từ 0 đến V - 1
               for word, i in vectorizer.vocabulary_.items()}
 V = len(word_index)
 
-# Turn a review into the list of the indices of its words, in
-# order. The words outside the vocabulary get the index V. Keep
-# only the last 400 words of the long reviews.
-# [Copied from the starter of 7.2b]
+# Chuyển mỗi bài đánh giá thành danh sách chỉ số các từ theo đúng
+# thứ tự. Các từ ngoài từ vựng nhận chỉ số V. Chỉ giữ lại 400 từ
+# cuối cùng đối với các bài đánh giá dài.
+# [Sao chép từ phần khởi đầu bài 7.2b]
 max_length = 400
 
 def to_indices(text):
@@ -59,13 +59,12 @@ val_sequences = [to_indices(text) for text in val_texts]
 test_sequences = [to_indices(text) for text in test_texts]
 
 
-# (1) The model: the embeddings of the words (one more for the
-# unknown words), an LSTM that reads them in order, and a head
-# that reads its last state. The reviews of a batch have different
-# lengths: pad them with zeros to the same length, and pack them
-# with their lengths, so that the LSTM stops at the last word of
-# each review and never reads the padding.
-# [Copied from the solution of 7.2b, step (1)]
+# (1) Mô hình: tầng nhúng từ (thêm một hàng cho từ chưa biết), một
+# mạng LSTM đọc chúng theo thứ tự, và một đầu phân loại đọc trạng
+# thái cuối cùng. Các bài đánh giá trong cùng một lô có độ dài khác
+# nhau: đệm thêm các số 0 để có cùng độ dài và đóng gói kèm độ dài
+# thực để LSTM dừng ở từ cuối của mỗi bài mà không đọc phần đệm.
+# [Sao chép từ lời giải bài 7.2b, bước (1)]
 import torch
 from torch import nn
 
@@ -74,7 +73,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 class LSTMClassifier(nn.Module):
     def __init__(self, V, D, H):
         super().__init__()
-        self.embedding = nn.Embedding(V + 1, D)   # + unknown
+        self.embedding = nn.Embedding(V + 1, D)   # + từ chưa biết
         self.lstm = nn.LSTM(D, H, batch_first=True)
         self.head = nn.Linear(H, 1)   # p(positive) = sigmoid
 
@@ -86,17 +85,17 @@ class LSTMClassifier(nn.Module):
         packed = nn.utils.rnn.pack_padded_sequence(
             x, lengths, batch_first=True, enforce_sorted=False)
         _, (h, c) = self.lstm(packed)   # h: (1, batch, H)
-        return self.head(h[0])[:, 0]   # the score of each review
+        return self.head(h[0])[:, 0]   # điểm số của mỗi bài đánh giá
 
 torch.manual_seed(0)
 model = LSTMClassifier(V, D=100, H=128).to(device)
 
 
 # ----------------------
-#  New in this exercise
+#  Mới trong bài tập này
 # ----------------------
-# The 50,000 unlabeled reviews of IMDB, turned into lists of word
-# indices in the same way
+# 50.000 bài đánh giá không gán nhãn của IMDB, được chuyển thành
+# danh sách chỉ số từ theo cùng một cách
 unlabeled_texts = clean(imdb["unsupervised"]["text"])
 unlabeled_sequences = [to_indices(text) for text in unlabeled_texts]
 n_words = sum(len(sequence) for sequence in unlabeled_sequences)
@@ -109,17 +108,16 @@ print(split_words(unlabeled_texts[0])[:10])
 <section className="code-output"><pre>{"train: 20000 reviews\nvalidation: 5000 reviews\ntest: 25000 reviews\n\nunlabeled: 50000 reviews, 10565838 words\n['this', 'is', 'just', 'a', 'precious', 'little', 'diamond', 'the', 'play', 'the']"}</pre></section>
 
 ```python
-# (1) The language model: the embeddings and the LSTM of the
-# classifier of exercise 7.2b, and an output layer that gives a
-# score to each word of the vocabulary at each position, as in
-# exercise 7.3. The unknown words (index V) are one more word that
-# it can predict. Start from small embeddings, as in exercise 4.2.
+# (1) Mô hình ngôn ngữ: tầng nhúng và mạng LSTM của bộ phân loại ở
+# bài 7.2b, cùng tầng đầu ra chấm điểm cho từng từ trong từ vựng tại
+# mỗi vị trí như ở bài 7.3. Các từ chưa biết (chỉ số V) là một từ
+# nữa mà mô hình có thể dự đoán. Khởi tạo nhúng nhỏ như bài 4.2.
 import torch.nn.functional as F
 
 class LSTMLanguageModel(nn.Module):
     def __init__(self, V, D, H):
         super().__init__()
-        self.embedding = nn.Embedding(V + 1, D)   # + unknown
+        self.embedding = nn.Embedding(V + 1, D)   # + từ chưa biết
         self.lstm = nn.LSTM(D, H, batch_first=True)
         self.output = nn.Linear(H, V + 1)
 
@@ -133,12 +131,11 @@ language_model = LSTMLanguageModel(V, D=100, H=128).to(device)
 nn.init.normal_(language_model.embedding.weight, std=0.1)
 
 
-# (2) A batch of reviews: the inputs x are the words of each review
-# but the last one, the targets y are the words that follow them.
-# pad_sequence pads the short reviews at the end: the LSTM reads
-# from left to right, so the padding does not change the states of
-# the real words. The targets are padded with -100, which
-# F.cross_entropy ignores, so the padding does not count in the loss.
+# (2) Một lô bài đánh giá: đầu vào x gồm các từ của mỗi bài trừ từ
+# cuối, nhãn y gồm các từ theo sau chúng. pad_sequence đệm vào cuối
+# các bài ngắn: LSTM đọc từ trái sang phải nên phần đệm không làm
+# đổi trạng thái của các từ thật. Nhãn được đệm bằng -100, giá trị
+# mà F.cross_entropy bỏ qua nên phần đệm không tính vào hàm mất mát.
 from torch.nn.utils.rnn import pad_sequence
 
 def make_batch(sequences):
@@ -149,7 +146,7 @@ def make_batch(sequences):
     return x.to(device), y.to(device)
 
 
-# (3) The perplexity on a list of reviews, 50 reviews at a time
+# (3) Độ hỗn loạn trên danh sách các bài đánh giá, mỗi lần 50 bài
 import math
 
 def perplexity(model, sequences):
@@ -165,8 +162,8 @@ def perplexity(model, sequences):
     return math.exp(total_loss / count)
 
 
-# (4) Train for one epoch on the unlabeled reviews, in batches of
-# 64 reviews, with Adam and gradient clipping as in exercise 7.3
+# (4) Huấn luyện một epoch trên các bài đánh giá không nhãn theo lô
+# 64 bài, với Adam và cắt ngưỡng đạo hàm như ở bài 7.3
 optimizer = torch.optim.Adam(language_model.parameters(), lr=2e-3)
 order = torch.randperm(len(unlabeled_sequences)).tolist()
 for start in range(0, len(order), 64):
@@ -183,8 +180,8 @@ val_perplexity = perplexity(language_model, val_sequences)
 print(f"validation perplexity: {val_perplexity:.1f}")
 
 
-# (5) Generate the end of a review that starts with "this movie",
-# one word at a time, as in exercise 7.3
+# (5) Sinh phần tiếp theo cho bài đánh giá bắt đầu bằng "this movie",
+# từng từ một như ở bài 7.3
 vocabulary = list(vectorizer.get_feature_names_out()) + ["<unk>"]
 first_words = ["this", "movie"]
 length = 40
@@ -205,14 +202,14 @@ print(f"\n{' '.join(sample_words)}")
 <section className="code-output"><pre>{"validation perplexity: 212.1\n\nthis movie isn t believable i m leaving the apocalypse wretched gore moments this is while i have to add here sci construction and allows married and make a happy riding you say i heard of sort of sci fi story it"}</pre></section>
 
 ```python
-# (1) What does the language model know about sentiment? Freeze it,
-# and train a logistic regression, as in exercise 3.2, on its state
-# after the last word of each review. Do the same with the same
-# network before its training, for comparison.
+# (1) Mô hình ngôn ngữ biết gì về sắc thái cảm xúc? Đóng băng nó và
+# huấn luyện hồi quy logistic như ở bài 3.2 trên trạng thái sau từ
+# cuối cùng của mỗi bài đánh giá. Làm tương tự với chính mạng đó
+# trước khi huấn luyện để so sánh.
 from sklearn.linear_model import LogisticRegression
 
 def last_states(model, sequences):
-    # The state after the last word of each review, 500 at a time
+    # Trạng thái sau từ cuối cùng của mỗi bài đánh giá, 500 bài/lần
     states = []
     with torch.no_grad():
         for start in range(0, len(sequences), 500):
@@ -221,7 +218,7 @@ def last_states(model, sequences):
             padded = pad_sequence([torch.tensor(s) for s in batch],
                                   batch_first=True)
             e = model.embedding(padded.to(device))
-            h, _ = model.lstm(e)   # (batch, L, H): after each word
+            h, _ = model.lstm(e)   # (batch, L, H): sau mỗi từ
             last = h[torch.arange(len(batch)), lengths - 1]
             states.append(last.cpu())
     return torch.cat(states)
@@ -239,18 +236,17 @@ for name, lm in [("before training", untrained_model),
     print(f"LSTM {name}: test accuracy {probe_accuracy:.3f}")
 
 
-# (2) Fine-tune the classifier of exercise 7.2b on 1,000 labeled
-# reviews, with three starts: random (from scratch), the
-# embeddings of the language model, or its embeddings and its LSTM.
-# The head is new in all three. As in exercise 5.5b, draw the
-# batches at random from the labeled reviews, measure the accuracy
-# on 1,000 validation reviews every 50 batches, and keep the best
-# model.
+# (2) Tinh chỉnh bộ phân loại của bài 7.2b trên 1.000 bài đánh giá
+# có nhãn với ba cách khởi tạo: ngẫu nhiên (từ đầu), lấy tầng nhúng
+# của mô hình ngôn ngữ, hoặc lấy cả tầng nhúng lẫn mạng LSTM của nó.
+# Đầu phân loại đều tạo mới trong cả ba cách. Như ở bài 5.5b, lấy
+# ngẫu nhiên các lô từ tập có nhãn, đo độ chính xác trên 1.000 bài
+# xác thực sau mỗi 50 lô và giữ lại mô hình tốt nhất.
 import copy
 import random
 
 def predict(model, sequences):
-    # p(positive) for each sequence, 500 sequences at a time
+    # p(positive) cho mỗi chuỗi, mỗi lần 500 chuỗi
     probabilities = []
     with torch.no_grad():
         for start in range(0, len(sequences), 500):
@@ -273,7 +269,7 @@ def fine_tune(start, chosen, n_batches=400):
     y = torch.tensor(train_labels, dtype=torch.float32)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_function = nn.BCEWithLogitsLoss()
-    random.seed(0)   # the same batches for the three starts
+    random.seed(0)   # dùng cùng các lô cho cả ba cách khởi tạo
     best_accuracy = 0
     for step in range(1, n_batches + 1):
         batch = random.choices(chosen, k=32)
@@ -292,8 +288,8 @@ def fine_tune(start, chosen, n_batches=400):
     return best_model
 
 
-# (3) Fine-tune each start on 3 random sets of 1,000 labeled
-# reviews, and average the test accuracies
+# (3) Tinh chỉnh mỗi cách khởi tạo trên 3 tập ngẫu nhiên gồm 1.000
+# bài đánh giá có nhãn và lấy trung bình độ chính xác kiểm tra
 starts = ["from scratch", "embeddings", "embeddings and LSTM"]
 results = {start: [] for start in starts}
 for seed in range(3):

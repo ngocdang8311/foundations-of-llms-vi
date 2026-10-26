@@ -1,0 +1,21 @@
+export const cells = 1;
+
+```python
+import torch
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+B, L, d = 4, 256, 32
+
+# Khởi tạo Q, K, V ngẫu nhiên và hàm ánh xạ đặc trưng dương phi(x)
+Q = torch.randn(B, L, d)
+K = torch.randn(B, L, d)
+V = torch.randn(B, L, d)
+
+def phi(x):
+    return F.elu(x) + 1.0
+
+print(f"Q, K, V shape: {tuple(Q.shape)}")
+```
+
+<section className="code-output"><pre>{"Q, K, V shape: (4, 256, 32)"}</pre></section>

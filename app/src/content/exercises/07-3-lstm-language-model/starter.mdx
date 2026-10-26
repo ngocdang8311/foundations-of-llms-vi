@@ -8,8 +8,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách mỗi dòng theo khoảng trắng
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -18,8 +18,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# The validation and test sequences, built in the same way
-# [Copied from the starter of 2.2]
+# Chuỗi xác thực và chuỗi kiểm tra, được tạo theo cùng cách
+# [Sao chép từ phần khởi đầu bài 2.2]
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())
@@ -32,23 +32,23 @@ print(f"validation: {len(val_sequence)} words")
 print(f"test: {len(test_sequence)} words")
 
 
-# Give each word of the vocabulary an index
-# [Copied from the starter of 4.2]
+# Gán một chỉ số cho mỗi từ trong từ vựng
+# [Sao chép từ phần khởi đầu bài 4.2]
 vocabulary = sorted(set(train_sequence))
 word_index = {word: i for i, word in enumerate(vocabulary)}
 
 
 # ----------------------
-#  New in this exercise
+#  Mới trong bài tập này
 # ----------------------
-# Cut a sequence into n streams of indices: row i holds the i-th
-# piece of the text. A batch reads the n streams side by side, so
-# that each stream continues from one batch to the next.
+# Cắt chuỗi thành n luồng chỉ số: hàng i chứa phần thứ i của văn
+# bản. Mỗi lô đọc n luồng song song cạnh nhau để mỗi luồng được
+# nối tiếp từ lô này sang lô tiếp theo.
 import torch
 
 def make_streams(sequence, n):
     indices = torch.tensor([word_index[word] for word in sequence])
-    length = len(indices) // n   # drop the last few words
+    length = len(indices) // n   # bỏ một vài từ cuối cùng
     return indices[:n * length].view(n, length)
 
 train_streams = make_streams(train_sequence, 32)

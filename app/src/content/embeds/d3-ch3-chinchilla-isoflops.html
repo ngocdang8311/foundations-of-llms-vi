@@ -1,0 +1,366 @@
+<div class="d3-ch3-chinchilla-isoflops"></div>
+<style>
+  .d3-ch3-chinchilla-isoflops {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch3-chinchilla-isoflops .iso-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 20px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 12px;
+  }
+  .d3-ch3-chinchilla-isoflops .iso-ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .d3-ch3-chinchilla-isoflops .iso-btn {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .d3-ch3-chinchilla-isoflops .iso-btn.active {
+    border-color: var(--primary-color);
+    background: color-mix(in oklab, var(--primary-color) 15%, var(--surface-bg));
+  }
+  .d3-ch3-chinchilla-isoflops svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 750px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch3-chinchilla-isoflops .iso-readout {
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    border: 1px solid var(--border-color);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch3-chinchilla-isoflops'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch3-chinchilla-isoflops'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      // Symmetric exponent fit around D_opt = 20 N so parabolic minimum sits cleanly at D = 20 N
+      // L(N, D) = E + A * N^(-alpha) + B * D^(-beta)
+      // With alpha = 0.31, beta = 0.31, and B = A * (20)^0.31 so dL/dN = 0 along C=6ND gives D = 20N!
+      const E = 1.69, ALPHA = 0.31, BETA = 0.31;
+      const A = 185.0;
+      const B = A * Math.pow(20, BETA);
+
+      const lossND = (N, D) => E + A * Math.pow(N, -ALPHA) + B * Math.pow(D, -BETA);
+      const optNForC = (C) => Math.sqrt(C / 120);
+
+      const BUDGETS = [
+        { id: 0, label: '6×10¹⁸', C: 6e18, logNMin: 7.4, logNMax: 9.8 },
+        { id: 1, label: '6×10¹⁹', C: 6e19, logNMin: 7.8, logNMax: 10.3 },
+        { id: 2, label: '6×10²⁰', C: 6e20, logNMin: 8.3, logNMax: 10.8 },
+        { id: 3, label: '6×10²¹', C: 6e21, logNMin: 8.8, logNMax: 11.3 },
+        { id: 4, label: '5.8×10²³ (Gopher/Chinchilla)', C: 5.76e23, logNMin: 9.6, logNMax: 11.8 }
+      ];
+
+      let selectedBudgetIdx = 4;
+      let probeLogN = Math.log10(optNForC(BUDGETS[4].C)); // starts at Chinchilla 70B
+
+      const controls = document.createElement('div');
+      controls.className = 'iso-controls';
+
+      const btnGroup = document.createElement('div');
+      btnGroup.className = 'iso-ctrl-group';
+      const lbl = document.createElement('span');
+      lbl.style.fontWeight = '700';
+      lbl.style.fontSize = '12px';
+      lbl.textContent = 'Đường đồng mức IsoFLOPs (C):';
+      btnGroup.appendChild(lbl);
+
+      const budgetBtns = BUDGETS.map((b, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'iso-btn' + (i === selectedBudgetIdx ? ' active' : '');
+        btn.textContent = b.label;
+        btn.addEventListener('click', () => {
+          selectedBudgetIdx = i;
+          probeLogN = Math.log10(optNForC(b.C));
+          nSlider.min = String(b.logNMin);
+          nSlider.max = String(b.logNMax);
+          nSlider.value = String(probeLogN);
+          budgetBtns.forEach((el) => el.classList.remove('active'));
+          btn.classList.add('active');
+          render();
+        });
+        btnGroup.appendChild(btn);
+        return btn;
+      });
+
+      const sliderGroup = document.createElement('div');
+      sliderGroup.className = 'iso-ctrl-group';
+      const sLbl = document.createElement('span');
+      sLbl.style.fontSize = '12px';
+      sLbl.style.fontWeight = '600';
+      sLbl.textContent = 'Chọn kích thước N trên đường cong:';
+      const nSlider = document.createElement('input');
+      nSlider.type = 'range';
+      nSlider.min = String(BUDGETS[4].logNMin);
+      nSlider.max = String(BUDGETS[4].logNMax);
+      nSlider.step = '0.02';
+      nSlider.value = String(probeLogN);
+      nSlider.style.accentColor = 'var(--primary-color)';
+      sliderGroup.append(sLbl, nSlider);
+
+      controls.append(btnGroup, sliderGroup);
+      container.appendChild(controls);
+
+      const W = 750, H = 295;
+      const margin = { top: 24, right: 32, bottom: 38, left: 56 };
+      const iW = W - margin.left - margin.right;
+      const iH = H - margin.top - margin.bottom;
+
+      const svg = d3.select(container).append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Biểu đồ đường cong IsoFLOPs của Chinchilla');
+      const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const xScale = d3.scaleLinear().domain([7.3, 11.9]).range([0, iW]);
+      const yScale = d3.scaleLinear().domain([1.85, 3.45]).range([iH, 0]);
+
+      g.append('g').attr('transform', `translate(0,${iH})`).call(
+        d3.axisBottom(xScale)
+          .tickValues([7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5])
+          .tickFormat((d) => ({
+            7.5: '30M', 8: '100M', 8.5: '300M', 9: '1B', 9.5: '3B',
+            10: '10B', 10.5: '30B', 11: '100B', 11.5: '300B'
+          }[d] || ''))
+      );
+      g.append('g').call(d3.axisLeft(yScale).ticks(6));
+      svg.selectAll('.domain, .tick line').attr('stroke', 'var(--border-color)');
+      svg.selectAll('.tick text').attr('fill', 'var(--muted-color)').attr('font-size', '10.5px');
+
+      g.append('text')
+        .attr('x', iW / 2).attr('y', iH + 32)
+        .attr('text-anchor', 'middle').attr('font-size', '11.5px').attr('fill', 'var(--muted-color)')
+        .text('Số lượng tham số mô hình N (thang log)');
+      g.append('text')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -iH / 2).attr('y', -42)
+        .attr('text-anchor', 'middle').attr('font-size', '11.5px').attr('fill', 'var(--muted-color)')
+        .text('Hàm mất mát kiểm định L(N, D) (nats)');
+
+      // Shaded regions for Over-training vs Under-training
+      const curvesG = g.append('g');
+      const frontierPath = g.append('path').attr('fill', 'none').attr('stroke-width', 2).attr('stroke-dasharray', '5,4');
+      const minimaG = g.append('g');
+      const annotationsG = g.append('g');
+      const probeG = g.append('g');
+
+      const readout = document.createElement('div');
+      readout.className = 'iso-readout';
+      container.appendChild(readout);
+
+      let PALETTE = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f'];
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 5);
+            if (cat && cat.length >= 5) PALETTE = cat;
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const fmtN = (n) => n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : `${(n / 1e6).toFixed(0)}M`;
+      const fmtD = (d) => d >= 1e12 ? `${(d / 1e12).toFixed(2)}T` : d >= 1e9 ? `${(d / 1e9).toFixed(1)}B` : `${(d / 1e6).toFixed(0)}M`;
+
+      const render = () => {
+        curvesG.selectAll('*').remove();
+        minimaG.selectAll('*').remove();
+        annotationsG.selectAll('*').remove();
+        probeG.selectAll('*').remove();
+
+        const lineGen = d3.line()
+          .x((d) => xScale(d.logN))
+          .y((d) => yScale(d.loss));
+
+        const frontierPts = [];
+
+        BUDGETS.forEach((b, idx) => {
+          const isSel = idx === selectedBudgetIdx;
+          const col = PALETTE[idx % PALETTE.length];
+          const pts = d3.range(b.logNMin, b.logNMax + 0.01, 0.04).map((logN) => {
+            const N = Math.pow(10, logN);
+            const D = b.C / (6 * N);
+            return { logN, loss: lossND(N, D) };
+          });
+
+          curvesG.append('path')
+            .datum(pts)
+            .attr('fill', 'none')
+            .attr('stroke', col)
+            .attr('stroke-width', isSel ? 3.0 : 1.7)
+            .attr('opacity', isSel ? 1.0 : 0.65)
+            .attr('d', lineGen)
+            .style('cursor', 'pointer')
+            .on('click', () => {
+              selectedBudgetIdx = idx;
+              probeLogN = Math.log10(optNForC(b.C));
+              nSlider.min = String(b.logNMin);
+              nSlider.max = String(b.logNMax);
+              nSlider.value = String(probeLogN);
+              budgetBtns.forEach((el, k) => el.classList.toggle('active', k === idx));
+              render();
+            });
+
+          const nOpt = optNForC(b.C);
+          const dOpt = 20 * nOpt;
+          const logNOpt = Math.log10(nOpt);
+          const lOpt = lossND(nOpt, dOpt);
+          frontierPts.push({ logN: logNOpt, loss: lOpt });
+
+          minimaG.append('circle')
+            .attr('cx', xScale(logNOpt))
+            .attr('cy', yScale(lOpt))
+            .attr('r', isSel ? 5.5 : 4)
+            .attr('fill', col)
+            .attr('stroke', 'var(--page-bg)')
+            .attr('stroke-width', 1.5);
+
+          curvesG.append('text')
+            .attr('x', xScale(b.logNMax) + 4)
+            .attr('y', yScale(pts[pts.length - 1].loss))
+            .attr('dy', '0.35em')
+            .attr('font-size', '10px')
+            .attr('font-weight', isSel ? '700' : '500')
+            .attr('fill', col)
+            .text(b.label.split(' ')[0]);
+        });
+
+        // Extend frontier line slightly
+        frontierPath
+          .datum(frontierPts)
+          .attr('stroke', 'var(--text-color)')
+          .attr('d', lineGen);
+
+        // Famous points on the top budget C = 5.76e23:
+        // 1) Chinchilla 70B (D=1.4T) at minimum
+        // 2) Gopher 280B (D=300B) on the right (under-trained)
+        // 3) Over-trained 8B model on the left (D=12T at same C)
+        const cTop = BUDGETS[4].C;
+        const gopherLogN = Math.log10(280e9);
+        const gopherLoss = lossND(280e9, cTop / (6 * 280e9));
+        annotationsG.append('circle')
+          .attr('cx', xScale(gopherLogN)).attr('cy', yScale(gopherLoss))
+          .attr('r', 5).attr('fill', '#e15759');
+        annotationsG.append('text')
+          .attr('x', xScale(gopherLogN) - 6).attr('y', yScale(gopherLoss) - 8)
+          .attr('text-anchor', 'end').attr('font-size', '10.5px').attr('font-weight', '700').attr('fill', '#e15759')
+          .text('Gopher 280B (Thiếu dữ liệu: D/N ≈ 1.2)');
+
+        const chinLogN = Math.log10(70e9);
+        const chinLoss = lossND(70e9, 1.4e12);
+        annotationsG.append('text')
+          .attr('x', xScale(chinLogN)).attr('y', yScale(chinLoss) + 16)
+          .attr('text-anchor', 'middle').attr('font-size', '10.5px').attr('font-weight', '700').attr('fill', PALETTE[4])
+          .text('★ Đáy Chinchilla 70B (D/N = 20)');
+
+        const overLogN = Math.log10(12e9);
+        const overLoss = lossND(12e9, cTop / (6 * 12e9));
+        annotationsG.append('circle')
+          .attr('cx', xScale(overLogN)).attr('cy', yScale(overLoss))
+          .attr('r', 4.5).attr('fill', PALETTE[1]);
+        annotationsG.append('text')
+          .attr('x', xScale(overLogN) + 6).attr('y', yScale(overLoss) - 8)
+          .attr('font-size', '10.5px').attr('font-weight', '700').attr('fill', PALETTE[1])
+          .text('Vùng Over-training (Kiểu Llama-3: N nhỏ, D lớn)');
+
+        // Active probe on selected curve
+        const activeB = BUDGETS[selectedBudgetIdx];
+        const N = Math.pow(10, probeLogN);
+        const D = activeB.C / (6 * N);
+        const L = lossND(N, D);
+        const nOpt = optNForC(activeB.C);
+        const lOpt = lossND(nOpt, 20 * nOpt);
+        const ratio = D / N;
+
+        const px = xScale(probeLogN);
+        const py = yScale(L);
+        probeG.append('line')
+          .attr('x1', px).attr('x2', px).attr('y1', py).attr('y2', iH)
+          .attr('stroke', 'var(--text-color)').attr('stroke-dasharray', '3,3');
+        probeG.append('circle')
+          .attr('cx', px).attr('cy', py).attr('r', 6.5)
+          .attr('fill', 'var(--text-color)')
+          .attr('stroke', 'var(--page-bg)').attr('stroke-width', 2);
+
+        let regimeText = '';
+        if (ratio > 32) {
+          regimeText = '<strong>Vùng Huấn luyện Vượt ngưỡng (Over-training — bên trái đáy parabol):</strong> Mô hình nhỏ hơn cấu hình Chinchilla nhưng được học nhiều dữ liệu hơn ($D/N > 20$), giúp tiết kiệm mạnh VRAM và chi phí suy luận.';
+        } else if (ratio < 12) {
+          regimeText = '<strong>Vùng Thiếu Dữ liệu (Under-training — bên phải đáy parabol):</strong> Mô hình quá phình to nhưng không đủ token để hội tụ ($D/N < 20$), dẫn đến lãng phí cả FLOPs huấn luyện lẫn chi phí suy luận.';
+        } else {
+          regimeText = '<strong>Vùng Tối ưu Tính toán Chinchilla ($D/N \\approx 20$ — ngay đáy parabol):</strong> Đạt hàm mất mát thấp nhất có thể cho ngân sách tính toán cố định $C$.';
+        }
+
+        readout.innerHTML = `
+          <div><strong>Đang khảo sát trên đường IsoFLOPs C = ${activeB.label} FLOPs:</strong> Kích thước <strong>N = ${fmtN(N)}</strong> tham số · Lượng dữ liệu <strong>D = ${fmtD(D)}</strong> token · Tỷ lệ <strong>D/N = ${ratio.toFixed(1)} token/tham số</strong> · Loss <strong>L = ${L.toFixed(3)}</strong> (Lệch +${(L - lOpt).toFixed(3)} so với đáy Chinchilla N* = ${fmtN(nOpt)}).</div>
+          <div style="margin-top:4px; color: var(--muted-color)">${regimeText}</div>
+        `;
+      };
+
+      nSlider.addEventListener('input', () => {
+        probeLogN = parseFloat(nSlider.value);
+        render();
+      });
+
+      render();
+      document.addEventListener('palettes:updated', () => { readPalette(); render(); });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

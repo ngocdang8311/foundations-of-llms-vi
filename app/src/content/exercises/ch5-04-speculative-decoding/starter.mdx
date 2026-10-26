@@ -1,0 +1,15 @@
+export const cells = 1;
+
+```python
+import torch
+
+torch.manual_seed(2026)
+tokens = ["Hà", "Nội", "Sài", "Gòn", "Đà", "Nẵng"]
+# Phân phối của mô hình đích lớn p(x) và mô hình nháp nhỏ q(x)
+p_target = torch.tensor([0.42, 0.25, 0.15, 0.10, 0.05, 0.03])
+q_draft = torch.tensor([0.22, 0.38, 0.18, 0.08, 0.09, 0.05])
+
+print("Tổng p(x):", p_target.sum().item(), "| Tổng q(x):", q_draft.sum().item())
+```
+
+<section className="code-output"><pre>{"Tổng p(x): 1.0 | Tổng q(x): 1.0"}</pre></section>

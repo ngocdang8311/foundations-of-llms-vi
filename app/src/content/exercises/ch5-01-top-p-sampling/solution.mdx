@@ -1,0 +1,72 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import torch
+
+torch.manual_seed(42)
+vocab = [
+    "căn", "thế", "kho", "hành", "bóng",
+    "khu", "người", "chiếc", "con", "trái",
+]
+logits = torch.tensor(
+    [3.1, 2.7, 2.4, 2.0, 1.7, 1.3, 0.9, 0.5, 0.1, -0.6]
+)
+print("Từ vựng:", len(vocab), "tokens | Logit cao nhất:", logits[0].item())
+```
+
+<section className="code-output"><pre>{"Từ vựng: 10 tokens | Logit cao nhất: 3.0999999046325684"}</pre></section>
+
+```python
+def filter_and_sample(logits, temp=1.0, top_k=10, top_p=1.0):
+    # (1) Chia nhiệt độ T và sắp xếp logits giảm dần
+    scaled = logits / max(temp, 1e-5)
+    sorted_logits, sorted_idx = torch.sort(scaled, descending=True)
+
+    # (2) Áp dụng mặt nạ Top-k
+    k = min(top_k, sorted_logits.size(-1))
+    sorted_logits[k:] = -float("inf")
+
+    # (3) Tính xác suất tích lũy và áp dụng mặt nạ Top-p (Nucleus)
+    probs = torch.softmax(sorted_logits, dim=-1)
+    cum_probs = torch.cumsum(probs, dim=-1)
+    remove_mask = (cum_probs - probs) >= top_p
+    remove_mask[0] = False
+    sorted_logits[remove_mask] = -float("inf")
+
+    # (4) Chuẩn hóa lại xác suất trên thứ tự từ vựng gốc
+    final_Sorted = torch.softmax(sorted_logits, dim=-1)
+    final_probs = torch.zeros_like(logits)
+    final_probs.scatter_(0, sorted_idx, final_Sorted)
+    return final_probs
+
+
+def calc_entropy(probs):
+    nz = probs[probs > 0]
+    return -(nz * torch.log2(nz)).sum().item()
+
+
+configs = [
+    ("Greedy T=0.1, k=1", 0.1, 1, 1.0),
+    ("Top-p  T=0.8, p=0.9", 0.8, 10, 0.9),
+    ("Top-k  T=1.2, k=4", 1.2, 4, 1.0),
+]
+for label, t, k, p in configs:
+    dist = filter_and_sample(logits, temp=t, top_k=k, top_p=p)
+    kept = int((dist > 0).sum().item())
+    h = calc_entropy(dist)
+    top_i = int(torch.argmax(dist).item())
+    print(
+        f"[{label:19s}] Giữ: {kept}/10 | Entropy: {h:.2f} bits"
+        f" | Top-1: {vocab[top_i]} ({dist[top_i]*100:.1f}%)"
+    )
+
+torch.manual_seed(0)
+dist_p = filter_and_sample(logits, temp=0.8, top_k=8, top_p=0.90)
+draws = torch.multinomial(dist_p, num_samples=10, replacement=True)
+words = ", ".join(vocab[i] for i in draws.tolist())
+print(f"\nMẫu rút thử (T=0.8, k=8, p=0.90): {words}")
+```
+
+<section className="code-output"><pre>{"[Greedy T=0.1, k=1]  Giữ: 1/10 | Entropy: 0.00 bits | Top-1: căn (100.0%)\n[Top-p  T=0.8, p=0.9] Giữ: 6/10 | Entropy: 2.26 bits | Top-1: căn (35.1%)\n[Top-k  T=1.2, k=4]   Giữ: 4/10 | Entropy: 1.93 bits | Top-1: căn (37.1%)\n\nMẫu rút thử (T=0.8, k=8, p=0.90): căn, thế, căn, kho, hành, căn, thế, bóng, căn, kho"}</pre></section>

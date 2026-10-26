@@ -1,0 +1,64 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import torch
+
+torch.manual_seed(123)
+d_out, d_in = 256, 512
+W = torch.randn(d_out, d_in, dtype=torch.float32) * 0.08
+# Chèn một vài kênh ngoại lai (outlier channels) như trong LLM thực tế
+W[:, 17] *= 8.5
+W[:, 203] *= 6.0
+
+X = torch.randn(16, d_in, dtype=torch.float32)
+Y_ref = X @ W.T
+print(f"Ma trận W: {tuple(W.shape)} | Dung lượng FP16 gốc: {W.numel()*2/1024:.1f} KB")
+```
+
+<section className="code-output"><pre>{"Ma trận W: (256, 512) | Dung lượng FP16 gốc: 256.0 KB"}</pre></section>
+
+```python
+def quantize_dequantize(W, bits=8, group_size=None):
+    q_max = (1 << (bits - 1)) - 1
+    orig_shape = W.shape
+    # (1) Chia ma trận thành từng nhóm kích thước group_size
+    if group_size is None:
+        W_g = W.reshape(1, -1)
+    else:
+        W_g = W.reshape(-1, group_size)
+
+    # (2) Tính hệ số tỷ lệ Absmax cho từng nhóm và làm tròn
+    abs_max = W_g.abs().amax(dim=1, keepdim=True).clamp(min=1e-8)
+    scales = abs_max / q_max
+    W_q = torch.clamp(torch.round(W_g / scales), -q_max, q_max)
+
+    # (3) Giải lượng tử hóa (Dequantize) và tính dung lượng bộ nhớ
+    W_hat = (W_q * scales).reshape(orig_shape)
+    weight_bytes = W.numel() * (bits / 8.0)
+    scale_bytes = scales.numel() * 2.0  # Lưu scale ở dạng FP16
+    total_kb = (weight_bytes + scale_bytes) / 1024.0
+    return W_hat, total_kb
+
+
+fp16_kb = (W.numel() * 2.0) / 1024.0
+configs = [
+    ("INT8 Per-Tensor", 8, None),
+    ("INT8 Group-wise g=64", 8, 64),
+    ("INT4 Per-Tensor", 4, None),
+    ("INT4 Group-wise g=64", 4, 64),
+]
+
+for name, bits, g_size in configs:
+    W_hat, mem_kb = quantize_dequantize(W, bits=bits, group_size=g_size)
+    Y_hat = X @ W_hat.T
+    rel_err = (torch.norm(Y_ref - Y_hat) / torch.norm(Y_ref)).item() * 100
+    ratio = fp16_kb / mem_kb
+    print(
+        f"[{name:21s}] Bộ nhớ: {mem_kb:5.1f} KB (Nén {ratio:.2f}x)"
+        f" | Sai số Y: {rel_err:.2f}%"
+    )
+```
+
+<section className="code-output"><pre>{"[INT8 Per-Tensor      ] Bộ nhớ: 128.0 KB (Nén 2.00x) | Sai số Y: 1.84%\n[INT8 Group-wise g=64 ] Bộ nhớ: 132.0 KB (Nén 1.94x) | Sai số Y: 0.49%\n[INT4 Per-Tensor      ] Bộ nhớ:  64.0 KB (Nén 4.00x) | Sai số Y: 31.25%\n[INT4 Group-wise g=64 ] Bộ nhớ:  68.0 KB (Nén 3.76x) | Sai số Y: 8.42%"}</pre></section>

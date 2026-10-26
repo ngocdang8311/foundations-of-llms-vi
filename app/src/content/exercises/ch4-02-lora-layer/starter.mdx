@@ -1,0 +1,22 @@
+export const cells = 1;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+d_in, d_out, r, alpha = 512, 512, 4, 8.0
+base_linear = nn.Linear(d_in, d_out, bias=False)
+
+# Tạo dữ liệu mục tiêu có độ lệch hạng thấp thực sự từ base_linear
+true_B = torch.randn(d_out, r) * 0.15
+true_A = torch.randn(r, d_in) * 0.15
+X = torch.randn(128, d_in)
+with torch.no_grad():
+    Y_target = F.linear(X, base_linear.weight + true_B @ true_A)
+
+print(f"Ma trận gốc W0: {base_linear.weight.numel():,} tham số")
+```
+
+<section className="code-output"><pre>{"Ma trận gốc W0: 262,144 tham số"}</pre></section>

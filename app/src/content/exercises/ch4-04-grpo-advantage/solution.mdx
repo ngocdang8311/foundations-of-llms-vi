@@ -1,0 +1,83 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import re
+import torch
+
+gold_answer = "5"
+# Nhóm G=6 phản hồi được lấy mẫu từ pi_old cho cùng một câu hỏi toán
+rollouts = [
+    "<think> 3x = 20 - 5 = 15, suy ra x = 15 / 3 = 5. </think><answer>5</answer>",
+    "<think> 3x = 15 nên x = 5. </think><answer>5</answer>",
+    "<think> 3x = 20 + 5 = 25, x = 25/3. </think><answer>8.33</answer>",
+    "Đáp số của phương trình là <answer>5</answer>",
+    "<think> Thử x = 4 thì 3*4 + 5 = 17. </think><answer>4</answer>",
+    "Tôi nghĩ x bằng 6.",
+]
+
+# Log-prob trung bình mỗi token dưới pi_old và pi_ref
+old_logp = torch.tensor([-0.85, -0.92, -1.10, -0.78, -1.05, -1.30])
+ref_logp = torch.tensor([-0.90, -0.95, -1.08, -0.80, -1.02, -1.25])
+print(f"Số mẫu trong nhóm G = {len(rollouts)} | Đáp án chuẩn: {gold_answer}")
+```
+
+<section className="code-output"><pre>{"Số mẫu trong nhóm G = 6 | Đáp án chuẩn: 5"}</pre></section>
+
+```python
+# (1) Bộ chấm điểm quy tắc (Rule-based Verifier: Độ chính xác + Định dạng)
+def verify_rollout(text: str, gold: str) -> float:
+    r = 0.0
+    if re.search(r"<think>.*?</think>\s*<answer>.*?</answer>", text):
+        r += 0.25
+    ans_match = re.search(r"<answer>(.*?)</answer>", text)
+    if ans_match and ans_match.group(1).strip() == gold:
+        r += 1.0
+    return r
+
+
+rewards = torch.tensor([verify_rollout(o, gold_answer) for o in rollouts])
+
+# (2) Tính lợi thế tương đối theo nhóm (Group-Normalized Advantage)
+mean_r = rewards.mean()
+std_r = rewards.std(unbiased=True)
+advantages = (rewards - mean_r) / (std_r + 1e-8)
+
+print(f"Điểm thưởng r_i:      {rewards.tolist()}")
+print(f"Trung bình nhóm: {mean_r.item():.4f} | Độ lệch chuẩn: {std_r.item():.4f}")
+print(f"Lợi thế chuẩn hóa A_i: {[f'{a:+.2f}' for a in advantages.tolist()]}")
+
+# (3) Tính hàm mất mát GRPO với Clipped Surrogate và KL Penalty
+eps, beta = 0.2, 0.04
+curr_logp = old_logp.clone().detach().requires_grad_(True)
+
+
+def grpo_loss(curr_lp, old_lp, ref_lp, adv, eps=0.2, beta=0.04):
+    ratio = torch.exp(curr_lp - old_lp)
+    surr1 = ratio * adv
+    surr2 = torch.clamp(ratio, 1.0 - eps, 1.0 + eps) * adv
+    # Bộ ước lượng KL không âm của Schulman: exp(ref - curr) - (ref - curr) - 1
+    log_r_ref = ref_lp - curr_lp
+    kl = torch.exp(log_r_ref) - log_r_ref - 1.0
+    return -(torch.min(surr1, surr2) - beta * kl).mean()
+
+
+loss0 = grpo_loss(curr_logp, old_logp, ref_logp, advantages, eps, beta)
+print(f"Hàm mất mát GRPO ban đầu: {loss0.item():.6f}")
+
+loss0.backward()
+with torch.no_grad():
+    curr_logp -= 0.6 * curr_logp.grad
+    delta = curr_logp - old_logp
+
+print("Sau 1 bước cập nhật GRPO, thay đổi log-prob (pi_theta - pi_old):")
+for idx in [0, 2, 5]:
+    direction = "TĂNG xác suất" if delta[idx] > 0 else "GIẢM xác suất"
+    print(
+        f"  Mẫu {idx} (r={rewards[idx]:.2f}, A={advantages[idx]:+.2f}): "
+        f"delta_logp = {delta[idx]:+.4f} ({direction})"
+    )
+```
+
+<section className="code-output"><pre>{"Điểm thưởng r_i:      [1.25, 1.25, 0.25, 1.0, 0.25, 0.0]\nTrung bình nhóm: 0.6667 | Độ lệch chuẩn: 0.5627\nLợi thế chuẩn hóa A_i: ['+1.04', '+1.04', '-0.74', '+0.59', '-0.74', '-1.18']\nHàm mất mát GRPO ban đầu: 0.001241\nSau 1 bước cập nhật GRPO, thay đổi log-prob (pi_theta - pi_old):\n  Mẫu 0 (r=1.25, A=+1.04): delta_logp = +0.1000 (TĂNG xác suất)\n  Mẫu 2 (r=0.25, A=-0.74): delta_logp = -0.0742 (GIẢM xác suất)\n  Mẫu 5 (r=0.00, A=-1.18): delta_logp = -0.1184 (GIẢM xác suất)"}</pre></section>

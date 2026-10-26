@@ -134,8 +134,8 @@
       const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
         .attr('role', 'img')
         .attr('aria-label', ATTENTION
-          ? 'An encoder RNN reads the English sentence and keeps its state after each word. A decoder RNN writes the French translation one word at a time; to write each word, it reads a weighted average of all the states of the encoder.'
-          : 'An encoder RNN reads the English sentence; its last state starts a decoder RNN, which writes the French translation one word at a time, reading at each step the word it wrote just before.');
+          ? 'Mạng RNN mã hóa đọc câu tiếng Anh và giữ lại trạng thái sau mỗi từ. Mạng RNN giải mã viết bản dịch tiếng Pháp từng từ một; để viết mỗi từ, nó đọc trung bình có trọng số của tất cả các trạng thái từ bộ mã hóa.'
+          : 'Mạng RNN mã hóa đọc câu tiếng Anh; trạng thái cuối cùng của nó khởi tạo mạng RNN giải mã để viết bản dịch tiếng Pháp từng từ một, ở mỗi bước đều đọc lại từ vừa viết trước đó.');
       svg.append('defs').append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)
         .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto-start-reverse')
         .append('path').attr('d', 'M0,0 L10,5 L0,10 z').attr('fill', 'var(--muted-color)');
@@ -201,8 +201,8 @@
         arrow(lastX, boxY + boxH / 2, hx - (D * cellW) / 2 - 4, boxY + boxH / 2);
         vector(ENC_STATES[L - 1], hx, boxY + boxH / 2 - cellH / 2, 'cell max');
         arrow(hx + (D * cellW) / 2 + 3, boxY + boxH / 2, firstX, boxY + boxH / 2);
-        g.append('text').attr('class', 'side-strong').attr('x', hx).attr('y', stateY - 18).attr('text-anchor', 'middle').text('one vector');
-        g.append('text').attr('class', 'side').attr('x', hx).attr('y', stateY - 4).attr('text-anchor', 'middle').text('of fixed size');
+        g.append('text').attr('class', 'side-strong').attr('x', hx).attr('y', stateY - 18).attr('text-anchor', 'middle').text('một vector');
+        g.append('text').attr('class', 'side').attr('x', hx).attr('y', stateY - 4).attr('text-anchor', 'middle').text('kích thước cố định');
       }
 
       // The names of the two RNNs, under their columns
@@ -210,8 +210,8 @@
         g.append('text').attr('class', 'side-strong').attr('x', x).attr('y', labelY).attr('text-anchor', 'middle').text(title);
         g.append('text').attr('class', 'side').attr('x', x).attr('y', labelY + 15).attr('text-anchor', 'middle').text(sub);
       };
-      label((srcX(0) + srcX(L - 1)) / 2, 'encoder', 'reads the English sentence');
-      label((decX(0) + decX(N - 1)) / 2, 'decoder', 'writes the French one, reading the word it wrote before');
+      label((srcX(0) + srcX(L - 1)) / 2, 'bộ mã hóa (encoder)', 'đọc câu tiếng Anh');
+      label((decX(0) + decX(N - 1)) / 2, 'bộ giải mã (decoder)', 'viết câu tiếng Pháp, đọc lại từ vừa viết trước đó');
 
       // Attention: the links from every state of the encoder to the word being written
       const weightLabels = [];
@@ -219,9 +219,9 @@
         SOURCE.forEach((_, j) => weightLabels.push(g.append('text').attr('class', 'weight').attr('x', srcX(j))
           .attr('y', stateY - 8).attr('text-anchor', 'middle')));
         g.append('text').attr('class', 'side').attr('x', (decX(0) + decX(N - 1)) / 2).attr('y', labelY + 33).attr('text-anchor', 'middle')
-          .attr('font-style', 'italic').text('hover over a word of the translation to see its weights');
+          .attr('font-style', 'italic').text('di chuột qua một từ trong bản dịch để xem các trọng số chú ý');
         outTokens.forEach((t, k) => {
-          t.attr('tabindex', 0).attr('role', 'button').attr('aria-label', `weights to write ${TARGET[k]}`)
+          t.attr('tabindex', 0).attr('role', 'button').attr('aria-label', `trọng số để viết từ ${TARGET[k]}`)
             .on('mouseenter focus click', () => { if (step !== k) { step = k; render(); } });
         });
       }

@@ -1,0 +1,363 @@
+<div class="d3-ch2-rope"></div>
+<style>
+  .d3-ch2-rope {
+    margin: 1.2rem 0;
+    padding: 16px 18px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 13px;
+  }
+  .d3-ch2-rope .rope-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 18px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .d3-ch2-rope .rope-slider-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+  .d3-ch2-rope input[type="range"] {
+    width: 110px;
+    accent-color: var(--rope-accent, var(--primary-color));
+    cursor: pointer;
+  }
+  .d3-ch2-rope .rope-val {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700;
+    min-width: 22px;
+    text-align: right;
+  }
+  .d3-ch2-rope .rope-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch2-rope .rope-btn:hover {
+    border-color: var(--rope-accent, var(--primary-color));
+  }
+  .d3-ch2-rope svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch2-rope .rope-footer {
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    font-size: 12.5px;
+  }
+  .d3-ch2-rope .rope-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700;
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch2-rope'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch2-rope'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+
+        // 3 pairs of 2D coordinates with different frequencies theta_i
+        const PAIRS = [
+          { idx: 0, label: 'Cặp chiều i = 0 (Tần số cao)', theta: 0.85, q0: [0.92, 0.25], k0: [0.78, 0.52] },
+          { idx: 1, label: 'Cặp chiều i = 1 (Tần số vừa)', theta: 0.32, q0: [0.65, 0.70], k0: [0.88, 0.30] },
+          { idx: 2, label: 'Cặp chiều i = 2 (Tần số thấp)', theta: 0.09, q0: [0.80, 0.48], k0: [0.72, 0.62] },
+        ];
+
+        let posM = 5;
+        let posN = 2;
+
+        let cQ = '#4e79a7', cK = '#f28e2b', cArc = '#59a14f';
+        const readPalette = () => {
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 3);
+              if (cat && cat.length >= 3) [cQ, cK, cArc] = cat;
+            }
+          } catch (_) {}
+          container.style.setProperty('--rope-accent', cQ);
+        };
+        readPalette();
+
+        const controls = document.createElement('div');
+        controls.className = 'rope-controls';
+
+        const makeSlider = (labelText, initVal, color, onChange) => {
+          const wrap = document.createElement('label');
+          wrap.className = 'rope-slider-group';
+          const span = document.createElement('span');
+          span.innerHTML = `<strong style="color:${color}">${labelText}</strong>`;
+          const input = document.createElement('input');
+          input.type = 'range';
+          input.min = '0';
+          input.max = '12';
+          input.step = '1';
+          input.value = String(initVal);
+          const valEl = document.createElement('span');
+          valEl.className = 'rope-val';
+          valEl.textContent = String(initVal);
+          input.addEventListener('input', () => {
+            const v = Number(input.value);
+            valEl.textContent = String(v);
+            onChange(v);
+          });
+          wrap.append(span, input, valEl);
+          return { wrap, input, valEl };
+        };
+
+        const sM = makeSlider('Vị trí Query m:', posM, cQ, (v) => { posM = v; render(); });
+        const sN = makeSlider('Vị trí Key n:', posN, cK, (v) => { posN = v; render(); });
+
+        const btnShift = document.createElement('button');
+        btnShift.type = 'button';
+        btnShift.className = 'rope-btn';
+        btnShift.textContent = 'Dịch cả hai vị trí (m+1, n+1)';
+        btnShift.addEventListener('click', () => {
+          if (posM < 12 && posN < 12) {
+            posM += 1;
+            posN += 1;
+          } else {
+            const diff = posM - posN;
+            posM = diff >= 0 ? diff : 0;
+            posN = diff >= 0 ? 0 : -diff;
+          }
+          sM.input.value = String(posM);
+          sM.valEl.textContent = String(posM);
+          sN.input.value = String(posN);
+          sN.valEl.textContent = String(posN);
+          render();
+        });
+
+        controls.append(sM.wrap, sN.wrap, btnShift);
+        container.appendChild(controls);
+
+        const W = 760, H = 248;
+        const svg = d3.select(container).append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`)
+          .attr('role', 'img')
+          .attr('aria-label', 'Trực quan hóa phép quay RoPE trên 3 cặp tọa độ 2D với tần số khác nhau');
+
+        const footer = document.createElement('div');
+        footer.className = 'rope-footer';
+        container.appendChild(footer);
+
+        const rotate2D = ([x, y], angle) => {
+          const c = Math.cos(angle), s = Math.sin(angle);
+          return [x * c - y * s, x * s + y * c];
+        };
+
+        const render = () => {
+          svg.selectAll('*').remove();
+          const uid = Math.random().toString(36).slice(2, 7);
+          const defs = svg.append('defs');
+          [
+            { id: `rq-${uid}`, col: cQ },
+            { id: `rk-${uid}`, col: cK },
+          ].forEach((m) => {
+            defs.append('marker')
+              .attr('id', m.id)
+              .attr('viewBox', '0 0 10 10')
+              .attr('refX', 8).attr('refY', 5)
+              .attr('markerWidth', 6).attr('markerHeight', 6)
+              .attr('orient', 'auto-start-reverse')
+              .append('path')
+              .attr('d', 'M0,1 L9,5 L0,9 z')
+              .attr('fill', m.col);
+          });
+
+          const R = 74;
+          const cy = 122;
+          const centersX = [132, 380, 628];
+          let totalDot = 0;
+          const pairDots = [];
+
+          PAIRS.forEach((p, idx) => {
+            const cx = centersX[idx];
+            const g = svg.append('g');
+
+            // Title & frequency
+            g.append('text')
+              .attr('x', cx).attr('y', 18)
+              .attr('text-anchor', 'middle')
+              .attr('fill', 'var(--text-color)')
+              .attr('font-weight', 700)
+              .attr('font-size', 12)
+              .text(p.label);
+
+            g.append('text')
+              .attr('x', cx).attr('y', 34)
+              .attr('text-anchor', 'middle')
+              .attr('fill', 'var(--muted-color)')
+              .attr('font-size', 11)
+              .text(`θ_${idx} = ${p.theta.toFixed(2)} rad/bước`);
+
+            // Circle & axes
+            g.append('circle')
+              .attr('cx', cx).attr('cy', cy).attr('r', R)
+              .attr('fill', 'color-mix(in oklab, var(--text-color) 3%, transparent)')
+              .attr('stroke', 'var(--border-color)')
+              .attr('stroke-width', 1.2);
+
+            g.append('line')
+              .attr('x1', cx - R - 6).attr('y1', cy)
+              .attr('x2', cx + R + 6).attr('y2', cy)
+              .attr('stroke', 'var(--border-color)')
+              .attr('stroke-dasharray', '3,3');
+
+            g.append('line')
+              .attr('x1', cx).attr('y1', cy - R - 6)
+              .attr('x2', cx).attr('y2', cy + R + 6)
+              .attr('stroke', 'var(--border-color)')
+              .attr('stroke-dasharray', '3,3');
+
+            const qRot = rotate2D(p.q0, posM * p.theta);
+            const kRot = rotate2D(p.k0, posN * p.theta);
+            const dot2d = qRot[0] * kRot[0] + qRot[1] * kRot[1];
+            totalDot += dot2d;
+            pairDots.push(dot2d);
+
+            const qAngle = Math.atan2(qRot[1], qRot[0]);
+            const kAngle = Math.atan2(kRot[1], kRot[0]);
+
+            // Arc between K and Q
+            const arcGen = d3.arc()
+              .innerRadius(26)
+              .outerRadius(28)
+              .startAngle(Math.PI / 2 - kAngle)
+              .endAngle(Math.PI / 2 - qAngle);
+
+            g.append('path')
+              .attr('transform', `translate(${cx},${cy})`)
+              .attr('d', arcGen())
+              .attr('fill', cArc)
+              .attr('opacity', 0.85);
+
+            // Vectors R_m q and R_n k (note SVG y axis is inverted)
+            const qx = cx + qRot[0] * R, qy = cy - qRot[1] * R;
+            const kx = cx + kRot[0] * R, ky = cy - kRot[1] * R;
+
+            g.append('line')
+              .attr('x1', cx).attr('y1', cy)
+              .attr('x2', qx).attr('y2', qy)
+              .attr('stroke', cQ)
+              .attr('stroke-width', 2.5)
+              .attr('marker-end', `url(#rq-${uid})`);
+
+            g.append('line')
+              .attr('x1', cx).attr('y1', cy)
+              .attr('x2', kx).attr('y2', ky)
+              .attr('stroke', cK)
+              .attr('stroke-width', 2.5)
+              .attr('marker-end', `url(#rk-${uid})`);
+
+            g.append('text')
+              .attr('x', qx + (qRot[0] >= 0 ? 8 : -8))
+              .attr('y', qy + (qRot[1] >= 0 ? -4 : 12))
+              .attr('text-anchor', qRot[0] >= 0 ? 'start' : 'end')
+              .attr('fill', cQ)
+              .attr('font-weight', 700)
+              .attr('font-size', 11)
+              .text(`R_m q`);
+
+            g.append('text')
+              .attr('x', kx + (kRot[0] >= 0 ? 8 : -8))
+              .attr('y', ky + (kRot[1] >= 0 ? -4 : 12))
+              .attr('text-anchor', kRot[0] >= 0 ? 'start' : 'end')
+              .attr('fill', cK)
+              .attr('font-weight', 700)
+              .attr('font-size', 11)
+              .text(`R_n k`);
+
+            g.append('text')
+              .attr('x', cx).attr('y', cy + R + 22)
+              .attr('text-anchor', 'middle')
+              .attr('fill', 'var(--text-color)')
+              .attr('font-size', 11.5)
+              .text(`Δφ_${idx} = (m−n)θ_${idx} = ${((posM - posN) * p.theta).toFixed(2)} rad`);
+
+            g.append('text')
+              .attr('x', cx).attr('y', cy + R + 38)
+              .attr('text-anchor', 'middle')
+              .attr('fill', 'var(--muted-color)')
+              .attr('font-size', 11)
+              .text(`⟨R_m q⁽${idx}⁾, R_n k⁽${idx}⁾⟩ = ${dot2d.toFixed(4)}`);
+          });
+
+          footer.innerHTML = `
+            <div>
+              Khoảng cách tương đối: <span class="rope-mono">m − n = ${posM} − ${posN} = ${posM - posN}</span>
+              (Nhấn <em>"Dịch cả hai vị trí"</em> để kiểm chứng!)
+            </div>
+            <div>
+              Tổng tích vô hướng RoPE:
+              <span class="rope-mono">⟨R_m q, R_n k⟩ = ${pairDots.map((d) => d.toFixed(3)).join(' + ')} = ${totalDot.toFixed(4)}</span>
+              (Bất biến tuyệt đối theo m − n)
+            </div>
+          `;
+        };
+
+        render();
+        document.addEventListener('palettes:updated', () => {
+          readPalette();
+          render();
+        });
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

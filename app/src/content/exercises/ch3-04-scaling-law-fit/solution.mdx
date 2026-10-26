@@ -1,0 +1,68 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import math
+
+# Hệ số thực nghiệm của phương trình tham số hóa Chinchilla
+# L(N, D) = E + A * N^(-alpha) + B * D^(-beta)
+E = 1.693
+A, alpha = 406.4, 0.34
+B, beta = 410.7, 0.28
+
+# Ngân sách tính toán của Gopher & Chinchilla: C = 5.76e23 FLOPs
+C_budget = 5.76e23
+
+def chinchilla_loss(N, D):
+    return E + A * (N ** -alpha) + B * (D ** -beta)
+
+print(f"Loss dự đoán cho Gopher (280B, 300B tokens): "
+      f"{chinchilla_loss(280e9, 300e9):.4f}")
+```
+
+<section className="code-output"><pre>{"Loss dự đoán cho Gopher (280B, 300B tokens): 2.0046"}</pre></section>
+
+```python
+# (1) Nghiệm giải tích nhân tử Lagrange với ràng buộc C = 6 * N * D:
+# đạo hàm theo N bằng 0 khi alpha * A * N^(-alpha) = beta * B * D^(-beta)
+G = ((alpha * A) / (beta * B)) ** (1.0 / (alpha + beta))
+a = beta / (alpha + beta)
+b = alpha / (alpha + beta)
+
+N_star = G * ((C_budget / 6.0) ** a)
+D_star = (1.0 / G) * ((C_budget / 6.0) ** b)
+L_star = chinchilla_loss(N_star, D_star)
+L_chin = chinchilla_loss(70e9, 1400e9)
+
+print(f"[Tối ưu giải tích] N* = {N_star/1e9:.1f}B tham số | "
+      f"D* = {D_star/1e9:.1f}B token (D*/N* = {D_star/N_star:.1f})")
+print(f"[So sánh Loss] Gopher (280B): {chinchilla_loss(280e9, 300e9):.4f} "
+      f"| Chinchilla (70B): {L_chin:.4f} | Đáy giải tích: {L_star:.4f}")
+
+
+# (2) Tính điểm hòa vốn suy luận giữa mô hình 22B (tối ưu) và 8B (over-train)
+L_target = 1.9900
+def tokens_for_target_loss(N, target_L):
+    rem = target_L - E - A * (N ** -alpha)
+    return (B / rem) ** (1.0 / beta)
+
+N_opt22, N_small = 22e9, 8e9
+D_opt22 = tokens_for_target_loss(N_opt22, L_target)
+D_small = tokens_for_target_loss(N_small, L_target)
+
+C_train_opt = 6.0 * N_opt22 * D_opt22
+C_train_small = 6.0 * N_small * D_small
+# Chi phí suy luận mỗi token ≈ 2 * N FLOPs -> Hòa vốn khi:
+# C_train_small + 2 * N_small * D_inf = C_train_opt + 2 * N_opt22 * D_inf
+D_inf_breakeven = (C_train_small - C_train_opt) / (2.0 * (N_opt22 - N_small))
+
+print(f"\n[Bài toán Over-training cho mục tiêu Loss = {L_target:.4f}]")
+print(f"- Cấu hình Chinchilla (N={N_opt22/1e9:.1f}B, "
+      f"D={D_opt22/1e9:.1f}B): C_train = {C_train_opt:.2e} FLOPs")
+print(f"- Cấu hình Over-train (N={N_small/1e9:.1f}B, "
+      f"D={D_small/1e9:.1f}B): C_train = {C_train_small:.2e} FLOPs")
+print(f"- Điểm hòa vốn suy luận: D_inf = {D_inf_breakeven/1e9:.1f}B token sinh ra")
+```
+
+<section className="code-output"><pre>{"[Tối ưu giải tích] N* = 62.8B tham số | D* = 1529.0B token (D*/N* = 24.4)\n[So sánh Loss] Gopher (280B): 2.0046 | Chinchilla (70B): 1.9363 | Đáy giải tích: 1.9359\n\n[Bài toán Over-training cho mục tiêu Loss = 1.9900]\n- Cấu hình Chinchilla (N=22.0B, D=498.5B): C_train = 6.58e+22 FLOPs\n- Cấu hình Over-train (N=8.0B, D=2706.5B): C_train = 1.30e+23 FLOPs\n- Điểm hòa vốn suy luận: D_inf = 2290.1B token sinh ra"}</pre></section>

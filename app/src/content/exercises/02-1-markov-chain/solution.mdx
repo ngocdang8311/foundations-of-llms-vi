@@ -8,13 +8,13 @@ export const seconds = 4;
 from datasets import load_dataset
 
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
-print(wikitext["train"][4]["text"][:70])   # 70 chars from line 4
+print(wikitext["train"][4]["text"][:70])   # 70 ký tự đầu của dòng 4
 ```
 
 <section className="code-output"><pre>{" The game began development in 2010 , carrying over a large portion of"}</pre></section>
 
 ```python
-# (1) Build the train sequence by splitting every line on spaces
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -23,7 +23,7 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# (2) Use a nested dict for counting bigrams
+# (2) Dùng từ điển lồng nhau để đếm các cặp từ (bigram)
 bigram_counts = {}
 for a, b in zip(train_sequence, train_sequence[1:]):
     if a not in bigram_counts:
@@ -35,7 +35,7 @@ for a, b in zip(train_sequence, train_sequence[1:]):
 print(f"distinct pairs: {sum(len(f) for f in bigram_counts.values())}")
 
 
-# (3) Generate a sequence using random.choices with the counts as weights
+# (3) Sinh chuỗi từ bằng random.choices với trọng số là số lần xuất hiện
 first_word = "The"
 length = 50
 

@@ -1,0 +1,389 @@
+<div class="d3-banner-5"></div>
+<style>
+  .d3-banner-5 {
+    padding: 20px 22px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    color: var(--text-color);
+    font-size: 13px;
+    text-align: left;
+  }
+  .d3-banner-5 .b5-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .d3-banner-5 .b5-kicker {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-color);
+    margin: 0;
+  }
+  .d3-banner-5 .b5-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .d3-banner-5 .b5-btn {
+    padding: 5px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-banner-5 .b5-btn:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-banner-5 .b5-btn.is-active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-banner-5 .b5-stream {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+    min-height: 62px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+  }
+  .d3-banner-5 .b5-tok {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 7px;
+    border-radius: 4px;
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    border: 1px solid transparent;
+    transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+  }
+  .d3-banner-5 .b5-tok--prompt {
+    background: color-mix(in oklab, var(--b5-prefill, #4e79a7) 18%, var(--surface-bg));
+    border-color: color-mix(in oklab, var(--b5-prefill, #4e79a7) 55%, var(--border-color));
+    color: var(--text-color);
+  }
+  .d3-banner-5 .b5-tok--prompt.is-flashing {
+    background: color-mix(in oklab, var(--b5-prefill, #4e79a7) 42%, var(--surface-bg));
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px color-mix(in oklab, var(--b5-prefill, #4e79a7) 35%, transparent);
+  }
+  .d3-banner-5 .b5-tok--gen {
+    background: color-mix(in oklab, var(--b5-decode, #f28e2b) 20%, var(--surface-bg));
+    border-color: color-mix(in oklab, var(--b5-decode, #f28e2b) 60%, var(--border-color));
+    color: var(--text-color);
+  }
+  .d3-banner-5 .b5-tok--gen.is-current {
+    background: var(--b5-decode, #f28e2b);
+    color: #fff;
+    font-weight: 700;
+    transform: scale(1.06);
+  }
+  .d3-banner-5 .b5-tok--pending {
+    opacity: 0.22;
+    border-style: dashed;
+    border-color: var(--border-color);
+    background: transparent;
+  }
+  .d3-banner-5 .b5-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .d3-banner-5 .b5-card {
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .d3-banner-5 .b5-card-label {
+    font-size: 11px;
+    color: var(--muted-color);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .d3-banner-5 .b5-card-val {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-color);
+  }
+  .d3-banner-5 .b5-card-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+    line-height: 1.3;
+  }
+  .d3-banner-5 .b5-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: color-mix(in oklab, var(--text-color) 10%, transparent);
+    overflow: hidden;
+    margin-top: 2px;
+  }
+  .d3-banner-5 .b5-bar > span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.22s ease, background 0.22s ease;
+  }
+  @media (max-width: 680px) {
+    .d3-banner-5 .b5-metrics {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>
+<script>
+  (() => {
+    const PROMPT_TOKENS = [
+      'Giải', 'thích', 'tại', 'sao', 'suy', 'luận', 'LLM', 'bị', 'nghẽn', 'băng', 'thông', 'bộ', 'nhớ:'
+    ];
+    const GEN_TOKENS = [
+      'Vì', 'ở', 'pha', 'Decode,', 'GPU', 'phải', 'đọc', 'toàn', 'bộ', 'trọng', 'số', 'cho', 'từng', 'token', 'một.'
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-banner-5'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-banner-5'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let PREFILL_COL = '#4e79a7';
+      let DECODE_COL = '#f28e2b';
+      const syncColors = () => {
+        try {
+          const cat = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 4);
+          if (cat && cat.length >= 2) {
+            PREFILL_COL = cat[0];
+            DECODE_COL = cat[1];
+          }
+        } catch (_) {}
+        container.style.setProperty('--b5-prefill', PREFILL_COL);
+        container.style.setProperty('--b5-decode', DECODE_COL);
+      };
+      syncColors();
+      document.addEventListener('palettes:updated', () => {
+        syncColors();
+        render();
+      });
+
+      // Header
+      const header = document.createElement('div');
+      header.className = 'b5-header';
+      const kicker = document.createElement('p');
+      kicker.className = 'b5-kicker';
+      kicker.textContent = 'Mô phỏng Hai Pha Suy luận trên GPU A100 (Mô hình 8B FP16 — 16 GB trọng số)';
+
+      const controls = document.createElement('div');
+      controls.className = 'b5-controls';
+      const btnPrefill = document.createElement('button');
+      btnPrefill.type = 'button';
+      btnPrefill.className = 'b5-btn';
+      btnPrefill.textContent = '1. Pha Prefill (Song song)';
+
+      const btnDecode = document.createElement('button');
+      btnDecode.type = 'button';
+      btnDecode.className = 'b5-btn';
+      btnDecode.textContent = '2. Pha Decode (Tuần tự)';
+
+      const btnPlay = document.createElement('button');
+      btnPlay.type = 'button';
+      btnPlay.className = 'b5-btn';
+      btnPlay.textContent = '↻ Chạy lại';
+
+      controls.append(btnPrefill, btnDecode, btnPlay);
+      header.append(kicker, controls);
+
+      // Token stream
+      const stream = document.createElement('div');
+      stream.className = 'b5-stream';
+
+      const promptEls = PROMPT_TOKENS.map((t) => {
+        const span = document.createElement('span');
+        span.className = 'b5-tok b5-tok--prompt';
+        span.textContent = t;
+        stream.appendChild(span);
+        return span;
+      });
+
+      const genEls = GEN_TOKENS.map((t) => {
+        const span = document.createElement('span');
+        span.className = 'b5-tok b5-tok--gen b5-tok--pending';
+        span.textContent = t;
+        stream.appendChild(span);
+        return span;
+      });
+
+      // Metrics grid
+      const metrics = document.createElement('div');
+      metrics.className = 'b5-metrics';
+
+      const makeCard = (label) => {
+        const card = document.createElement('div');
+        card.className = 'b5-card';
+        const l = document.createElement('div');
+        l.className = 'b5-card-label';
+        l.textContent = label;
+        const v = document.createElement('div');
+        v.className = 'b5-card-val';
+        const bar = document.createElement('div');
+        bar.className = 'b5-bar';
+        const fill = document.createElement('span');
+        bar.appendChild(fill);
+        const sub = document.createElement('div');
+        sub.className = 'b5-card-sub';
+        card.append(l, v, bar, sub);
+        metrics.appendChild(card);
+        return { v, fill, sub };
+      };
+
+      const cPhase = makeCard('Pha hoạt động & Nút cổ chai');
+      const cSpeed = makeCard('Thông lượng xử lý');
+      const cArith = makeCard('Cường độ số học (FLOPs/Byte)');
+      const cKv = makeCard('Bộ nhớ đệm KV Cache');
+
+      container.append(header, stream, metrics);
+
+      let mode = 'decode'; // 'prefill' or 'decode'
+      let genStep = 6; // how many generated tokens are visible
+      let timer = null;
+
+      const stopTimer = () => {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      };
+
+      const render = () => {
+        btnPrefill.classList.toggle('is-active', mode === 'prefill');
+        btnDecode.classList.toggle('is-active', mode === 'decode');
+
+        if (mode === 'prefill') {
+          promptEls.forEach((el) => el.classList.add('is-flashing'));
+          genEls.forEach((el) => {
+            el.className = 'b5-tok b5-tok--gen b5-tok--pending';
+          });
+
+          cPhase.v.textContent = 'Pha Prefill (Compute-bound)';
+          cPhase.v.style.color = PREFILL_COL;
+          cPhase.fill.style.width = '92%';
+          cPhase.fill.style.background = PREFILL_COL;
+          cPhase.sub.textContent = 'Nhân ma trận-ma trận cho cả 13 token prompt cùng lúc';
+
+          cSpeed.v.textContent = '~14.200 tokens/giây';
+          cSpeed.fill.style.width = '95%';
+          cSpeed.fill.style.background = PREFILL_COL;
+          cSpeed.sub.textContent = 'Đọc 16 GB trọng số 1 lần cho toàn bộ prompt';
+
+          cArith.v.textContent = '~256 FLOPs / Byte';
+          cArith.fill.style.width = '88%';
+          cArith.fill.style.background = PREFILL_COL;
+          cArith.sub.textContent = 'Vượt ngưỡng bão hòa A100 (156 FLOPs/Byte)';
+
+          cKv.v.textContent = `13 / 28 tokens (1.6 MB)`;
+          cKv.fill.style.width = `${(13 / 28) * 100}%`;
+          cKv.fill.style.background = PREFILL_COL;
+          cKv.sub.textContent = 'Khởi tạo K, V cho toàn bộ câu hỏi đầu vào';
+        } else {
+          promptEls.forEach((el) => el.classList.remove('is-flashing'));
+          genEls.forEach((el, idx) => {
+            if (idx < genStep) {
+              el.className = 'b5-tok b5-tok--gen' + (idx === genStep - 1 ? ' is-current' : '');
+            } else {
+              el.className = 'b5-tok b5-tok--gen b5-tok--pending';
+            }
+          });
+
+          const totalTok = PROMPT_TOKENS.length + genStep;
+          const kvMb = (totalTok * 0.125).toFixed(2);
+
+          cPhase.v.textContent = 'Pha Decode (Memory-bound)';
+          cPhase.v.style.color = DECODE_COL;
+          cPhase.fill.style.width = '18%';
+          cPhase.fill.style.background = DECODE_COL;
+          cPhase.sub.textContent = `Bước tự hồi quy ${genStep}/${GEN_TOKENS.length}: nhân ma trận-vector`;
+
+          cSpeed.v.textContent = '~115 tokens/giây';
+          cSpeed.fill.style.width = '14%';
+          cSpeed.fill.style.background = DECODE_COL;
+          cSpeed.sub.textContent = 'Phải nạp lại 16 GB trọng số từ HBM cho MỖI token';
+
+          cArith.v.textContent = '~1.0 FLOP / Byte';
+          cArith.fill.style.width = '8%';
+          cArith.fill.style.background = DECODE_COL;
+          cArith.sub.textContent = 'GPU nhàn rỗi >98% năng lực tính toán (chờ RAM)';
+
+          cKv.v.textContent = `${totalTok} / 28 tokens (${kvMb} MB)`;
+          cKv.fill.style.width = `${(totalTok / 28) * 100}%`;
+          cKv.fill.style.background = DECODE_COL;
+          cKv.sub.textContent = 'Nối thêm 1 cột vector k_t, v_t mới vào bộ đệm';
+        }
+      };
+
+      const startSimulation = () => {
+        stopTimer();
+        mode = 'prefill';
+        genStep = 0;
+        render();
+        timer = setInterval(() => {
+          if (mode === 'prefill') {
+            mode = 'decode';
+            genStep = 1;
+            render();
+          } else if (genStep < GEN_TOKENS.length) {
+            genStep += 1;
+            render();
+          } else {
+            stopTimer();
+          }
+        }, 320);
+      };
+
+      btnPrefill.addEventListener('click', () => {
+        stopTimer();
+        mode = 'prefill';
+        render();
+      });
+
+      btnDecode.addEventListener('click', () => {
+        stopTimer();
+        mode = 'decode';
+        if (genStep === 0) genStep = GEN_TOKENS.length;
+        render();
+      });
+
+      btnPlay.addEventListener('click', startSimulation);
+
+      startSimulation();
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

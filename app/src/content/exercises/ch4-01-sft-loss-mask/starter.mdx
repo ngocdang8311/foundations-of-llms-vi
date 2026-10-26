@@ -1,0 +1,24 @@
+export const cells = 1;
+
+```python
+import torch
+import torch.nn.functional as F
+
+vocab = [
+    "<|im_start|>", "<|im_end|>", "\n", "system", "user",
+    "assistant", "Bạn", "là", "trợ", "lý.", "Thủ", "đô",
+    "Pháp?", "Là", "Paris.", "Dân", "số?", "Khoảng", "2,1", "triệu."
+]
+tok2id = {w: i for i, w in enumerate(vocab)}
+
+messages = [
+    {"role": "system", "content": ["Bạn", "là", "trợ", "lý."]},
+    {"role": "user", "content": ["Thủ", "đô", "Pháp?"]},
+    {"role": "assistant", "content": ["Là", "Paris."]},
+    {"role": "user", "content": ["Dân", "số?"]},
+    {"role": "assistant", "content": ["Khoảng", "2,1", "triệu."]},
+]
+print(f"Từ vựng: {len(vocab)} tokens | Số lượt: {len(messages)}")
+```
+
+<section className="code-output"><pre>{"Từ vựng: 20 tokens | Số lượt: 5"}</pre></section>

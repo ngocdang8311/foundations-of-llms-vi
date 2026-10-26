@@ -1,11 +1,5 @@
 ---
-// A margin note about a paper. It sits next to the paragraph (or block) just before it; on
-// narrow screens, under that paragraph. The same layout for every paper:
-//   - the authors and the year ("Markov · 1913");
-//   - the title, linked to the paper, then the venue (all from papers.json);
-//   - the note itself (the slot, in markdown);
-//   - optionally, `look`: the figure, table or section of the paper worth looking at;
-//   - a link to the paper in the reference list.
+// Ghi chú bên lề về một bài báo khoa học.
 import Sidenote from "../Sidenote.astro";
 import { paper } from "./papers";
 interface Props {
@@ -24,9 +18,9 @@ const link = p.pdf ?? p.url;
     </div>
     <div class="paper-note__meta">{p.venue}</div>
     <div class="paper-note__body"><slot /></div>
-    {look && <div class="paper-note__look"><span class="paper-note__look-label">Look at</span> {look}</div>}
+    {look && <div class="paper-note__look"><span class="paper-note__look-label">Xem thêm:</span> {look}</div>}
     <div class="paper-note__ref">
-      <a href={`#bib-${p.key}`} title="In the reference list">references ↓</a>
+      <a href={`#bib-${p.key}`} title="Trong danh mục tài liệu tham khảo">tài liệu tham khảo ↓</a>
     </div>
   </div>
 </Sidenote>

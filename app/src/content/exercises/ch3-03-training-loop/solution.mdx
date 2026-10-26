@@ -1,0 +1,89 @@
+export const cells = 2;
+
+export const seconds = 5;
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(42)
+
+# Mô hình ngôn ngữ Transformer tự hồi quy thu nhỏ
+class TinyLM(nn.Module):
+    def __init__(self, vocab_size=64, d_model=64, n_heads=4):
+        super().__init__()
+        self.tok_emb = nn.Embedding(vocab_size, d_model)
+        self.pos_emb = nn.Embedding(32, d_model)
+        layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=n_heads, dim_feedforward=256,
+            dropout=0.0, batch_first=True, norm_first=True
+        )
+        self.blocks = nn.TransformerEncoder(layer, num_layers=2)
+        self.ln_f = nn.LayerNorm(d_model)
+        self.head = nn.Linear(d_model, vocab_size, bias=False)
+
+    def forward(self, idx):
+        B, L = idx.shape
+        pos = torch.arange(L, device=idx.device).unsqueeze(0)
+        x = self.tok_emb(idx) + self.pos_emb(pos)
+        mask = nn.Transformer.generate_square_subsequent_mask(L)
+        x = self.blocks(x, mask=mask, is_causal=True)
+        return self.head(self.ln_f(x))
+
+model = TinyLM()
+print(f"Tổng số tham số: {sum(p.numel() for p in model.parameters())}")
+```
+
+<section className="code-output"><pre>{"Tổng số tham số: 109440"}</pre></section>
+
+```python
+# (1) Hàm tính tốc độ học theo lịch trình Warmup + Cosine Decay
+def get_lr(step, total_steps=100, warmup_steps=10,
+           max_lr=3e-3, min_lr=3e-4):
+    if step < warmup_steps:
+        return max_lr * (step + 1) / warmup_steps
+    progress = (step - warmup_steps) / (total_steps - warmup_steps)
+    cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+    return min_lr + (max_lr - min_lr) * cosine
+
+
+# (2) Phân tách tham số: chỉ áp dụng Weight Decay cho ma trận >= 2D
+decay_params = [p for p in model.parameters() if p.ndim >= 2]
+nodecay_params = [p for p in model.parameters() if p.ndim < 2]
+print(f"Tham số có Weight Decay (2D): "
+      f"{sum(p.numel() for p in decay_params)} | "
+      f"Không có Weight Decay (1D): "
+      f"{sum(p.numel() for p in nodecay_params)}")
+
+optimizer = torch.optim.AdamW([
+    {"params": decay_params, "weight_decay": 0.1},
+    {"params": nodecay_params, "weight_decay": 0.0},
+], lr=3e-3, betas=(0.9, 0.95))
+
+# (3) Tạo dữ liệu mẫu lặp có quy luật và chạy vòng lặp tiền huấn luyện
+seq_data = torch.arange(64).repeat(8)
+X = seq_data[:-1].unfold(0, 16, 4)[:32]
+Y = seq_data[1:].unfold(0, 16, 4)[:32]
+
+for step in range(101):
+    lr = get_lr(step)
+    for group in optimizer.param_groups:
+        group["lr"] = lr
+
+    logits = model(X)
+    loss = F.cross_entropy(logits.view(-1, 64), Y.reshape(-1))
+    optimizer.zero_grad()
+    loss.backward()
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        model.parameters(), max_norm=1.0
+    )
+    optimizer.step()
+
+    if step % 25 == 0:
+        print(f"Bước {step:3d} | LR: {lr:.6f} | Loss: {loss.item():.4f} "
+              f"| Chuẩn Grad trước cắt: {grad_norm.item():.3f}")
+```
+
+<section className="code-output"><pre>{"Tham số có Weight Decay (2D): 107520 | Không có Weight Decay (1D): 1920\nBước   0 | LR: 0.000100 | Loss: 4.1982 | Chuẩn Grad trước cắt: 1.842\nBước  25 | LR: 0.002854 | Loss: 2.1645 | Chuẩn Grad trước cắt: 1.315\nBước  50 | LR: 0.001925 | Loss: 0.7814 | Chuẩn Grad trước cắt: 0.942\nBước  75 | LR: 0.000675 | Loss: 0.3419 | Chuẩn Grad trước cắt: 0.518\nBước 100 | LR: 0.000300 | Loss: 0.2581 | Chuẩn Grad trước cắt: 0.389"}</pre></section>

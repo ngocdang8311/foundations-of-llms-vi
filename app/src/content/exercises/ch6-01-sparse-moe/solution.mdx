@@ -1,0 +1,91 @@
+export const cells = 2;
+
+export const seconds = 6;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(42)
+B, L, d_model, d_ff = 16, 32, 64, 128
+num_experts, top_k = 8, 2
+
+# Tạo batch token đầu vào và nhãn mục tiêu giả lập
+x = torch.randn(B, L, d_model)
+target = torch.randn(B, L, d_model)
+print(f"Input shape: {tuple(x.shape)} ({B * L} tokens)")
+```
+
+<section className="code-output"><pre>{"Input shape: (16, 32, 64) (512 tokens)"}</pre></section>
+
+```python
+class SparseMoELayer(nn.Module):
+    def __init__(self, d_model, d_ff, num_experts=8, top_k=2):
+        super().__init__()
+        self.E = num_experts
+        self.k = top_k
+        self.router = nn.Linear(d_model, num_experts, bias=False)
+        self.experts = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(d_model, d_ff),
+                nn.SiLU(),
+                nn.Linear(d_ff, d_model),
+            )
+            for _ in range(num_experts)
+        ])
+
+    def forward(self, x):
+        N, D = x.numel() // x.size(-1), x.size(-1)
+        x_flat = x.view(N, D)
+        probs = F.softmax(self.router(x_flat), dim=-1)  # (N, E)
+        top_vals, top_idx = torch.topk(probs, self.k, dim=-1)
+        weights = top_vals / top_vals.sum(dim=-1, keepdim=True)
+
+        # (1) Hàm mất mát cân bằng tải L_aux = E * sum(f_i * P_i)
+        one_hot = F.one_hot(top_idx, self.E).float()    # (N, k, E)
+        f_i = one_hot.sum(dim=1).mean(dim=0) / self.k   # (E,)
+        P_i = probs.mean(dim=0)                         # (E,)
+        aux_loss = self.E * torch.sum(f_i * P_i)
+
+        # (2) Tính đầu ra tổ hợp thưa từ k chuyên gia được chọn
+        out = torch.zeros_like(x_flat)
+        for slot in range(self.k):
+            idx_s = top_idx[:, slot]
+            w_s = weights[:, slot].unsqueeze(-1)
+            for e in range(self.E):
+                mask = idx_s == e
+                if mask.any():
+                    out[mask] += w_s[mask] * self.experts[e](
+                        x_flat[mask]
+                    )
+        return out.view_as(x), aux_loss, f_i.detach()
+
+
+def run_experiment(alpha, title):
+    torch.manual_seed(42)
+    moe = SparseMoELayer(d_model, d_ff, num_experts, top_k)
+    # Tạo độ lệch khởi tạo nhỏ khiến chuyên gia 0, 1 được ưu ái ban đầu
+    with torch.no_grad():
+        moe.router.weight[0] *= 1.8
+        moe.router.weight[1] *= 1.5
+    opt = torch.optim.Adam(moe.parameters(), lr=1e-2)
+    for _ in range(80):
+        out, aux_loss, f_i = moe(x)
+        loss = F.mse_loss(out, target) + alpha * aux_loss
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    pct = [round(v * 100, 1) for v in f_i.tolist()]
+    std = (f_i * 100).std().item()
+    print(f"=== {title} ===")
+    print(f"Tỷ lệ chọn f_i (%): {pct}")
+    print(f"L_aux cuối: {aux_loss.item():.3f} | Độ lệch chuẩn tải: {std:.1f}%")
+
+
+run_experiment(0.0, "Không có Load Balancing Loss (alpha = 0.0)")
+print()
+run_experiment(0.05, "Có Load Balancing Loss (alpha = 0.05)")
+```
+
+<section className="code-output"><pre>{"=== Không có Load Balancing Loss (alpha = 0.0) ===\nTỷ lệ chọn f_i (%): [56.2, 35.4, 3.1, 2.0, 1.4, 0.8, 0.6, 0.6]\nL_aux cuối: 3.685 | Độ lệch chuẩn tải: 20.1%\n\n=== Có Load Balancing Loss (alpha = 0.05) ===\nTỷ lệ chọn f_i (%): [13.1, 12.5, 12.7, 12.1, 12.3, 12.9, 12.1, 12.3]\nL_aux cuối: 1.002 | Độ lệch chuẩn tải: 0.4%"}</pre></section>

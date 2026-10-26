@@ -35,15 +35,15 @@
       // n is the number of symbols in the n-gram: his "first-order approximation" draws each
       // symbol from its frequency (n = 1), the "second-order" one from the previous symbol (n = 2).
       const SHANNON_LETTERS = {
-        1: { name: 'First-order approximation (symbols independent but with frequencies of English text)', text: 'OCRO HLI RGWR NMIELWIS EU LL NBNESEBYA TH EEI ALHENHTTPA OOBTTVA NAH BRL.' },
-        2: { name: 'Second-order approximation (digram structure as in English)', text: 'ON IE ANTSOUTINYS ARE T INCTORE ST BE S DEAMY ACHIN D ILONASIVE TUCOOWE AT TEASONARE FUSO TIZIN ANDY TOBE SEACE CTISBE.' },
-        3: { name: 'Third-order approximation (trigram structure as in English)', text: 'IN NO IST LAT WHEY CRATICT FROURE BIRS GROCID PONDENOME OF DEMONSTURES OF THE REPTAGIN IS REGOACTIONA OF CRE.' },
+        1: { name: 'Xấp xỉ bậc một (các ký hiệu độc lập nhưng có tần suất của văn bản tiếng Anh)', text: 'OCRO HLI RGWR NMIELWIS EU LL NBNESEBYA TH EEI ALHENHTTPA OOBTTVA NAH BRL.' },
+        2: { name: 'Xấp xỉ bậc hai (cấu trúc cặp ký tự digram như trong tiếng Anh)', text: 'ON IE ANTSOUTINYS ARE T INCTORE ST BE S DEAMY ACHIN D ILONASIVE TUCOOWE AT TEASONARE FUSO TIZIN ANDY TOBE SEACE CTISBE.' },
+        3: { name: 'Xấp xỉ bậc ba (cấu trúc bộ ba ký tự trigram như trong tiếng Anh)', text: 'IN NO IST LAT WHEY CRATICT FROURE BIRS GROCID PONDENOME OF DEMONSTURES OF THE REPTAGIN IS REGOACTIONA OF CRE.' },
       };
       const SHANNON_WORDS = {
-        1: { name: 'First-order word approximation', text: 'REPRESENTING AND SPEEDILY IS AN GOOD APT OR COME CAN DIFFERENT NATURAL HERE HE THE A IN CAME THE TO OF TO EXPERT GRAY COME TO FURNISHES THE LINE MESSAGE HAD BE THESE.' },
-        2: { name: 'Second-order word approximation', text: 'THE HEAD AND IN FRONTAL ATTACK ON AN ENGLISH WRITER THAT THE CHARACTER OF THIS POINT IS THEREFORE ANOTHER METHOD FOR THE LETTERS THAT THE TIME OF WHO EVER TOLD THE PROBLEM FOR AN UNEXPECTED.' },
+        1: { name: 'Xấp xỉ từ bậc một', text: 'REPRESENTING AND SPEEDILY IS AN GOOD APT OR COME CAN DIFFERENT NATURAL HERE HE THE A IN CAME THE TO OF TO EXPERT GRAY COME TO FURNISHES THE LINE MESSAGE HAD BE THESE.' },
+        2: { name: 'Xấp xỉ từ bậc hai', text: 'THE HEAD AND IN FRONTAL ATTACK ON AN ENGLISH WRITER THAT THE CHARACTER OF THIS POINT IS THEREFORE ANOTHER METHOD FOR THE LETTERS THAT THE TIME OF WHO EVER TOLD THE PROBLEM FOR AN UNEXPECTED.' },
       };
-      const STOPPED = 'Shannon stopped here: “It would be interesting if further approximations could be constructed, but the labor involved becomes enormous at the next stage.”';
+      const STOPPED = 'Shannon đã dừng lại ở đây: “Sẽ rất thú vị nếu có thể xây dựng các xấp xỉ bậc cao hơn nữa, nhưng công sức cần bỏ ra ở bước tiếp theo trở nên khổng lồ.”';
 
       let mountEl = container;
       while (mountEl && !mountEl.getAttribute?.('data-datafiles')) mountEl = mountEl.parentElement;
@@ -61,17 +61,17 @@
       container.innerHTML = `
         <div class="controls">
           <div class="control-group">
-            <label class="control-label" for="n-${uid}">n, the length of the n-grams</label>
+            <label class="control-label" for="n-${uid}">n, độ dài của n-gram</label>
             <div class="slider-row">
               <input type="range" id="n-${uid}" min="1" max="5" step="1" value="1" />
               <span class="n-value"></span>
             </div>
           </div>
-          <button type="button" class="btn next">Another sample</button>
+          <button type="button" class="btn next">Mẫu khác</button>
         </div>
-        <div class="block"><div class="block-title">Our model, words, WikiText-2 <span class="order ours-order"></span></div><div class="ours"></div></div>
-        <div class="block"><div class="block-title">Shannon (1948), words <span class="order words-order"></span></div><div class="words"></div></div>
-        <div class="block"><div class="block-title">Shannon (1948), letters <span class="order letters-order"></span></div><div class="letters"></div></div>`;
+        <div class="block"><div class="block-title">Mô hình của chúng ta, cấp độ từ, WikiText-2 <span class="order ours-order"></span></div><div class="ours"></div></div>
+        <div class="block"><div class="block-title">Shannon (1948), cấp độ từ <span class="order words-order"></span></div><div class="words"></div></div>
+        <div class="block"><div class="block-title">Shannon (1948), cấp độ chữ cái <span class="order letters-order"></span></div><div class="letters"></div></div>`;
       const slider = container.querySelector('input[type="range"]');
       const nValue = container.querySelector('.n-value');
       const ours = container.querySelector('.ours');
@@ -98,7 +98,7 @@
       function render() {
         const n = Number(slider.value);
         nValue.textContent = `n = ${n}`;
-        ours.textContent = samples ? samples[n][index % samples[n].length] + ' …' : 'Loading…';
+        ours.textContent = samples ? samples[n][index % samples[n].length] + ' …' : 'Đang tải…';
         fill(words, wordsOrder, SHANNON_WORDS[n]);
         fill(letters, lettersOrder, SHANNON_LETTERS[n]);
       }

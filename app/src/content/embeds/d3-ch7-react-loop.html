@@ -1,0 +1,275 @@
+<div class="d3-ch7-react-loop"></div>
+<style>
+  .d3-ch7-react-loop {
+    font-size: 12.5px;
+    color: var(--text-color);
+    margin: 12px 0;
+  }
+  .d3-ch7-react-loop .rl-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .d3-ch7-react-loop .rl-tab {
+    flex: 1 1 200px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1.5px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .d3-ch7-react-loop .rl-tab.active {
+    border-color: var(--primary-color);
+    background: color-mix(in oklab, var(--primary-color) 10%, var(--surface-bg));
+  }
+  .d3-ch7-react-loop .rl-tab-title {
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+  .d3-ch7-react-loop .rl-tab-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+  }
+  .d3-ch7-react-loop svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 760px;
+    margin: 0 auto 10px;
+    overflow: visible;
+  }
+  .d3-ch7-react-loop .rl-summary {
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    line-height: 1.48;
+  }
+</style>
+<script>
+  (() => {
+    const MODES = [
+      {
+        id: 'cot',
+        title: '1. Chain-of-Thought tĩnh (Wei et al., 2022)',
+        sub: 'Chỉ suy luận nội tại — Không có công cụ hay quan sát ngoài',
+        verdict: '❌ Thất bại do ảo giác dữ liệu & nhẩm sai số học: Chuỗi tư duy giúp mô hình lập luận đúng các bước logic, nhưng vì đóng kín trong tham số tĩnh nên tự bịa ra thông số 16 đầu KV và nhân nhầm.',
+        nodes: [
+          { label: 'Câu hỏi người dùng', detail: 'Tính dung lượng KV Cache của Qwen-2.5 7B ở ngữ cảnh 131,072 token (FP16)', type: 'input', x: 380, y: 34 },
+          { label: 'Thought 1 (Suy nghĩ nội tại)', detail: '“Qwen-2.5 7B có 28 lớp, chắc có 16 đầu KV và d_head = 128...” (Ảo giác! Thực tế chỉ có 4 đầu KV)', type: 'thought', x: 380, y: 102 },
+          { label: 'Thought 2 (Tính nhẩm bằng token)', detail: '“2 * 2 * 28 * 16 * 128 * 131072 ≈ 18.5 GB...” (Tính nhẩm sai số học)', type: 'thought', x: 380, y: 170 },
+          { label: 'Câu trả lời (Sai lệch)', detail: '“Dung lượng KV Cache là khoảng 18.5 GB.” (Đáp án đúng: 7.0 GiB)', type: 'error', x: 380, y: 238 },
+        ],
+        links: [
+          { from: 0, to: 1 },
+          { from: 1, to: 2 },
+          { from: 2, to: 3 },
+        ],
+      },
+      {
+        id: 'react',
+        title: '2. Vòng lặp ReAct (Yao et al., 2023)',
+        sub: 'Đan xen Suy nghĩ (Thought) → Hành động (Action) → Quan sát (Observation)',
+        verdict: '✅ Tiếp đất thực tế (Grounded): Nhờ gọi công cụ tìm kiếm để lấy thông số thật (4 đầu KV) và gọi trình tính toán Python, mô hình hoàn toàn tránh được ảo giác.',
+        nodes: [
+          { label: 'Câu hỏi người dùng', detail: 'Tính dung lượng KV Cache của Qwen-2.5 7B ở ngữ cảnh 131,072 token (FP16)', type: 'input', x: 380, y: 30 },
+          { label: 'Thought 1 · Lập kế hoạch', detail: 'Cần tra cứu config.json chính thức của Qwen-2.5 7B để biết số lớp và số đầu KV.', type: 'thought', x: 190, y: 96 },
+          { label: 'Action 1 · Gọi công cụ Search', detail: 'search("Qwen2.5-7B config num_hidden_layers num_key_value_heads")', type: 'action', x: 560, y: 96 },
+          { label: 'Observation 1 · Kết quả tra cứu', detail: 'num_hidden_layers=28, num_attention_heads=28, num_key_value_heads=4, head_dim=128', type: 'obs', x: 560, y: 166 },
+          { label: 'Thought 2 + Action 2 · Tính toán', detail: 'python_calc("2 * 2 * 28 * 4 * 128 * 131072 / (1024**3)") → Observation: 7.0 GiB', type: 'thought', x: 190, y: 166 },
+          { label: 'Final Answer (Chính xác 100%)', detail: '“Qwen-2.5 7B dùng GQA 4 đầu KV nên KV Cache ở 128K token chỉ tốn đúng 7.0 GiB.”', type: 'ok', x: 380, y: 240 },
+        ],
+        links: [
+          { from: 0, to: 1 },
+          { from: 1, to: 2 },
+          { from: 2, to: 3 },
+          { from: 3, to: 4 },
+          { from: 4, to: 5 },
+        ],
+      },
+      {
+        id: 'reflexion',
+        title: '3. ReAct + Reflexion (Shinn et al., 2023)',
+        sub: 'Tự phản chiếu từ thông báo lỗi và sửa kế hoạch trong bộ nhớ ngắn hạn',
+        verdict: '🛡️ Tự phục hồi sau lỗi: Khi công cụ trả về ngoại lệ hoặc kết quả rỗng, cơ chế Reflexion chuyển tín hiệu lỗi thành phản hồi ngôn ngữ (verbal gradient) giúp Agent sửa lại truy vấn/mã lệnh ở lượt kế tiếp.',
+        nodes: [
+          { label: 'Action 1 (Lần thử đầu bị lỗi)', detail: 'python_calc("2 * 2 * layers * kv_heads * 128") → NameError: name "layers" is not defined', type: 'error', x: 195, y: 42 },
+          { label: 'Bộ phát hiện lỗi (Evaluator / Exception)', detail: 'Bắt ngoại lệ Traceback từ môi trường Sandbox thay vì làm sập chương trình', type: 'obs', x: 565, y: 42 },
+          { label: 'Tự phản chiếu (Self-Reflection)', detail: '“Tôi quên gán giá trị số cụ thể cho biến layers=28 và kv_heads=4 trước khi tính.”', type: 'thought', x: 565, y: 132 },
+          { label: 'Action 2 (Đã sửa theo phản chiếu)', detail: 'python_calc("2 * 2 * 28 * 4 * 128 * 131072 / (1024**3)") → 7.0 GiB', type: 'action', x: 195, y: 132 },
+          { label: 'Final Answer (Khôi phục thành công)', detail: 'Hoàn tất tác vụ chính xác sau 1 vòng tự sửa lỗi mà không cần con người can thiệp.', type: 'ok', x: 380, y: 226 },
+        ],
+        links: [
+          { from: 0, to: 1 },
+          { from: 1, to: 2 },
+          { from: 2, to: 3 },
+          { from: 3, to: 4 },
+        ],
+      },
+    ];
+
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch7-react-loop'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch7-react-loop'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let modeIdx = 1; // Default to ReAct
+
+        const tabs = document.createElement('div');
+        tabs.className = 'rl-tabs';
+        const svgWrap = document.createElement('div');
+        const summary = document.createElement('div');
+        summary.className = 'rl-summary';
+        container.append(tabs, svgWrap, summary);
+
+        const W = 760, H = 276;
+        const svg = d3.select(svgWrap).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+
+        const render = () => {
+          let palette = {
+            input: 'var(--muted-color)',
+            thought: '#4e79a7',
+            action: '#f28e2b',
+            obs: '#59a14f',
+            ok: '#59a14f',
+            error: '#e15759',
+          };
+          try {
+            if (window.ColorPalettes) {
+              const cat = window.ColorPalettes.getColors('categorical', 4);
+              if (cat && cat.length >= 4) {
+                palette.thought = cat[0];
+                palette.action = cat[1];
+                palette.obs = cat[2];
+                palette.ok = cat[2];
+                palette.error = cat[3];
+              }
+            }
+          } catch (_) {}
+
+          tabs.innerHTML = '';
+          MODES.forEach((m, i) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'rl-tab' + (i === modeIdx ? ' active' : '');
+            const t = document.createElement('div');
+            t.className = 'rl-tab-title';
+            t.textContent = m.title;
+            const s = document.createElement('div');
+            s.className = 'rl-tab-sub';
+            s.textContent = m.sub;
+            b.append(t, s);
+            b.addEventListener('click', () => {
+              modeIdx = i;
+              render();
+            });
+            tabs.appendChild(b);
+          });
+
+          const mode = MODES[modeIdx];
+          svg.selectAll('*').remove();
+
+          svg.append('defs').append('marker')
+            .attr('id', 'rl-arrow')
+            .attr('viewBox', '0 0 10 10')
+            .attr('refX', 8)
+            .attr('refY', 5)
+            .attr('markerWidth', 6)
+            .attr('markerHeight', 6)
+            .attr('orient', 'auto')
+            .append('path')
+            .attr('d', 'M0,1 L9,5 L0,9 z')
+            .attr('fill', 'var(--muted-color)');
+
+          mode.links.forEach((lk) => {
+            const a = mode.nodes[lk.from];
+            const b = mode.nodes[lk.to];
+            svg.append('line')
+              .attr('x1', a.x)
+              .attr('y1', a.y)
+              .attr('x2', b.x)
+              .attr('y2', b.y)
+              .attr('stroke', 'var(--muted-color)')
+              .attr('stroke-width', 1.6)
+              .attr('stroke-dasharray', '4,3');
+          });
+
+          const gNodes = svg.selectAll('g.rl-node')
+            .data(mode.nodes)
+            .enter()
+            .append('g')
+            .attr('class', 'rl-node');
+
+          const boxW = modeIdx === 0 ? 540 : 340;
+          const boxH = 50;
+
+          gNodes.append('rect')
+            .attr('x', (d) => d.x - boxW / 2)
+            .attr('y', (d) => d.y - boxH / 2)
+            .attr('width', boxW)
+            .attr('height', boxH)
+            .attr('rx', 8)
+            .attr('fill', 'var(--surface-bg)')
+            .attr('stroke', (d) => palette[d.type] || 'var(--border-color)')
+            .attr('stroke-width', 2);
+
+          gNodes.append('text')
+            .attr('x', (d) => d.x)
+            .attr('y', (d) => d.y - 6)
+            .attr('text-anchor', 'middle')
+            .attr('font-weight', 700)
+            .attr('font-size', 11.8)
+            .attr('fill', (d) => palette[d.type] || 'var(--text-color)')
+            .text((d) => d.label);
+
+          gNodes.append('text')
+            .attr('x', (d) => d.x)
+            .attr('y', (d) => d.y + 12)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10.6)
+            .attr('fill', 'var(--text-color)')
+            .text((d) => d.detail);
+
+          summary.textContent = mode.verdict;
+        };
+
+        render();
+        document.addEventListener('palettes:updated', render);
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

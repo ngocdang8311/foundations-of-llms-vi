@@ -1,0 +1,55 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+import torch
+
+torch.manual_seed(123)
+d_head = 16
+q = torch.randn(d_head)
+k = torch.randn(d_head)
+print("Vector q và k (16 chiều), chuẩn L2:",
+      round(q.norm().item(), 4), round(k.norm().item(), 4))
+```
+
+<section className="code-output"><pre>{"Vector q và k (16 chiều), chuẩn L2: 3.7483 3.9112"}</pre></section>
+
+```python
+# (1) Cài đặt phép quay vị trí phức RoPE (Rotary Position Embedding)
+def apply_rope_1d(vec, pos, base=10000.0):
+    d = vec.shape[-1]
+    i = torch.arange(0, d, 2, dtype=vec.dtype, device=vec.device)
+    theta = base ** (-i / d)
+    angles = pos * theta
+    cos_a, sin_a = torch.cos(angles), torch.sin(angles)
+
+    x_even = vec[..., 0::2]
+    x_odd = vec[..., 1::2]
+    rot_even = x_even * cos_a - x_odd * sin_a
+    rot_odd = x_even * sin_a + x_odd * cos_a
+    return torch.stack([rot_even, rot_odd], dim=-1).flatten(-2)
+
+q_rot5 = apply_rope_1d(q, pos=5)
+norm_diff = (q.norm() - q_rot5.norm()).abs().item()
+print(f"Chuẩn L2 của q sau khi quay ở m=5: {q_rot5.norm():.4f} "
+      f"(sai khác {norm_diff:.2e})")
+
+# (2) Kiểm chứng bất biến dịch chuyển <R_{m+d} q, R_{n+d} k> = <R_m q, R_n k>
+m, n = 5, 2
+base_score = torch.dot(apply_rope_1d(q, m), apply_rope_1d(k, n)).item()
+shifted_score = torch.dot(
+    apply_rope_1d(q, m + 12), apply_rope_1d(k, n + 12)
+).item()
+
+max_err = max(
+    abs(torch.dot(apply_rope_1d(q, m + d),
+                  apply_rope_1d(k, n + d)).item() - base_score)
+    for d in range(1, 21)
+)
+print(f"Điểm chú ý <R_5 q, R_2 k>   (m-n = 3):  {base_score:.6f}")
+print(f"Điểm chú ý <R_17 q, R_14 k> (m-n = 3):  {shifted_score:.6f}")
+print(f"Sai số cực đại khi dịch chuyển Delta in [1..20]: {max_err:.2e}")
+```
+
+<section className="code-output"><pre>{"Chuẩn L2 của q sau khi quay ở m=5: 3.7483 (sai khác 0.00e+00)\nĐiểm chú ý <R_5 q, R_2 k>   (m-n = 3):  2.184937\nĐiểm chú ý <R_17 q, R_14 k> (m-n = 3):  2.184937\nSai số cực đại khi dịch chuyển Delta in [1..20]: 9.54e-07"}</pre></section>

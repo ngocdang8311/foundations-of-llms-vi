@@ -5,9 +5,9 @@ export const cells = 1;
 ```python
 import torch
 
-# A sequence of L random embeddings of size D, as a batch of one
-# sequence: PyTorch's recurrent layers with batch_first=True expect
-# a tensor of shape (batch, L, D)
+# Một chuỗi gồm L vector nhúng ngẫu nhiên kích thước D, dưới dạng
+# lô gồm một chuỗi: các tầng hồi quy của PyTorch với batch_first=True
+# nhận đầu vào là tensor có kích thước (batch, L, D)
 L, D = 100, 100
 torch.manual_seed(0)
 embeddings = torch.randn(1, L, D)

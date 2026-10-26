@@ -1,0 +1,518 @@
+---
+title: "Các Kiến trúc Thay thế: Mixture of Experts, Attention Tuyến tính và Mamba (SSM)"
+chapter: 6
+banner: "banner-6.html"
+description: "Làm thế nào để mở rộng quy mô tham số mà không tăng chi phí tính toán với Sparse MoE, và vượt qua giới hạn bậc hai của Attention bằng mô hình không gian trạng thái (Mamba)."
+authors:
+  - name: "David Louapre"
+    url: "https://huggingface.co/dlouapre"
+    affiliations: [1]
+affiliations:
+  - name: "Hugging Face"
+    url: "https://huggingface.co"
+published: "Oct. 26, 2026"
+template: "article"
+licence: >
+  Sơ đồ và nội dung văn bản được cấp phép theo <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC‑BY 4.0</a>, trừ khi có ghi chú khác.
+tableOfContentsAutoCollapse: true
+showPdf: true
+---
+
+import Note from '../components/Note.astro';
+import HtmlEmbed from '../components/HtmlEmbed.astro';
+import PaperNote from '../components/post/PaperNote.astro';
+import Exercise from '../components/post/Exercise.astro';
+import Starter from '../components/post/Starter.astro';
+import Hints from '../components/post/Hints.astro';
+import Hint from '../components/post/Hint.astro';
+import Checkpoint from '../components/post/Checkpoint.astro';
+import Solution from '../components/post/Solution.astro';
+import WhatToNotice from '../components/post/WhatToNotice.astro';
+import Bonus from '../components/post/Bonus.astro';
+import Optional from '../components/post/Optional.astro';
+import Inset from '../components/post/Inset.astro';
+import WrapTable from '../components/post/WrapTable.astro';
+import ReferenceList from '../components/post/ReferenceList.astro';
+
+<Note variant="success">
+Đây là **Chương 6** trong chuỗi bài giảng tương tác *"Nền tảng Mô hình Ngôn ngữ Lớn — Học qua Thực hành"*. Ở các chương trước, ta đã lắp ráp hoàn chỉnh khối Transformer chuẩn (Chương 2), huấn luyện nó theo định luật mở rộng Chinchilla (Chương 3) và tối ưu hóa tốc độ suy luận với KV Cache, GQA, FlashAttention (Chương 5).
+
+Tuy nhiên, kiến trúc Transformer "đặc" (Dense Transformer) vẫn vấp phải hai bức tường vật lý lớn: (1) mỗi token đi qua đều buộc toàn bộ hàng chục tỷ tham số phải tính toán, và (2) cơ chế Softmax Attention đòi hỏi chi phí tính toán bậc hai $\mathcal{O}(L^2)$ cùng bộ nhớ KV Cache phình to tuyến tính theo chiều dài chuỗi $L$. Trong chương này, bạn sẽ tự tay cài đặt ba đột phá kiến trúc giúp phá vỡ hai giới hạn đó: **Hỗn hợp Chuyên gia Thưa (Sparse MoE)**, **Attention Tuyến tính (Linear Attention)** và **Mô hình Không gian Trạng thái Chọn lọc (Mamba / SSM)**.
+</Note>
+
+Khi đọc một câu hỏi về lập trình Python, liệu một mô hình ngôn ngữ có thực sự cần kích hoạt các nơ-ron lưu trữ kiến thức về ẩm thực Pháp hay lịch sử La Mã? Và khi đọc một cuốn sách dài $500.000$ token, liệu mô hình có bắt buộc phải giữ lại nguyên vẹn từng cặp vector khóa – giá trị $(k_t, v_t)$ của mọi từ từ trang đầu tiên?
+
+Hai trăn trở đó dẫn dắt toàn bộ cuộc cách mạng kiến trúc hậu-Transformer xoay quanh hai câu hỏi cốt lõi:
+
+- **Làm thế nào để tách rời tổng dung lượng tri thức (số lượng tham số $N$) khỏi chi phí tính toán trên mỗi token (FLOPs), giúp mô hình có hàng trăm tỷ tham số nhưng suy luận nhanh như một mô hình nhỏ?**
+- **Làm thế nào để vượt qua nút cổ chai bậc hai $\mathcal{O}(L^2)$ của Softmax Attention, kết hợp khả năng huấn luyện song song của Transformer với chi phí suy luận trạng thái hằng số $\mathcal{O}(1)$ của RNN?**
+
+<Note title="Tập dữ liệu & Mô hình thực nghiệm" emoji="📖" variant="info">
+Trong chương này, toàn bộ bài tập thực hành được thiết kế để chạy tức thì trên CPU chỉ với **PyTorch thuần** (dưới 10 giây mỗi bài), giúp bạn kiểm chứng trực tiếp bản chất toán học của từng kiến trúc:
+- **Mô phỏng Định tuyến Chuyên gia (`SparseMoELayer`)**: Khảo sát hiện tượng sụp đổ định tuyến (*routing collapse*) và tác dụng cân bằng tải của hàm mất mát phụ trợ $\mathcal{L}_{\text{aux}}$ [@shazeer2017moe; @fedus2022switch].
+- **Đối ngẫu Song song – Truy hồi (`CausalLinearAttention`)**: Kiểm chứng sự trùng khớp số học tuyệt đối (sai số $< 10^{-6}$) giữa phép nhân ma trận song song $\mathcal{O}(L^2 d)$ và phép cập nhật trạng thái truy hồi $\mathcal{O}(L d^2)$ [@katharopoulos2020].
+- **Bài toán Sao chép Chọn lọc (`Selective Copying`)**: Thử thách kinh điển của bài báo Mamba [@gu2023mamba], chứng minh tại sao các hệ không gian trạng thái bất biến thời gian (LTI / S4) thất bại trong khi cơ chế quét chọn lọc (*Selective Scan*) giải quyết hoàn hảo.
+</Note>
+
+---
+
+## 1. Hỗn hợp Chuyên gia Thưa (Sparse Mixture of Experts — MoE)
+
+Trong Chương 2 (Mục 5), khi phân rã số lượng tham số của một khối Transformer chuẩn, ta đã thấy rằng các lớp mạng truyền thẳng (**Feed-Forward Network — FFN / SwiGLU**) chiếm tới **2/3 tổng số tham số** của mô hình. Trong một mô hình *đặc* (Dense model) như Llama-3 70B, mọi token — dù là dấu chấm câu `,` hay một thuật ngữ chuyên ngành phức tạp — đều phải nhân ma trận qua toàn bộ các trọng số FFN này.
+
+### 1.1 Từ mạng FFN đặc đến tính toán có điều kiện (Conditional Computation)
+
+Ý tưởng của **Hỗn hợp Chuyên gia Thưa (Sparse Mixture of Experts — MoE)** là thay thế một lớp FFN khổng lồ duy nhất bằng $E$ mạng FFN độc lập nhỏ hơn gọi là các **chuyên gia** (*experts*) $\{E_1, E_2, \dots, E_E\}$, đi kèm một mạng cổng nhẹ gọi là **bộ định tuyến** (*router* hoặc *gating network*).
+
+Với vector biểu diễn $x \in \mathbb{R}^{d_{\text{model}}}$ của một token ở đầu vào lớp FFN, bộ định tuyến dùng ma trận trọng số $W_g \in \mathbb{R}^{d_{\text{model}} \times E}$ để tính điểm tương thích cho từng chuyên gia, sau đó chỉ kích hoạt **Top-$k$** chuyên gia có điểm cao nhất (thường $k = 1$ hoặc $k = 2$, với $k \ll E$):
+
+$$
+p_i(x) = \frac{\exp(x W_{g, i})}{\sum_{j=1}^{E} \exp(x W_{g, j})}, \qquad
+G_i(x) = \begin{cases}
+\dfrac{p_i(x)}{\sum_{j \in \mathcal{T}_k(x)} p_j(x)} & \text{nếu } i \in \mathcal{T}_k(x), \\[8pt]
+0 & \text{ngược lại},
+\end{cases}
+$$
+
+trong đó $\mathcal{T}_k(x)$ là tập hợp chỉ số của $k$ chuyên gia có xác suất $p_i(x)$ lớn nhất. Đầu ra của lớp MoE là tổng có trọng số chỉ trên $k$ chuyên gia được chọn:
+
+$$
+y = \sum_{i \in \mathcal{T}_k(x)} G_i(x)\, E_i(x).
+$$
+
+Vì $G_i(x) = 0$ với $E - k$ chuyên gia còn lại, ta **không cần thực hiện phép nhân ma trận** của các chuyên gia đó! Nhờ vậy, ta có thể tăng số lượng chuyên gia $E$ lên 8, 64, hay 256 để mở rộng dung lượng ghi nhớ tri thức của mô hình mà chi phí FLOPs trên mỗi token chỉ tương đương với việc chạy $k$ chuyên gia.
+
+<PaperNote id="shazeer2017moe" look="Hình 1 và Mục 3: cấu trúc lớp Sparsely-Gated MoE đặt giữa các lớp LSTM và phân tích hiện tượng mất cân bằng tải giữa các chuyên gia.">
+Tháng 1 năm 2017 (trước cả khi bài báo Transformer ra đời), Noam Shazeer cùng các đồng nghiệp tại Google Brain đã đưa ý tưởng Mixture of Experts (vốn có từ năm 1991 của Jacobs et al.) vào mô hình ngôn ngữ quy mô cực lớn. Họ đặt một lớp MoE gồm tới $131.072$ chuyên gia (nhưng mỗi token chỉ kích hoạt $k = 4$ chuyên gia) vào giữa hai lớp LSTM. Mô hình đạt quy mô chưa từng có lúc bấy giờ là **137 tỷ tham số**, cải thiện đáng kể perplexity trên tập 1 Billion Word Benchmark mà tốc độ huấn luyện tính bằng số từ/giây vẫn nhanh hơn các mô hình LSTM đặc có cùng ngân sách tính toán.
+</PaperNote>
+
+### 1.2 Sụp đổ định tuyến (Routing Collapse) và Hàm mất mát cân bằng tải
+
+Tuy nhiên, khi huấn luyện lớp Sparse MoE bằng hạ gradient thông thường, một hiện tượng bệnh lý gần như chắc chắn sẽ xảy ra: **sụp đổ định tuyến** (*routing collapse*).
+
+Nếu ở những bước khởi tạo đầu tiên, chuyên gia $E_1$ tình cờ có trọng số nhỉnh hơn một chút và được bộ định tuyến chọn nhiều hơn, thì $E_1$ sẽ nhận được nhiều cập nhật gradient hơn các chuyên gia khác. Kết quả là $E_1$ học nhanh hơn, dự đoán tốt hơn, và bộ định tuyến lại càng tăng xác suất $p_1(x)$ gửi token vào $E_1$! Chỉ sau vài trăm bước, toàn bộ token đều dồn vào 1–2 chuyên gia ("hiệu ứng người giàu càng giàu"), trong khi $E - 2$ chuyên gia còn lại bị bỏ hoang hoàn toàn ("chuyên gia chết" — *dead experts*), biến mô hình MoE đắt đỏ thành một mô hình đặc cỡ nhỏ.
+
+Để ngăn chặn hiệu ứng tự củng cố này, Switch Transformer [@fedus2022switch] chuẩn hóa một **hàm mất mát cân bằng tải phụ trợ** (*load-balancing auxiliary loss*) cực kỳ thanh lịch. Xét một batch gồm $N$ token:
+1. Gọi $f_i$ là **tỷ lệ token thực sự được định tuyến** tới chuyên gia $i$:
+   $$
+   f_i = \frac{1}{k N} \sum_{x \in \text{Batch}} \mathbb{I}\big(i \in \mathcal{T}_k(x)\big), \qquad \text{với } \sum_{i=1}^{E} f_i = 1.
+   $$
+2. Gọi $P_i$ là **xác suất định tuyến trung bình** mà cổng Softmax phân bổ cho chuyên gia $i$ trên toàn batch:
+   $$
+   P_i = \frac{1}{N} \sum_{x \in \text{Batch}} p_i(x), \qquad \text{với } \sum_{i=1}^{E} P_i = 1.
+   $$
+
+Vì hàm chỉ thị $\mathbb{I}(\cdot)$ trong $f_i$ không khả vi, ta nhân $f_i$ với $P_i$ (khả vi theo trọng số cổng $W_g$) để tạo ra hàm mất mát phụ trợ:
+
+$$
+\mathcal{L}_{\text{aux}} = E \sum_{i=1}^{E} f_i \cdot P_i, \qquad \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{LM}} + \alpha \, \mathcal{L}_{\text{aux}}.
+$$
+
+Tại sao công thức này hoạt động? Khi cả 8 chuyên gia được chia tải đồng đều hoàn hảo, ta có $f_i = \frac{1}{E}$ và $P_i = \frac{1}{E}$ với mọi $i$, suy ra:
+
+$$
+\mathcal{L}_{\text{aux}}^{\min} = E \sum_{i=1}^{E} \frac{1}{E} \cdot \frac{1}{E} = 1.
+$$
+
+Ngược lại, nếu toàn bộ token bị dồn vào một chuyên gia duy nhất ($f_1 = 1, P_1 = 1$), hàm mất mát sẽ vọt lên $\mathcal{L}_{\text{aux}} = E \cdot 1 = E$. Do tích vô hướng $\sum f_i P_i$ phạt nặng những chuyên gia vừa có tần suất được chọn $f_i$ cao vừa có xác suất $P_i$ lớn, gradient của $\mathcal{L}_{\text{aux}}$ sẽ lập tức kéo giảm logit của các chuyên gia quá tải và đẩy token sang các chuyên gia đang rảnh rỗi.
+
+### 1.3 Từ Mixtral 8x7B đến Chuyên gia dùng chung (Shared Experts) trong DeepSeek-V3
+
+Trong thực tế hiện đại, kiến trúc Sparse MoE đã phát triển qua hai thế hệ tiêu biểu:
+- **Mixtral 8x7B** [@jiang2024mixtral] sử dụng $E = 8$ chuyên gia SwiGLU lớn và kích hoạt $k = 2$ chuyên gia cho mỗi token. Tổng số tham số của mô hình là **46.7B**, nhưng mỗi token chỉ đi qua **12.9B** tham số hoạt động (*active parameters*), giúp Mixtral đạt chất lượng vượt Llama-2 70B với tốc độ suy luận nhanh gấp 6 lần.
+- **DeepSeek-V3** [@deepseek2024v3] tiến thêm hai bước đột phá: (1) **Chuyên gia tinh mịn** (*Fine-grained Experts*) — chia nhỏ các chuyên gia thành $E = 256$ chuyên gia nhỏ và kích hoạt $k = 8$ chuyên gia mỗi token để tạo ra hàng tỷ tổ hợp chuyên môn hóa đa dạng; và (2) **Chuyên gia dùng chung** (*Shared Experts*) — tách riêng $E_s = 1$ chuyên gia luôn luôn được kích hoạt cho mọi token mà không cần qua bộ định tuyến:
+
+$$
+y = x + E_{\text{shared}}(x) + \sum_{i \in \mathcal{T}_k(x)} G_i(x)\, E_i(x).
+$$
+
+Nhờ có $E_{\text{shared}}(x)$ gánh vác các tri thức ngữ pháp và từ vựng phổ quát, các chuyên gia định tuyến $E_i$ không cần phải học lặp lại kiến thức cơ bản mà có thể tập trung 100% dung lượng vào các lĩnh vực chuyên biệt. Ngoài ra, DeepSeek-V3 còn thay thế hàm phạt $\mathcal{L}_{\text{aux}}$ bằng cơ chế tự động điều chỉnh độ lệch định tuyến (*auxiliary-loss-free load balancing*), tránh việc hàm phạt phụ trợ làm suy giảm chất lượng ngôn ngữ.
+
+<PaperNote id="jiang2024mixtral" look="Hình 5 và Mục 5 (Routing Analysis): phân bố tỷ lệ chọn chuyên gia trên các miền dữ liệu khác nhau (ArXiv, GitHub, Triết học, Toán học).">
+Nhóm tác giả tại Mistral AI đã phân tích xem các chuyên gia trong Mixtral 8x7B thực sự chuyên môn hóa theo ngữ nghĩa hay theo cú pháp. Kết quả rất bất ngờ (Hình 5 của bài báo): ở các tầng giữa, không có chuyên gia nào độc quyền "chuyên về Toán" hay "chuyên về Sinh học" ở mức chủ đề vĩ mô; thay vào đó, sự chuyên môn hóa diễn ra rất mạnh ở **cấu trúc cú pháp và hình thái token** — ví dụ một chuyên gia chuyên xử lý khoảng trắng thụt lề trong Python, một chuyên gia chuyên xử lý các đại từ nối trong tiếng Anh, và một chuyên gia chuyên xử lý các ký hiệu chỉ số dưới trong công thức LaTeX!
+</PaperNote>
+
+Hãy tương tác với sơ đồ dưới đây để quan sát cách bộ định tuyến Top-2 phân phối các token của một đoạn mã Python vào 8 chuyên gia, và điều gì xảy ra khi bạn tắt hàm mất mát cân bằng tải:
+
+<HtmlEmbed
+  src="d3-ch6-moe-routing.html"
+  title="Bộ định tuyến Hỗn hợp Chuyên gia Thưa (Sparse MoE Router)"
+  desc="Mỗi token đi qua cổng định tuyến G(x) để chọn 2 trong 8 chuyên gia chuyên biệt, đồng thời đi qua 1 chuyên gia dùng chung (Shared Expert). Bật/tắt Load Balancing Loss để quan sát hiện tượng sụp đổ định tuyến (routing collapse) khi mọi token dồn vào E2 và E5."
+/>
+
+Bây giờ, hãy tự tay cài đặt lớp `SparseMoELayer` bằng PyTorch và kiểm chứng bằng thực nghiệm sự khác biệt giữa huấn luyện có và không có $\mathcal{L}_{\text{aux}}$.
+
+<Exercise number="6.1" title="Cài đặt lớp Sparse Top-2 MoE và Cân bằng tải" data="Tổng hợp (PyTorch)" nb="ch6-01-sparse-moe">
+
+Cài đặt mô-đun `SparseMoELayer` gồm $E = 8$ chuyên gia (mỗi chuyên gia là một mạng 2 lớp tuyến tính với hàm kích hoạt `SiLU`) và bộ định tuyến chọn $k = 2$ chuyên gia có xác suất cao nhất cho mỗi token:
+1. Chuẩn hóa lại trọng số của 2 chuyên gia được chọn sao cho tổng bằng $1$, và tính đầu ra tổ hợp thưa $y$.
+2. Tính hàm mất mát cân bằng tải phụ trợ $\mathcal{L}_{\text{aux}} = E \sum_{i=1}^{E} f_i P_i$.
+3. Khởi tạo trọng số bộ định tuyến có một chút thiên lệch ban đầu về chuyên gia 0 và 1 (như trong thực tế khi có nhiễu ngẫu nhiên), sau đó huấn luyện lớp MoE trong 80 bước với $\alpha = 0$ (tắt cân bằng tải) và $\alpha = 0.05$ (bật cân bằng tải). So sánh phân bố tỷ lệ chọn $f_i$ của 8 chuyên gia ở hai chế độ.
+
+<Starter nb="ch6-01-sparse-moe" />
+
+<Hints>
+
+<Hint>
+
+Trải phẳng đầu vào `x` từ `(B, L, d_model)` thành `x_flat` có kích thước `(N, d_model)` với `N = B * L`. Tính xác suất cổng `probs = F.softmax(self.router(x_flat), dim=-1)` có kích thước `(N, E)`, rồi dùng `torch.topk(probs, self.k, dim=-1)` để lấy `top_vals` và `top_idx` kích thước `(N, k)`.
+
+</Hint>
+
+<Hint>
+
+Để tính tần suất $f_i$, dùng `F.one_hot(top_idx, self.E).float()` thu được tensor `(N, k, E)`. Lấy tổng theo chiều `k` (`dim=1`), trung bình theo chiều `N` (`dim=0`) và chia cho `self.k` để $\sum_i f_i = 1$. Vector xác suất trung bình là `P_i = probs.mean(dim=0)`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch6-01-sparse-moe">
+
+Khi $\alpha = 0.0$, hiện tượng sụp đổ định tuyến xảy ra rõ rệt: hai chuyên gia đầu tiên chiếm tới hơn $91\%$ tổng lưu lượng ($56.2\%$ và $35.4\%$), đẩy $\mathcal{L}_{\text{aux}}$ lên $3.685$ và các chuyên gia từ 5 đến 7 gần như bị bỏ đói ($< 1\%$). Khi bật $\alpha = 0.05$, tải được chia đều quanh mức lý tưởng $12.5\%$ cho cả 8 chuyên gia và $\mathcal{L}_{\text{aux}}$ hội tụ sát về $1.002$.
+
+</Checkpoint>
+
+<Solution nb="ch6-01-sparse-moe" />
+
+<WhatToNotice>
+
+Hãy chú ý cách hàm mất mát $\mathcal{L}_{\text{aux}} = E \sum f_i P_i$ vượt qua rào cản không khả vi của phép chọn rời rạc `topk`: đạo hàm không đi qua tần suất đếm $f_i$ (vốn là hằng số từng khúc), mà đi qua xác suất trung bình $P_i$, với $f_i$ đóng vai trò là hệ số phạt động tỉ lệ thuận với mức độ quá tải thực tế của chuyên gia $i$. **Sparse MoE cho phép mô hình mở rộng quy mô tham số lên hàng trăm tỷ mà chi phí tính toán mỗi bước chỉ bằng một phần nhỏ.**
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 2. Attention Tuyến tính và Sự đối ngẫu RNN–Attention (Linear Attention)
+
+Sparse MoE giúp giảm chi phí tại các lớp FFN, nhưng còn bản thân lớp **Self-Attention** thì sao? Khi chiều dài chuỗi $L$ tăng lên $128\text{K}$ hay $1\text{M}$ token, ma trận điểm chú ý $Q K^\top \in \mathbb{R}^{L \times L}$ đòi hỏi số phép tính tăng theo bậc hai $\mathcal{O}(L^2 d)$, và trong lúc sinh văn bản tự hồi quy, bộ nhớ **KV Cache** phải lưu toàn bộ các cặp $(k_1, v_1), \dots, (k_t, v_t)$, tốn thời gian đọc bộ nhớ $\mathcal{O}(t)$ ở bước thứ $t$.
+
+Tại sao Self-Attention lại bị khóa chặt vào độ phức tạp $\mathcal{O}(L^2)$? Thủ phạm nằm ở **hàm mũ phi tuyến Softmax** bao quanh tích vô hướng $q_t^\top k_j$.
+
+### 2.1 Phép ma thuật của tính kết hợp phép nhân ma trận
+
+Trong cơ chế Causal Self-Attention chuẩn, đầu ra $y_t \in \mathbb{R}^d$ tại vị trí $t$ là trung bình có trọng số của các vector giá trị $v_j$ ($j \le t$):
+
+$$
+y_t = \frac{\sum_{j=1}^{t} \text{sim}(q_t, k_j)\, v_j}{\sum_{j=1}^{t} \text{sim}(q_t, k_j)}, \qquad \text{với } \text{sim}_{\text{softmax}}(q_t, k_j) = \exp\!\left(\frac{q_t^\top k_j}{\sqrt{d}}\right).
+$$
+
+Vì hàm $\exp(q_t^\top k_j)$ không thể tách thành tích độc lập của một hàm theo $q_t$ và một hàm theo $k_j$ (trừ khi khai triển chuỗi Taylor vô hạn), ta bắt buộc phải tính tích vô hướng $q_t^\top k_j$ cho mọi cặp $(t, j)$ với $j \le t$, dẫn đến phép nhân ma trận theo thứ tự:
+
+$$
+\text{Softmax Attention:} \quad \underbrace{\big(Q K^\top\big)}_{L \times L} V \quad \Longrightarrow \quad \text{Độ phức tạp } \mathcal{O}(L^2 d).
+$$
+
+Năm 2020, Katharopoulos et al. [@katharopoulos2020] đặt một câu hỏi táo bạo: điều gì sẽ xảy ra nếu ta thay hàm tương đồng $\exp(q_t^\top k_j / \sqrt{d})$ bằng một **hàm nhân tách được** (*kernel feature map*) $\text{sim}(q_t, k_j) = \phi(q_t)^\top \phi(k_j)$, trong đó $\phi: \mathbb{R}^d \to \mathbb{R}_{+}^d$ là một hàm kích hoạt dương áp dụng theo từng phần tử, chẳng hạn $\phi(x) = \text{elu}(x) + 1$?
+
+Khi đó, nhờ **tính phân phối và kết hợp của phép nhân ma trận**, ta có thể đưa $\phi(q_t)^\top$ ra ngoài dấu tổng $\sum_{j=1}^{t}$:
+
+$$
+y_t = \frac{\sum_{j=1}^{t} \big(\phi(q_t)^\top \phi(k_j)\big) v_j^\top}{\sum_{j=1}^{t} \phi(q_t)^\top \phi(k_j)}
+= \frac{\phi(q_t)^\top \left(\sum_{j=1}^{t} \phi(k_j)\, v_j^\top\right)}{\phi(q_t)^\top \left(\sum_{j=1}^{t} \phi(k_j)\right)}.
+$$
+
+Ở dạng ma trận toàn chuỗi (không mặt nạ), chỉ cần **đổi vị trí dấu ngoặc đơn** từ $\big(\phi(Q)\phi(K)^\top\big)V$ sang $\phi(Q)\big(\phi(K)^\top V\big)$, ma trận trung gian kích thước $L \times L$ biến mất và được thay bằng ma trận trung gian kích thước cố định $d \times d$:
+
+$$
+\text{Linear Attention:} \quad \phi(Q) \underbrace{\big(\phi(K)^\top V\big)}_{d \times d} \quad \Longrightarrow \quad \text{Độ phức tạp } \mathcal{O}(L d^2).
+$$
+
+Khi $L \gg d$ (ví dụ chiều dài ngữ cảnh $L = 65.536$ trong khi chiều một đầu chú ý chỉ là $d = 64$), thay $L^2 d$ bằng $L d^2$ giúp giảm số phép tính đi hơn **1.000 lần**!
+
+<PaperNote id="katharopoulos2020" look="Mục 3.2 và Hình 1–2: biểu diễn Causal Linear Attention dưới dạng mạng RNN truy hồi và so sánh tốc độ sinh tự hồi quy nhanh hơn tới 4.000 lần.">
+Bài báo mang tựa đề rất trực diện: *"Transformers are RNNs: Fast Autoregressive Transformers with Linear Attention"*. Nhóm tác giả chỉ ra rằng bất kỳ lớp Transformer nào sử dụng hàm tương đồng nhân $\text{sim}(q, k) = \phi(q)^\top \phi(k)$ đều chính xác là một mạng RNN có trạng thái ẩn dạng ma trận $S_t \in \mathbb{R}^{d \times d}$. Trên bài toán sinh ảnh tự hồi quy chuỗi dài (ImageNet / CIFAR-10), Linear Attention đạt chất lượng tương đương Softmax Transformer nhưng tăng tốc độ suy luận tuần tự lên hơn $4.000$ lần nhờ không phải tính lại toàn bộ lịch sử.
+</PaperNote>
+
+### 2.2 Biểu diễn Truy hồi Trạng thái $S_t \in \mathbb{R}^{d \times d}$ và Sự đối ngẫu RNN–Attention
+
+Điều kỳ diệu nhất của công thức trên xuất hiện khi ta đặt hai biến trạng thái tích lũy theo thời gian $t$:
+- **Ma trận trạng thái bộ nhớ kết hợp** (*associative memory state matrix*) $S_t \in \mathbb{R}^{d \times d}$: tổng các tích ngoài (*outer product*) giữa khóa $\phi(k_j)$ và giá trị $v_j$.
+- **Vector chuẩn hóa** $z_t \in \mathbb{R}^d$: tổng các vector khóa $\phi(k_j)$.
+
+Tại mỗi bước thời gian $t$, trạng thái mới chỉ phụ thuộc vào trạng thái ở bước $t - 1$ và token hiện tại $(q_t, k_t, v_t)$:
+
+$$
+\begin{aligned}
+S_t &= S_{t-1} + \phi(k_t)\, v_t^\top \quad \in \mathbb{R}^{d \times d}, \\[4pt]
+z_t &= z_{t-1} + \phi(k_t) \quad \in \mathbb{R}^{d}, \\[4pt]
+y_t &= \frac{\phi(q_t)^\top S_t}{\phi(q_t)^\top z_t + \varepsilon} \quad \in \mathbb{R}^{1 \times d}.
+\end{aligned}
+$$
+
+Hãy dừng lại một nhịp để thưởng thức hệ phương trình này! Đây chính là **Sự đối ngẫu giữa Attention và RNN (Attention–RNN Duality)**:
+1. **Khi huấn luyện (Chế độ Song song)**: Toàn bộ chuỗi đầu vào đã biết trước, ta tính song song trên GPU bằng các phép nhân ma trận khối (chunkwise / parallel scan) mà không cần vòng lặp tuần tự theo $t$.
+2. **Khi suy luận tự hồi quy (Chế độ Truy hồi — Recurrent mode)**: Thay vì phải lưu trữ KV Cache phình to vô hạn theo $L$, ta chỉ cần giữ duy nhất một ma trận trạng thái cố định $S_t \in \mathbb{R}^{d \times d}$ và một vector $z_t \in \mathbb{R}^d$. Mỗi khi sinh thêm một token mới, chi phí cập nhật $S_t$ và truy xuất $y_t$ là hằng số $\mathcal{O}(d^2)$ — tức **$\mathcal{O}(1)$ theo chiều dài chuỗi $L$**!
+
+Hướng tiếp cận biến RNN thành kiến trúc huấn luyện song song như Transformer cũng là nền tảng của dòng mô hình **RWKV** (*Reinventing RNNs for the Transformer Era*) [@peng2023rwkv], nơi tác giả bổ sung hệ số suy giảm theo thời gian $e^{-w}$ vào trạng thái tích lũy để các token gần hiện tại có trọng số cao hơn các token ở xa.
+
+Hãy khám phá trực quan hai cách đặt dấu ngoặc của Linear Attention trong biểu đồ tương tác dưới đây:
+
+<HtmlEmbed
+  src="d3-ch6-linear-attention-duality.html"
+  title="Sự đối ngẫu giữa Dạng Song song và Dạng Truy hồi trong Linear Attention"
+  desc="Chuyển đổi giữa hai cách kết hợp phép nhân ma trận: (φ(Q)φ(K)ᵀ)V tạo ra ma trận chú ý bậc hai L×L, trong khi φ(Q)(φ(K)ᵀV) nén lịch sử vào ma trận trạng thái cố định S_t kích thước d×d. Kéo thanh trượt L để xem mức tiết kiệm phép tính."
+/>
+
+Trong bài tập dưới đây, bạn sẽ tự tay cài đặt Causal Linear Attention ở cả hai chế độ và chứng minh rằng chúng cho ra cùng một tensor đầu ra tới từng chữ số thập phân.
+
+<Exercise number="6.2" title="Chứng minh sự tương đương giữa Dạng Song song và Dạng Truy hồi của Linear Attention" data="Tổng hợp (PyTorch)" nb="ch6-02-linear-attention">
+
+Với tensor đầu vào $Q, K, V \in \mathbb{R}^{B \times L \times d}$ ($B=4, L=256, d=32$) và hàm ánh xạ đặc trưng dương $\phi(x) = \text{elu}(x) + 1$:
+1. Cài đặt hàm `causal_linear_attention_parallel(Q, K, V)` tính ma trận tương đồng $\phi(Q)\phi(K)^\top$, áp dụng mặt nạ nhân quả tam giác dưới (`torch.tril`), nhân với $V$ và chia chuẩn hóa theo tổng từng hàng.
+2. Cài đặt hàm `causal_linear_attention_recurrent(Q, K, V)` duyệt qua từng bước $t = 0 \dots L-1$, cập nhật ma trận trạng thái $S_t = S_{t-1} + \phi(k_t) v_t^\top \in \mathbb{R}^{d \times d}$ cùng vector chuẩn hóa $z_t = z_{t-1} + \phi(k_t) \in \mathbb{R}^d$, rồi tính $y_t$.
+3. Đo sai số tuyệt đối cực đại $\max |Y_{\text{parallel}} - Y_{\text{recurrent}}|$ và kiểm tra xem nó có nhỏ hơn $10^{-6}$ hay không.
+
+<Starter nb="ch6-02-linear-attention" />
+
+<Hints>
+
+<Hint>
+
+Ở dạng song song, sau khi tính `scores = torch.matmul(Qp, Kp.transpose(-1, -2))` kích thước `(B, L, L)`, tạo mặt nạ `mask = torch.tril(torch.ones(L, L, dtype=torch.bool))` và xóa phần tam giác trên bằng `scores = scores.masked_fill(~mask, 0.0)`. Tử số là `scores @ V`, mẫu số là `scores.sum(dim=-1, keepdim=True) + eps`.
+
+</Hint>
+
+<Hint>
+
+Ở dạng truy hồi, tại mỗi bước `t`, lấy `k_t` có kích thước `(B, d, 1)` và `v_t` có kích thước `(B, 1, d)`. Tích ngoài $\phi(k_t) v_t^\top$ chính là `torch.matmul(k_t, v_t)` có kích thước `(B, d, d)`. Tích của truy vấn `q_t` kích thước `(B, 1, d)` với trạng thái `S` kích thước `(B, d, d)` là `torch.matmul(q_t, S).squeeze(1)`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch6-02-linear-attention">
+
+Hai hàm cài đặt theo hai thuật toán hoàn toàn khác nhau — một bên dùng ma trận chú ý $256 \times 256$, một bên chỉ cập nhật ma trận trạng thái cố định $32 \times 32$ — cho kết quả trùng khớp với sai số tuyệt đối cực đại chỉ là $4.77 \times 10^{-7}$ (do sai số làm tròn dấu phẩy động 32-bit).
+
+</Checkpoint>
+
+<Solution nb="ch6-02-linear-attention" />
+
+<WhatToNotice>
+
+Bài tập này hé lộ một góc nhìn sâu sắc: **KV Cache thực chất là một trạng thái mở rộng còn ma trận $S_t \in \mathbb{R}^{d \times d}$ là một trạng thái nén có mất mát (lossy compression)**. Trong Linear Attention thuần túy, vì $S_t = S_{t-1} + \phi(k_t) v_t^\top$ chỉ cộng dồn mọi cặp khóa – giá trị với hệ số bằng $1$ mà không bao giờ xóa đi thông tin cũ, sau hàng nghìn bước trạng thái $S_t$ sẽ bị "bão hòa" bởi nhiễu quá khứ. Để khắc phục điểm yếu này, ta cần một cơ chế biết **chọn lọc thông tin cần nhớ và cần quên theo ngữ cảnh** — đó chính là động lực dẫn tới **Mamba (Selective SSM)** ở mục tiếp theo!
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 3. Mô hình Không gian Trạng thái Chọn lọc (SSM & Mamba)
+
+Trong lý thuyết điều khiển học và xử lý tín hiệu, **Mô hình Không gian Trạng thái (State Space Model — SSM)** mô tả cách một tín hiệu đầu vào một chiều $x(t) \in \mathbb{R}$ điều khiển một vector trạng thái ẩn $h(t) \in \mathbb{R}^N$ và sinh ra tín hiệu đầu ra $y(t) \in \mathbb{R}$ thông qua hệ phương trình vi phân tuyến tính bậc nhất:
+
+$$
+\begin{aligned}
+h'(t) &= A\, h(t) + B\, x(t), \\[4pt]
+y(t) &= C\, h(t),
+\end{aligned}
+$$
+
+trong đó $A \in \mathbb{R}^{N \times N}$ là ma trận chuyển trạng thái (quyết định tốc độ suy giảm hoặc dao động của bộ nhớ), $B \in \mathbb{R}^{N \times 1}$ là ma trận chiếu đầu vào, và $C \in \mathbb{R}^{1 \times N}$ là ma trận đọc trạng thái ra đầu ra. (Khi áp dụng cho vector embedding $D$ chiều của LLM, ta chạy độc lập một hệ SSM như vậy trên từng kênh trong $D$ kênh).
+
+### 3.1 Rời rạc hóa Zero-Order Hold (ZOH) và Mô hình S4
+
+Vì văn bản là một chuỗi các token rời rạc $x_1, x_2, \dots, x_L$ thay vì hàm liên tục $x(t)$, ta cần **rời rạc hóa** (*discretize*) hệ phương trình vi phân trên bằng một tham số **bước nhảy thời gian** (*step size*) $\Delta > 0$. Theo quy tắc giữ bậc không (*Zero-Order Hold — ZOH*), các ma trận rời rạc $(\bar{A}, \bar{B})$ được tính từ $(A, B, \Delta)$ như sau:
+
+$$
+\bar{A} = \exp(\Delta A), \qquad \bar{B} = (\Delta A)^{-1}\big(\exp(\Delta A) - I\big) \cdot \Delta B \approx \Delta B,
+$$
+
+trong đó xấp xỉ $\bar{B} \approx \Delta B$ là khai triển Euler bậc nhất cực kỳ trực quan. Khi đó, hệ vi phân trở thành một mạng RNN tuyến tính theo thời gian rời rạc $t$:
+
+$$
+h_t = \bar{A}\, h_{t-1} + \bar{B}\, x_t, \qquad y_t = C\, h_t.
+$$
+
+Năm 2022, Albert Gu, Karan Goel và Christopher Ré giới thiệu mô hình **S4** (*Structured State Spaces for Sequence Modeling*) [@gu2022s4]. Họ nhận ra rằng nếu các ma trận $(A, B, C, \Delta)$ là **bất biến theo thời gian** (*Linear Time-Invariant — LTI*, tức không phụ thuộc vào bước $t$ hay nội dung $x_t$), thì việc mở rộng đệ quy của $h_t$ sẽ biến toàn bộ chuỗi đầu ra $y$ thành một **phép tích chập toàn cục** (*global convolution*):
+
+$$
+y_t = C \bar{B} x_t + C \bar{A} \bar{B} x_{t-1} + \dots + C \bar{A}^{t-1} \bar{B} x_1 \quad \Longleftrightarrow \quad y = x * \overline{K}, \quad \overline{K} = \big(C\bar{B},\, C\bar{A}\bar{B},\, \dots,\, C\bar{A}^{L-1}\bar{B}\big).
+$$
+
+Nhờ định lý tích chập và cấu trúc ma trận đường chéo HiPPO của $A$, S4 có thể tính toàn bộ chuỗi dài $L$ song song bằng biến đổi Fourier nhanh (FFT) trong thời gian $\mathcal{O}(L \log L)$ khi huấn luyện, và chạy như RNN trong thời gian $\mathcal{O}(1)$ khi suy luận!
+
+### 3.2 Đột phá của Mamba: Cơ chế Quét Chọn lọc (Selective Scan)
+
+S4 đạt kết quả xuất sắc trên các chuỗi tín hiệu vật lý (âm thanh, sóng điện tâm đồ), nhưng lại **thua kém Transformer trên mô hình hóa ngôn ngữ tự nhiên**. Tại sao?
+
+Trong bài báo **Mamba** [@gu2023mamba], Albert Gu và Tri Dao đã chỉ ra căn nguyên cốt lõi: **ngôn ngữ tự nhiên đòi hỏi sự nén thông tin phụ thuộc vào ngữ cảnh (content-aware reasoning), điều mà mọi hệ thống bất biến thời gian (LTI) đều bất lực**.
+
+Hãy tưởng tượng mô hình đọc câu: *"Mã xác thực của bạn là **A7** ... uhm ... à ... **K9** ... ờm ... **M2**"* và phải nhắc lại mã `A7-K9-M2` ở cuối câu (bài toán **Selective Copying**).
+- Trong một mô hình **LTI** như S4, vì bước nhảy $\Delta$ và các ma trận $\bar{A}, \bar{B}, C$ là hằng số cố định cho mọi bước thời gian, mô hình đối xử với từ rác `"uhm"` giống hệt như từ khóa `"A7"`! Nó không thể nhìn vào nội dung của $x_t$ để quyết định: *"Token này là nhiễu, đừng ghi vào trạng thái $h_t$!"*.
+- Giải pháp của **Mamba (Selective State Space Model — S6)** vô cùng gọn gàng: biến bước nhảy rời rạc hóa $\Delta_t$ cũng như các ma trận chiếu $B_t, C_t$ thành **hàm phụ thuộc trực tiếp vào đầu vào $x_t$**:
+
+$$
+B_t = W_B\, x_t, \qquad C_t = W_C\, x_t, \qquad \Delta_t = \text{softplus}\big(W_\Delta\, x_t + b_\Delta\big),
+$$
+
+trong đó $\text{softplus}(z) = \ln(1 + e^z) > 0$ đảm bảo bước nhảy thời gian luôn dương, còn ma trận $A$ được chọn là ma trận đường chéo âm $A = -\exp(\text{log\_A}) < 0$ để hệ thống luôn ổn định. Khi đó, ở mỗi bước $t$:
+
+$$
+\bar{A}_t = \exp(\Delta_t A) \in (0, 1)^N, \qquad \bar{B}_t = \Delta_t B_t, \qquad h_t = \bar{A}_t \odot h_{t-1} + \bar{B}_t \odot x_t.
+$$
+
+<Inset title="Ý nghĩa trực giác của bước nhảy chọn lọc Δ_t: Cổng Nhớ / Quên tổng quát">
+Vì $A < 0$, khi đầu vào $x_t$ điều khiển độ lớn của $\Delta_t$, nó tạo ra hai chế độ cực đoan giống hệt cổng quên/nhớ của LSTM hay GRU:
+- **Khi $x_t$ là token nhiễu hoặc không quan trọng ($\Delta_t \to 0$)**: Ta có $\bar{A}_t = \exp(0) = 1$ và $\bar{B}_t = 0 \cdot B_t = 0$. Phương trình cập nhật trở thành $h_t = 1 \cdot h_{t-1} + 0 \cdot x_t = h_{t-1}$. Mô hình **bỏ qua hoàn toàn đầu vào hiện tại** và bảo toàn nguyên vẹn bộ nhớ quá khứ $h_{t-1}$ xuyên qua hàng nghìn bước nhiễu mà không hề bị suy giảm!
+- **Khi $x_t$ là token mang thông tin quan trọng ($\Delta_t \gg 0$)**: Ta có $\bar{A}_t = \exp(\Delta_t A) \to 0$ và $\bar{B}_t$ lớn. Mô hình làm mới trạng thái để **ghi đè thông tin quan trọng của $x_t$** vào bộ nhớ $h_t$.
+</Inset>
+
+<PaperNote id="gu2023mamba" look="Hình 1, Hình 2 (Selective Copying & Induction Heads) và Mục 3.3 (Hardware-aware Parallel Scan).">
+Khi làm cho $(\Delta_t, B_t, C_t)$ phụ thuộc vào $x_t$, hệ SSM không còn bất biến theo thời gian nên không thể dùng FFT để tính tích chập. Để huấn luyện nhanh trên GPU, Gu và Dao đã thiết kế thuật toán **Quét Song song Nhận biết Phần cứng (Hardware-aware Parallel Associative Scan)**: vì phép toán kết hợp trạng thái tuyến tính $(a_2, b_2) \circ (a_1, b_1) = (a_2 a_1, a_2 b_1 + b_2)$ có tính kết hợp, toàn bộ chuỗi trạng thái $h_1 \dots h_L$ vẫn có thể được tính song song trên bộ nhớ SRAM tốc độ cao của GPU trong $\mathcal{O}(L)$ phép tính mà không cần ghi các trạng thái trung gian $h_t \in \mathbb{R}^{B \times L \times D \times N}$ ra bộ nhớ HBM. Mamba trở thành kiến trúc độ phức tạp tuyến tính đầu tiên đạt chất lượng ngang ngửa và vượt các mô hình Transformer mạnh nhất cùng quy mô (Pythia, Llama) trên tiền huấn luyện ngôn ngữ.
+</PaperNote>
+
+### 3.3 Đối ngẫu Không gian Trạng thái có Cấu trúc (SSD) trong Mamba-2
+
+Năm 2024, Tri Dao và Albert Gu tiếp tục công bố **Mamba-2** [@dao2024mamba2] với lý thuyết **Đối ngẫu Không gian Trạng thái có Cấu trúc (Structured State Space Duality — SSD)**. Họ chứng minh rằng khi ma trận chuyển trạng thái $\bar{A}_t = a_t I$ là tích của một vô hướng $a_t \in (0, 1)$ với ma trận đơn vị, phương trình SSM của Mamba và phương trình Linear Attention ở Mục 2 **trở thành một thể thống nhất**:
+
+$$
+y_t = \sum_{j=1}^{t} \left(\prod_{s=j+1}^{t} a_s\right) (c_t^\top b_j)\, x_j \quad \Longleftrightarrow \quad Y = \big(L_{\text{decay}} \odot (C B^\top)\big) X,
+$$
+
+trong đó $C, B, X$ tương ứng trực tiếp với $Q, K, V$ của Attention, còn $L_{\text{decay}}$ là ma trận mặt nạ nhân quả bán tách được (*1-semiseparable matrix*) chứa tích các hệ số suy giảm chọn lọc $a_s$. Nhờ chia chuỗi thành các khối nhỏ (*chunkwise decomposition*), Mamba-2 tận dụng trực tiếp các nhân nhân ma trận **Tensor Cores** của GPU, giúp huấn luyện nhanh hơn Mamba-1 từ **2 đến 8 lần** trong khi cho phép tăng kích thước trạng thái $N$ lên gấp 8 lần ($N = 128$).
+
+Hãy tương tác với biểu đồ dưới đây để thấy rõ cách cổng chọn lọc $\Delta_t(x_t)$ của Mamba giải quyết bài toán Sao chép Chọn lọc mà SSM bất biến thời gian (LTI) bó tay:
+
+<HtmlEmbed
+  src="d3-ch6-selective-ssm.html"
+  title="Cơ chế Chọn lọc (Selective Scan) của Mamba trên Bài toán Sao chép Chọn lọc"
+  desc="So sánh Mamba (Selective SSM) và LTI SSM (S4) khi đọc chuỗi chứa các mã quan trọng (A7, K9, M2) xen kẽ bởi các token nhiễu. Bạn có thể nhấp trực tiếp vào từng token để chuyển đổi giữa Tín hiệu và Nhiễu."
+/>
+
+Bây giờ, hãy tự tay lập trình cả hai mô hình (LTI SSM và Selective SSM) trên bài toán Sao chép Chọn lọc trong PyTorch!
+
+<Exercise number="6.3" title="Cài đặt Selective SSM (Mamba) và Giải bài toán Nhớ có Chọn lọc" data="Selective Copying" nb="ch6-03-selective-ssm">
+
+Xét bài toán **Nhớ có Chọn lọc (Selective Copying)**: mỗi chuỗi gồm $L = 24$ bước, tại mỗi bước $t$ đầu vào là cặp $(v_t, m_t) \in \mathbb{R}^2$ gồm giá trị ngẫu nhiên $v_t \sim \mathcal{N}(0, 1)$ và cờ đánh dấu $m_t \in \{0, 1\}$. Trong cả chuỗi chỉ có duy nhất một bước ngẫu nhiên $t^*$ có $m_{t^*} = 1$ (token tín hiệu), các bước còn lại đều có $m_t = 0$ (token nhiễu). Ở bước cuối cùng $t = L$, mô hình phải dự đoán lại chính xác giá trị $v_{t^*}$.
+1. Cài đặt lớp `SimpleSSM` với hai chế độ:
+   - `selective=False` (LTI SSM): $\Delta, B, C$ là các vector tham số cố định không phụ thuộc vào $x_t$.
+   - `selective=True` (Mamba): $\Delta_t = \text{softplus}(W_\Delta x_t)$, $B_t = W_B x_t$, $C_t = W_C x_t$.
+2. Huấn luyện cả hai mô hình trong 250 bước bằng Adam và so sánh sai số bình phương trung bình (MSE) cuối cùng.
+3. Kiểm tra giá trị trung bình của bước nhảy $\Delta_t$ mà mô hình Mamba đã học được tại vị trí tín hiệu ($m_t = 1$) so với tại vị trí nhiễu ($m_t = 0$).
+
+<Starter nb="ch6-03-selective-ssm" />
+
+<Hints>
+
+<Hint>
+
+Đảm bảo ma trận đường chéo $A$ luôn âm bằng cách tham số hóa `A = -torch.exp(self.log_A)`. Tại mỗi bước thời gian `t`, hệ số giữ trạng thái rời rạc là `a_bar = torch.exp(delta[:, t, :] * A)` và hệ số ghi đầu vào là `b_bar = delta[:, t, :] * B_t[:, t, :]`.
+
+</Hint>
+
+<Hint>
+
+Cập nhật trạng thái ẩn `h = a_bar * h + b_bar * u[:, t, :]` trong vòng lặp `for t in range(L):`. Ở bước cuối cùng, chiếu trạng thái ra dự đoán vô hướng bằng `self.out_head(h * C_t[:, -1, :]).squeeze(-1)`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch6-03-selective-ssm">
+
+Mô hình LTI SSM thất bại hoàn toàn với sai số MSE giữ ở mức $0.8421$ (gần như đoán mò giá trị trung bình $0$), vì vị trí $t^*$ của token tín hiệu thay đổi ngẫu nhiên ở mỗi mẫu dữ liệu. Ngược lại, mô hình Selective SSM (Mamba) hội tụ về MSE $= 0.0014$! Khi kiểm tra giá trị $\Delta_t$, ta thấy Mamba đã tự học được quy tắc: mở rộng $\Delta_t \approx 2.841$ khi gặp cờ $m_t = 1$ để ghi tín hiệu vào bộ nhớ, và khóa chặt $\Delta_t \approx 0.018$ khi gặp $m_t = 0$ để đóng băng trạng thái ẩn.
+
+</Checkpoint>
+
+<Solution nb="ch6-03-selective-ssm" />
+
+<WhatToNotice>
+
+Kết quả thực nghiệm của bạn tái hiện chính xác luận điểm trung tâm của bài báo Mamba [@gu2023mamba]: một hệ thống bất biến thời gian (dù dùng tích chập toàn cục lớn đến đâu) chỉ có thể học các mẫu phụ thuộc vào **khoảng cách vị trí cố định**, nên khi token quan trọng xuất hiện ở vị trí ngẫu nhiên, nó hoàn toàn bất lực. Chỉ bằng cách làm cho bước nhảy rời rạc hóa $\Delta_t$ phụ thuộc vào đầu vào $x_t$, **Mamba biến một phương trình vi phân tuyến tính thành một bộ nhớ chọn lọc theo nội dung với chi phí suy luận $\mathcal{O}(1)$.**
+
+</WhatToNotice>
+
+</Exercise>
+
+---
+
+## 4. Kiến trúc Lai (Hybrid SSM-Transformer) và Mô hình Ngôn ngữ Khuếch tán (Diffusion LMs)
+
+Nếu Mamba vừa có độ phức tạp tuyến tính $\mathcal{O}(L)$ vừa có khả năng nhớ chọn lọc, liệu nó đã có thể thay thế hoàn toàn Softmax Attention trong mọi tác vụ hay chưa? Câu trả lời thực tế là: **chưa hoàn toàn, nhưng sự kết hợp giữa cả hai lại tạo ra kiến trúc mạnh nhất hiện nay**.
+
+### 4.1 Điểm mù "Sao chép nguyên văn" của SSM và Kiến trúc Lai Jamba
+
+Hãy hình dung bạn đưa cho mô hình một tài liệu dài 50 trang chứa hàng trăm mã số hợp đồng khác nhau, rồi ở dòng cuối cùng mới hỏi: *"Hãy trích xuất nguyên văn số điện thoại nằm ngay sau mã hợp đồng #8492 ở trang 12"*.
+- Một mô hình **SSM / Mamba** nén toàn bộ lịch sử đã đọc vào một trạng thái ẩn có kích thước cố định $h_t \in \mathbb{R}^{D \times N}$. Khi chưa biết trước câu hỏi ở cuối văn bản là gì, nó không thể nén nguyên vẹn từng chữ số của cả trăm mã hợp đồng vào một dung lượng bộ nhớ hữu hạn mà không bị mất mát thông tin.
+- Ngược lại, **Softmax Attention** giữ nguyên toàn bộ các vector $(k_j, v_j)$ trong KV Cache — giống như một cuốn sổ mở sẵn cho phép mô hình "ngoái lại nhìn trực tiếp" bất kỳ token nào ở trang 12 với độ phân giải tuyệt đối.
+
+Khám phá này đã dẫn đến xu hướng thiết kế **Kiến trúc Lai (Hybrid SSM–Transformer)**, tiêu biểu là mô hình **Jamba** của AI21 Labs [@lieber2024jamba] (và sau đó là Zamba, Samba, Bamba, Nemotron-H). Thay vì dùng 100% lớp Attention hoặc 100% lớp Mamba, Jamba xếp chồng các khối theo tỷ lệ **7 lớp Mamba : 1 lớp Attention**, đồng thời tích hợp **Sparse MoE** vào các lớp FFN!
+
+<PaperNote id="lieber2024jamba" look="Hình 1 (Kiến trúc khối Jamba 1:7 Attention-Mamba kèm MoE) và Bảng 1 (So sánh dung lượng KV Cache ở ngữ cảnh 256K token).">
+Jamba kết hợp cả ba kỹ thuật của chương này trong một mô hình duy nhất (52B tổng tham số, 12B tham số hoạt động mỗi token): cứ mỗi 8 tầng thì có 7 tầng Mamba và chỉ 1 tầng Grouped-Query Attention (GQA), còn các tầng FFN được thay bằng lớp MoE ($E=16, k=2$). Ở chiều dài ngữ cảnh $256\text{K}$ token, trong khi Mixtral 8x7B đòi hỏi tới $32\text{ GB}$ bộ nhớ chỉ riêng cho KV Cache, Jamba chỉ tốn đúng **$4\text{ GB}$ KV Cache** (giảm $87.5\%$) nhờ 7/8 số tầng là Mamba không cần KV Cache, giúp toàn bộ mô hình chạy vừa vặn với ngữ cảnh $256\text{K}$ trên một GPU 80GB duy nhất. Ngoài ra, các tác giả phát hiện rằng các tầng Mamba đã ngầm cung cấp thông tin thứ tự chuỗi nên các tầng Attention xen kẽ thậm chí **không cần đến mã hóa vị trí RoPE**!
+</PaperNote>
+
+### 4.2 Vượt khỏi sinh tuần tự: Mô hình Ngôn ngữ Khuếch tán Mặt nạ (Masked Diffusion LMs)
+
+Cả Transformer, MoE lẫn Mamba đều chia sẻ chung một giả định nền tảng từ Chương 0 đến nay: **sinh văn bản tự hồi quy từ trái sang phải** (*left-to-right autoregressive generation*) $P(x_1, \dots, x_L) = \prod_{t=1}^{L} P(x_t \mid x_{<t})$. Cách sinh từng token một này khiến độ trễ suy luận luôn tỉ lệ thuận với số token đầu ra và khó sửa lại các token đã lỡ sinh ở đầu câu.
+
+Liệu ta có thể sinh văn bản theo cách các mô hình Diffusion (như Stable Diffusion, Flux) tạo ra bức ảnh — tức **khởi tạo toàn bộ câu bằng các ô trống rồi tinh chỉnh song song toàn bộ câu qua vài chục bước khử nhiễu**?
+
+Đó chính là ý tưởng của **Mô hình Ngôn ngữ Khuếch tán Mặt nạ (Masked Diffusion Language Models — MDLM)** [@sahoo2024mdlm] (cùng các biến thể quy mô lớn như LLaDA hay Mercury):
+1. **Quá trình thuận (Làm nhiễu — Forward Masking Process)**: Xuất phát từ câu văn sạch $x_0$ độ dài $L$, ở thời điểm $t \in [0, 1]$, mỗi token độc lập có xác suất $\alpha_t = 1 - t$ được giữ nguyên và xác suất $t$ bị thay thế bằng token mặt nạ `[MASK]`. Khi $t = 1$, toàn bộ câu chỉ gồm toàn `[MASK]`.
+2. **Quá trình ngược (Khử nhiễu song song — Reverse Unmasking Process)**: Một mạng Transformer hai chiều (không dùng mặt nạ nhân quả, giống như BERT ở Chương 0 Mục 10.2!) đọc chuỗi đang bị che một phần $x_t$ và dự đoán phân phối từ vựng gốc cho **tất cả các vị trí `[MASK]` cùng một lúc**. Ở mỗi bước khử nhiễu từ $t$ về $s < t$, một tỷ lệ các vị trí `[MASK]` có độ tự tin cao nhất được "lật mở" đồng thời thành các từ cụ thể, cho đến khi cả câu hoàn chỉnh tại $t = 0$.
+
+Như Sahoo et al. [@sahoo2024mdlm] chứng minh, hàm mục tiêu huấn luyện liên tục theo thời gian của MDLM thực chất là trung bình có trọng số của các hàm mất mát Masked Language Modeling (BERT) ở mọi tỷ lệ che mặt nạ $t \in (0, 1]$:
+
+$$
+\mathcal{L}_{\text{MDLM}} = \mathbb{E}_{t \sim \mathcal{U}(0, 1)} \left[ \frac{1}{t} \sum_{\ell : x_t^{(\ell)} = \text{[MASK]}} -\log p_\theta\!\left(x_0^{(\ell)} \,\middle|\, x_t\right) \right].
+$$
+
+Bằng cách cho phép lật mở hàng chục token trong một lần chạy mạng duy nhất, các mô hình khuếch tán rời rạc mở ra hướng đi mới cho việc sinh mã nguồn và chỉnh sửa văn bản song song với tốc độ vượt xa giải mã tự hồi quy truyền thống.
+
+### 4.3 Bảng tổng kết các Kiến trúc Mô hình Ngôn ngữ
+
+Để khép lại Chương 6, bảng dưới đây đặt cạnh nhau 5 họ kiến trúc mà ta đã khảo sát để bạn dễ dàng đối chiếu sự đánh đổi về tính toán, bộ nhớ và năng lực biểu diễn:
+
+<WrapTable>
+
+| Kiến trúc | Mô hình tiêu biểu | FLOPs Tiền xử lý (Prefill) | Bộ nhớ Trạng thái / KV Cache | Chi phí mỗi bước Decode | Điểm mạnh & Đánh đổi cốt lõi |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Dense Transformer** | Llama-3, Qwen-2.5 | $\mathcal{O}(L^2 d + L d^2)$ | $\mathcal{O}(L d)$ | $\mathcal{O}(L d + d^2)$ | Tra cứu nguyên văn trong ngữ cảnh hoàn hảo, nhưng nghẽn bậc hai $\mathcal{O}(L^2)$ và tốn KV Cache lớn khi $L$ dài. |
+| **Sparse MoE Transformer** | Mixtral 8x7B, DeepSeek-V3 | $\mathcal{O}(L^2 d + \frac{k}{E} L D_{\text{moe}})$ | $\mathcal{O}(L d)$ | $\mathcal{O}(L d + \frac{k}{E} D_{\text{moe}})$ | Dung lượng tham số khổng lồ với chi phí FLOPs nhỏ; cần VRAM lớn để chứa đủ $E$ chuyên gia và cần cân bằng tải. |
+| **Linear Attention / RWKV** | Linear Transformer, RWKV-6 | $\mathcal{O}(L d^2)$ | $\mathcal{O}(d^2)$ *(Hằng số)* | $\mathcal{O}(d^2)$ *(Hằng số)* | Suy luận $\mathcal{O}(1)$ không cần KV Cache; nhưng bộ nhớ ma trận cộng dồn cố định kém linh hoạt hơn cổng chọn lọc. |
+| **Selective SSM (Mamba)** | Mamba, Mamba-2 | $\mathcal{O}(L d N)$ | $\mathcal{O}(d N)$ *(Hằng số)* | $\mathcal{O}(d N)$ *(Hằng số)* | Cổng $\Delta_t(x_t)$ lọc nhiễu và nén ngữ cảnh dài cực hiệu quả; kém hơn Softmax Attention khi cần sao chép nguyên văn. |
+| **Hybrid SSM + Attention + MoE** | Jamba, Zamba2 | $\mathcal{O}(\frac{1}{M} L^2 d + L d N)$ | $\mathcal{O}(\frac{1}{M} L d + d N)$ | $\mathcal{O}(\frac{1}{M} L d + d N)$ | Kết hợp tốc độ tuyến tính & tiết kiệm $85\text{–}90\%$ KV Cache của Mamba với khả năng tra cứu chính xác của Attention. |
+
+</WrapTable>
+
+<Optional title="Tại sao SSM gặp khó khăn với bài toán Sao chép Nguyên văn (Jelassi et al. 2024)?">
+
+Một định lý thú vị của Jelassi et al. (2024) (*"Repeat After Me: Transformers are Better than State Space Models at Copying"*) đã định lượng hóa chính xác sự khác biệt giữa Softmax Attention và SSM trên bài toán sao chép một chuỗi ngẫu nhiên độ dài $K$ bit:
+- Một mô hình **SSM / Mamba** có trạng thái ẩn cố định gồm $B_{\text{state}}$ bit thông tin sẽ **không bao giờ** sao chép chính xác được một chuỗi ngẫu nhiên có entropy lớn hơn $B_{\text{state}}$ bit, bất kể được huấn luyện lâu đến đâu (theo nguyên lý chuồng bồ câu của lý thuyết thông tin Shannon).
+- Một mô hình **Transformer** chỉ cần 2 tầng (tạo thành mạch **Induction Head** đã học ở Chương 2) có thể sao chép chuỗi có độ dài bất kỳ $K \le L$ với số lượng tham số cố định, bởi vì KV Cache của nó tự động mở rộng dung lượng bộ nhớ tỷ lệ thuận với độ dài chuỗi đầu vào $L$!
+
+Đó là lý do vì sao việc giữ lại chỉ **1 tầng Softmax Attention trên mỗi 7–8 tầng Mamba** (như trong Jamba) lại hiệu quả đến vậy: các tầng Mamba đảm nhận việc hiểu ngôn ngữ và tổng hợp ngữ nghĩa với chi phí $\mathcal{O}(L)$, trong khi một vài tầng Attention đóng vai trò là "bộ nhớ truy cập ngẫu nhiên (RAM)" để tra cứu nguyên văn khi cần thiết.
+
+</Optional>
+
+Nếu muốn đào sâu hơn nữa, bạn có thể thử sức với các bài tập mở rộng dưới đây:
+
+<Bonus>
+
+**Cân bằng tải không cần hàm phạt phụ trợ (DeepSeek-V3 Auxiliary-Loss-Free Balancing).** Trong Bài tập 6.1, thay vì cộng $\alpha \mathcal{L}_{\text{aux}}$ vào hàm mất mát, hãy cài đặt cơ chế của DeepSeek-V3 [@deepseek2024v3]: thêm một vector độ lệch không nhận gradient `b = torch.zeros(E)` vào điểm định tuyến khi chọn Top-$k$ (`scores_for_topk = probs + b`), nhưng vẫn lấy trọng số tổ hợp `weights` từ `probs` gốc. Sau mỗi bước huấn luyện, cập nhật `b[i] += gamma * (1/E - f_i)`. Kiểm chứng rằng tải của 8 chuyên gia vẫn cân bằng hoàn hảo mà hàm mất mát chính $\mathcal{L}_{\text{MSE}}$ còn thấp hơn cả khi dùng $\mathcal{L}_{\text{aux}}$!
+
+</Bonus>
+
+<Bonus>
+
+**Hệ số suy giảm trong Linear Attention (RetNet / RWKV).** Sửa lại hàm `causal_linear_attention_recurrent` và `causal_linear_attention_parallel` trong Bài tập 6.2 bằng cách thêm một hệ số suy giảm $\gamma = 0.95$: ở dạng truy hồi $S_t = \gamma S_{t-1} + \phi(k_t) v_t^\top$, và ở dạng song song nhân ma trận chú ý với ma trận mặt nạ suy giảm $D_{t, j} = \gamma^{t - j}$ (với $t \ge j$). Kiểm chứng rằng hai dạng vẫn trùng khớp với sai số $< 10^{-6}$.
+
+</Bonus>
+
+<Bonus>
+
+**Lắp ráp khối Hybrid Jamba thu nhỏ.** Kết hợp lớp `CausalSelfAttention` (Chương 2), lớp `SimpleSSM` (Bài tập 6.3) và lớp `SparseMoELayer` (Bài tập 6.1) để tạo thành một mô hình Hybrid 4 tầng (3 tầng SSM + 1 tầng Attention, sử dụng MoE thay cho FFN). So sánh tổng kích thước bộ nhớ trạng thái cần lưu trữ khi suy luận ở $L = 4096$ so với một mô hình Transformer 4 tầng thuần túy.
+
+</Bonus>
+
+---
+
+## Tài liệu tham khảo
+
+<ReferenceList chapter={6} />

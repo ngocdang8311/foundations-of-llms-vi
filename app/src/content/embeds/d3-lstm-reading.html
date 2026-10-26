@@ -83,7 +83,7 @@
       const uid = Math.random().toString(36).slice(2, 8);
       const controls = document.createElement('div');
       controls.className = 'controls';
-      controls.innerHTML = `<label for="lstm-read-${uid}">Words read</label>
+      controls.innerHTML = `<label for="lstm-read-${uid}">Số từ đã đọc</label>
         <input type="range" id="lstm-read-${uid}" min="1" max="1" step="1" value="1">
         <span class="value" aria-live="polite"></span>`;
       container.appendChild(controls);
@@ -108,7 +108,7 @@
         const H = reviews.length * panelH;
         const svg = d3.select(container).append('svg').attr('viewBox', `0 0 ${W} ${H}`)
           .attr('role', 'img')
-          .attr('aria-label', 'For each of the two reviews, the probability of being positive after each word, and the state of the LSTM after each word, as a column of colored cells.');
+          .attr('aria-label', 'Đối với mỗi bài đánh giá trong hai bài, xác suất tích cực sau mỗi từ và trạng thái của mạng LSTM sau mỗi từ, được biểu diễn bằng một cột các ô màu.');
         const colX = (t) => left + t * colW;
 
         const panels = reviews.map((review, k) => {
@@ -121,7 +121,7 @@
           const top = 18;
           const y = d3.scaleLinear().domain([0, 1]).range([top + pH, top]);
           g.append('line').attr('class', 'half').attr('x1', colX(0)).attr('x2', colX(L)).attr('y1', y(0.5)).attr('y2', y(0.5));
-          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', y(0.5)).attr('dy', '0.35em').attr('text-anchor', 'end').text('p(positive)');
+          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', y(0.5)).attr('dy', '0.35em').attr('text-anchor', 'end').text('p(tích cực)');
           g.append('text').attr('class', 'axis-label').attr('x', colX(L) + 4).attr('y', y(1)).attr('dy', '0.35em').text('1');
           g.append('text').attr('class', 'axis-label').attr('x', colX(L) + 4).attr('y', y(0.5)).attr('dy', '0.35em').text('0.5');
           g.append('text').attr('class', 'axis-label').attr('x', colX(L) + 4).attr('y', y(0)).attr('dy', '0.35em').text('0');
@@ -131,8 +131,8 @@
 
           // The state after each word: one column of cells per word
           const stateTop = top + pH + 10;
-          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', stateTop + (U * cellH) / 2 - 6).attr('text-anchor', 'end').text('state');
-          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', stateTop + (U * cellH) / 2 + 7).attr('text-anchor', 'end').text(`(${U} units)`);
+          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', stateTop + (U * cellH) / 2 - 6).attr('text-anchor', 'end').text('trạng thái');
+          g.append('text').attr('class', 'side').attr('x', left - 8).attr('y', stateTop + (U * cellH) / 2 + 7).attr('text-anchor', 'end').text(`(${U} nút)`);
           const columns = review.contributions.map((state, t) => {
             const c = g.append('g');
             state.forEach((v, u) => {
@@ -156,7 +156,7 @@
 
         const render = () => {
           const n = Number(slider.value);
-          value.textContent = `${n} of ${L}`;
+          value.textContent = `${n} / ${L} từ`;
           panels.forEach(({ review, y, line, dots, pValue, columns, tokens }) => {
             const read = Math.min(n, review.words.length);
             const points = review.p_positive.slice(0, read).map((p, t) => [colX(t) + colW / 2, y(p)]);

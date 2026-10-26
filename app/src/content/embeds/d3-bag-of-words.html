@@ -57,16 +57,16 @@
 
       const uid = Math.random().toString(36).slice(2, 8);
       container.innerHTML = `
-        <label class="label" for="review-${uid}">Review<span class="sub">edit it</span></label>
+        <label class="label" for="review-${uid}">Bài đánh giá<span class="sub">chỉnh sửa tùy ý</span></label>
         <textarea id="review-${uid}" rows="3" spellcheck="false"></textarea>
         <div class="section">
-          <div class="label">Count vector<span class="sub v-size"></span></div>
+          <div class="label">Vector đếm (Count vector)<span class="sub v-size"></span></div>
           <div class="vector" aria-live="polite"></div>
           <div class="unknown"></div>
-          <div class="scale"><span>pushes toward negative</span><span class="ramp"></span><span>toward positive</span></div>
+          <div class="scale"><span>nghiêng về tiêu cực</span><span class="ramp"></span><span>nghiêng về tích cực</span></div>
         </div>
         <div class="section">
-          <div class="label">Logistic regression</div>
+          <div class="label">Hồi quy logistic (Logistic regression)</div>
           <div class="verdict"></div>
         </div>`;
       const textarea = container.querySelector('textarea');
@@ -123,7 +123,7 @@
         });
         const entries = Array.from(counts.entries()).sort((a, b) => a[0] - b[0]);
         const V = model.vocabulary.length;
-        sizeEl.textContent = `V = ${fmtInt(V)} entries, ${entries.length} of them non-zero`;
+        sizeEl.textContent = `V = ${fmtInt(V)} phần tử, trong đó ${entries.length} phần tử khác 0`;
 
         // The non-zero entries in the order of the vector, with the runs of zeros between them
         const maxAbs = model.maxAbs;
@@ -131,33 +131,33 @@
         let previous = -1;
         entries.forEach(([i, c]) => {
           const zeros = i - previous - 1;
-          if (zeros > 0) parts.push(`<span class="zeros">${fmtInt(zeros)} zeros</span>`);
+          if (zeros > 0) parts.push(`<span class="zeros">${fmtInt(zeros)} số 0</span>`);
           const w = model.weights[i];
           const strength = Math.round(12 + 68 * Math.min(1, Math.abs(w) / maxAbs));
           const color = `color-mix(in oklab, ${w >= 0 ? POS : NEG} ${strength}%, transparent)`;
           parts.push(`<span class="entry" data-i="${i}" data-c="${c}"><span class="count" tabindex="0" style="background:${color}">${c}</span><span class="word">${model.vocabulary[i]}</span></span>`);
           previous = i;
         });
-        if (V - previous - 1 > 0) parts.push(`<span class="zeros">${fmtInt(V - previous - 1)} zeros</span>`);
+        if (V - previous - 1 > 0) parts.push(`<span class="zeros">${fmtInt(V - previous - 1)} số 0</span>`);
         vectorEl.innerHTML = parts.join('');
         unknownEl.innerHTML = unknown.length
-          ? `Not in the vocabulary, not counted: ${unknown.map((w) => `<s>${w}</s>`).join('')}`
+          ? `Không có trong từ vựng, không được đếm: ${unknown.map((w) => `<s>${w}</s>`).join('')}`
           : '';
 
         let score = model.bias;
         entries.forEach(([i, c]) => { score += c * model.weights[i]; });
         const p = 1 / (1 + Math.exp(-score));
         verdictEl.innerHTML = `
-          <span class="formula">score = bias + Σ count × weight = ${fmt(score)}</span>
+          <span class="formula">điểm = hệ số chệch (bias) + Σ số lần × trọng số = ${fmt(score)}</span>
           <span class="gauge" aria-hidden="true" style="background:color-mix(in oklab, ${NEG} 70%, transparent)"><span style="width:${(p * 100).toFixed(1)}%;background:${POS}"></span></span>
-          <span class="score">${Math.round(p * 100)}% positive</span>`;
+          <span class="score">${Math.round(p * 100)}% tích cực</span>`;
       }
 
       vectorEl.addEventListener('mouseover', (e) => {
         const entry = e.target.closest && e.target.closest('.entry');
         if (!entry || !model) return;
         const i = +entry.dataset.i, c = +entry.dataset.c, w = model.weights[i];
-        showTip(entry, `<b>${model.vocabulary[i]}</b>, entry ${fmtInt(i + 1)} of the vector<br>count ${c} × weight ${fmt(w, 3)} = ${fmt(c * w, 3)}`);
+        showTip(entry, `<b>${model.vocabulary[i]}</b>, phần tử thứ ${fmtInt(i + 1)} của vector<br>số lần ${c} × trọng số ${fmt(w, 3)} = ${fmt(c * w, 3)}`);
       });
       vectorEl.addEventListener('mouseout', (e) => {
         if (!e.relatedTarget || !vectorEl.contains(e.relatedTarget)) hideTip();

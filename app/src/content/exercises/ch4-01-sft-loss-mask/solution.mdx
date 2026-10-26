@@ -1,0 +1,78 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import torch
+import torch.nn.functional as F
+
+vocab = [
+    "<|im_start|>", "<|im_end|>", "\n", "system", "user",
+    "assistant", "Bạn", "là", "trợ", "lý.", "Thủ", "đô",
+    "Pháp?", "Là", "Paris.", "Dân", "số?", "Khoảng", "2,1", "triệu."
+]
+tok2id = {w: i for i, w in enumerate(vocab)}
+
+messages = [
+    {"role": "system", "content": ["Bạn", "là", "trợ", "lý."]},
+    {"role": "user", "content": ["Thủ", "đô", "Pháp?"]},
+    {"role": "assistant", "content": ["Là", "Paris."]},
+    {"role": "user", "content": ["Dân", "số?"]},
+    {"role": "assistant", "content": ["Khoảng", "2,1", "triệu."]},
+]
+print(f"Từ vựng: {len(vocab)} tokens | Số lượt: {len(messages)}")
+```
+
+<section className="code-output"><pre>{"Từ vựng: 20 tokens | Số lượt: 5"}</pre></section>
+
+```python
+# (1) Đóng gói hội thoại theo chuẩn ChatML và tạo mặt nạ labels
+input_ids = []
+labels = []
+
+for msg in messages:
+    header = ["<|im_start|>", msg["role"], "\n"]
+    body = msg["content"] + ["<|im_end|>", "\n"]
+
+    header_ids = [tok2id[t] for t in header]
+    body_ids = [tok2id[t] for t in body]
+
+    input_ids.extend(header_ids + body_ids)
+    # Luôn che mặt nạ (-100) cho phần header (<|im_start|>role\n)
+    labels.extend([-100] * len(header_ids))
+    if msg["role"] == "assistant":
+        labels.extend(body_ids)
+    else:
+        labels.extend([-100] * len(body_ids))
+
+x = torch.tensor(input_ids, dtype=torch.long)
+y_masked = torch.tensor(labels, dtype=torch.long)
+active_toks = [vocab[i] for i in labels if i != -100]
+
+print(f"Tổng số token trong chuỗi: {len(x)}")
+pct = 100 * len(active_toks) / len(x)
+print(f"Số token tính đạo hàm (mask=1): {len(active_toks)} / {len(x)} ({pct:.1f}%)")
+print(f"Token được học: {active_toks}")
+
+# (2) Dịch chuyển tự hồi quy (causal shift) và tính Cross-Entropy
+torch.manual_seed(42)
+logits = torch.randn(len(x), len(vocab))
+# Tăng nhẹ logit cho các token trả lời đúng của assistant
+for pos in range(len(x) - 1):
+    if y_masked[pos + 1] != -100:
+        logits[pos, y_masked[pos + 1]] += 0.35
+
+shift_logits = logits[:-1]
+shift_unmasked = x[1:]
+shift_masked = y_masked[1:]
+
+loss_unmasked = F.cross_entropy(shift_logits, shift_unmasked)
+loss_masked = F.cross_entropy(
+    shift_logits, shift_masked, ignore_index=-100
+)
+
+print(f"Loss không dùng mặt nạ (Unmasked): {loss_unmasked.item():.4f}")
+print(f"Loss chuẩn SFT có mặt nạ (Masked):  {loss_masked.item():.4f}")
+```
+
+<section className="code-output"><pre>{"Tổng số token trong chuỗi: 31\nSố token tính đạo hàm (mask=1): 9 / 31 (29.0%)\nToken được học: ['Là', 'Paris.', '<|im_end|>', '\\n', 'Khoảng', '2,1', 'triệu.', '<|im_end|>', '\\n']\nLoss không dùng mặt nạ (Unmasked): 3.0412\nLoss chuẩn SFT có mặt nạ (Masked):  2.8135"}</pre></section>

@@ -10,83 +10,83 @@ import WhatToNotice from '../../components/post/WhatToNotice.astro';
 import Bonus from '../../components/post/Bonus.astro';
 import Optional from '../../components/post/Optional.astro';
 
-## 5. Pre-training embeddings: word2vec and GloVe
+## 5. Tiền huấn luyện biểu diễn nhúng: word2vec và GloVe
 
-At the end of section 4, we saw that **an embedding learned for a task only captures what this task needs, from the data of this task.** And exercise 4.2 gave us a hint of a solution: trained only to predict the next word of Wikipedia articles, Bengio's language model had found on its own that "three" is like "four" and "film" like "book".
+Ở cuối mục 4, chúng ta đã nhận thấy rằng **một biểu diễn nhúng được học trực tiếp cho một tác vụ cụ thể chỉ nắm bắt những gì tác vụ đó cần, trong phạm vi dữ liệu của tác vụ đó.** Đồng thời, bài tập 4.2 cũng đã gợi mở cho chúng ta hướng giải quyết: dù chỉ được huấn luyện để dự đoán từ tiếp theo trong các bài viết Wikipedia, mô hình ngôn ngữ của Bengio đã tự khám phá ra rằng "three" giống với "four" và "film" gần gũi với "book".
 
-### 5.1 Splitting the training
+### 5.1 Tách quá trình huấn luyện làm hai giai đoạn
 
-The idea is simple: split the training in two. First, learn the embedding matrix $W$ on a task for which data is free and abundant: this is *pre-training*. Then copy $W$ into the model of the task we care about, called the *downstream task*, and train this model on its own labeled data. Raw text is cheap: there are billions of words of Wikipedia and news articles online, and nobody needs to annotate them. Labels are expensive: someone has to read each review and say whether it is positive.
+Ý tưởng cốt lõi rất đơn giản: chia quá trình huấn luyện thành hai giai đoạn tách biệt. Trước hết, hãy học ma trận nhúng $W$ trên một tác vụ có nguồn dữ liệu dồi dào và miễn phí: giai đoạn này được gọi là *tiền huấn luyện (pre-training)*. Sau đó, sao chép ma trận $W$ vừa học được sang mô hình của bài toán thực tế mà ta quan tâm — được gọi là *tác vụ xuôi dòng / tác vụ đích (downstream task)* — rồi tiếp tục huấn luyện mô hình này trên tập dữ liệu có gán nhãn của riêng nó. Văn bản thô thì cực kỳ rẻ và sẵn có: có hàng tỷ từ trên Wikipedia và các trang tin tức trực tuyến mà chẳng cần ai phải ngồi gán nhãn thủ công. Ngược lại, nhãn dữ liệu (*labels*) lại rất đắt đỏ: phải có con người đọc từng bài đánh giá phim và phân định xem bài đó khen hay chê.
 
-<PaperNote id="collobert2011" look="Tables 6 and 7: the nearest neighbors of the same six words (FRANCE, JESUS, XBOX...) in a network trained on a tagging task alone, where they look random, and in the network trained on Wikipedia, where FRANCE is next to AUSTRIA, BELGIUM and GERMANY.">
+<PaperNote id="collobert2011" look="Bảng 6 và 7: các từ láng giềng gần nhất của cùng sáu từ (FRANCE, JESUS, XBOX...) trong một mạng chỉ được huấn luyện đơn độc trên tác vụ gán nhãn chuỗi (trông hoàn toàn ngẫu nhiên), đối chiếu với mạng được tiền huấn luyện trên Wikipedia (nơi FRANCE nằm ngay cạnh AUSTRIA, BELGIUM và GERMANY).">
 
-One of the first large demonstrations of this split in NLP with neural networks. The authors train a network on the whole English Wikipedia (631 million words), with a task that needs no labels: give a higher score to a real window of 11 words than to the same window with its middle word replaced by a random word. The training took about four weeks, then three more weeks with news articles added. The embeddings that it learned, in 50 dimensions, then initialize the networks of four tagging tasks, and improve all four: for the recognition of named entities, the F1 score goes from 81.5 to 88.7. As the authors note, "if we had decided ten years ago to train the language model network LM2 using a vintage computer, training would only be nearing completion today".
+Một trong những công trình quy mô lớn đầu tiên chứng minh hiệu quả của quy trình hai giai đoạn này trong NLP bằng mạng nơ-ron. Nhóm tác giả đã huấn luyện một mạng nơ-ron trên toàn bộ Wikipedia tiếng Anh (631 triệu từ) thông qua một tác vụ tự giám sát không cần nhãn: chấm điểm cao hơn cho một cửa sổ gồm 11 từ thực tế lấy từ văn bản so với chính cửa sổ đó khi từ ở chính giữa bị thay thế bằng một từ ngẫu nhiên. Quá trình tiền huấn luyện này kéo dài khoảng bốn tuần, rồi chạy thêm ba tuần nữa khi bổ sung các bài báo tin tức. Các vector nhúng 50 chiều thu được sau đó được dùng để khởi tạo mạng nơ-ron cho bốn tác vụ gán nhãn chuỗi khác nhau và giúp cải thiện kết quả trên cả bốn tác vụ: chẳng hạn với bài toán nhận diện thực thể có tên (NER), điểm F1 tăng vọt từ 81,5 lên 88,7. Như các tác giả dí dỏm nhận xét: *"nếu mười năm trước chúng tôi quyết định huấn luyện mạng mô hình ngôn ngữ LM2 này trên một chiếc máy tính thời bấy giờ, thì có lẽ đến tận hôm nay quá trình huấn luyện mới sắp sửa hoàn tất"*.
 
 </PaperNote>
 
-So let's forget about our downstream classification task for a moment, and focus on the embeddings. The problem is that to learn embeddings, we need something to optimize! We need a task, and an objective that can be computed from raw text only.
+Vì vậy, hãy tạm gác bài toán phân loại cảm xúc sang một bên và tập trung hoàn toàn vào việc học các biểu diễn nhúng. Vấn đề đặt ra là: để máy có thể học được biểu diễn nhúng, chúng ta cần một hàm mục tiêu để tối ưu hóa! Ta cần một tác vụ giả lập mà hàm mất mát của nó có thể tính toán hoàn toàn chỉ từ văn bản thô.
 
-The answer comes from linguistics, and it is older than computers: **words that appear in similar contexts tend to have similar meanings.** This is the *distributional hypothesis*. In 1954, Zellig Harris wrote that "difference of meaning correlates with difference of distribution" [@harris1954], and John Firth summarized it in 1957 with a famous sentence: "You shall know a word by the company it keeps!" [@firth1957].
+Câu trả lời đến từ ngành ngôn ngữ học, và nó có tuổi đời còn lâu hơn cả máy tính điện tử: **những từ thường xuất hiện trong các ngữ cảnh giống nhau thì có xu hướng mang ý nghĩa tương đồng nhau.** Đây được gọi là *giả thuyết phân phối (distributional hypothesis)*. Năm 1954, nhà ngôn ngữ học Zellig Harris đã viết rằng "sự khác biệt về ý nghĩa có tương quan chặt chẽ với sự khác biệt về phân phối xuất hiện" [@harris1954], và đến năm 1957, John Firth đã đúc kết nguyên lý này bằng một câu nói bất hủ: *"Bạn sẽ hiểu được một từ thông qua những từ thường đi cùng với nó!"* (*"You shall know a word by the company it keeps!"*) [@firth1957].
 
-So a model trained to predict a word from its context, or the context from the word, has every reason to give similar vectors to words with similar meanings. This is what happened in exercise 4.2. But Bengio's model was slow: almost all of its time went into the softmax over the whole vocabulary (see "The cost of the softmax" in section 4.2). In 2013, word2vec kept the idea, and removed everything that was expensive.
+Do đó, một mô hình được huấn luyện để dự đoán một từ dựa vào ngữ cảnh xung quanh, hoặc ngược lại dự đoán ngữ cảnh từ từ trung tâm, sẽ có mọi lý do để gán những vector gần nhau cho những từ có nghĩa tương đồng. Đó chính xác là những gì đã diễn ra trong bài tập 4.2. Thế nhưng mô hình của Bengio lại quá chậm chạp: gần như toàn bộ thời gian tính toán của nó đều bị ngốn vào phép tính hàm softmax trên toàn bộ từ vựng (xem mục "Chi phí tính toán của tầng Softmax" ở phần 4.2). Đến năm 2013, thuật toán **word2vec** đã giữ lại trọn vẹn ý tưởng cốt lõi đó, đồng thời mạnh tay cắt bỏ mọi thành phần đắt đỏ gây nghẽn cổ chai.
 
 ### 5.2 Word2vec
 
-Word2vec is the name of two models proposed by Tomas Mikolov and his colleagues at Google [@mikolov2013a]. Both look at a window of words around a middle word:
-- **CBOW** (for *continuous bag of words*) predicts the middle word from the average of the embeddings of the words around it;
-- **skip-gram** does the opposite: it predicts each word around from the embedding of the middle word.
+Word2vec là tên gọi chung của hai kiến trúc mô hình do Tomas Mikolov và các đồng nghiệp tại Google đề xuất [@mikolov2013a]. Cả hai mô hình đều xét một cửa sổ trượt gồm các từ nằm xung quanh một từ trung tâm (*center/middle word*):
+- **CBOW** (viết tắt của *Continuous Bag of Words* — Túi từ liên tục): dự đoán từ ở chính giữa dựa trên trung bình cộng các vector nhúng của các từ ngữ cảnh bao quanh nó;
+- **Skip-gram** làm điều ngược lại: từ vector nhúng của từ ở chính giữa, dự đoán từng từ ngữ cảnh xuất hiện xung quanh nó.
 
-**Neither model has a hidden layer.** CBOW is Bengio's model without its hidden layer, with context on both sides of the word, and an average instead of a concatenation. Skip-gram reverses the direction of the prediction. This is what makes them fast: from the embeddings to the scores of the words, there is a single product of a matrix by a vector.
+**Cả hai mô hình đều loại bỏ hoàn toàn tầng ẩn phi tuyến.** Có thể hình dung CBOW chính là mô hình của Bengio sau khi đã rút bỏ tầng ẩn, mở rộng ngữ cảnh sang cả hai phía trái-phải của từ trung tâm, và thay phép ghép nối bằng phép lấy trung bình cộng. Còn Skip-gram thì đảo chiều mũi tên dự đoán. Chính sự tối giản triệt để này đã mang lại tốc độ đáng kinh ngạc cho chúng: đi từ các vector nhúng đến điểm số của các từ chỉ tốn đúng một phép nhân ma trận với vector.
 
 <HtmlEmbed
   src="d3-word2vec-models.html"
-  title="Three ways to learn embeddings by predicting words"
-  desc="Bengio's model predicts the next word from the embeddings of the previous words, concatenated and passed through a hidden layer. The two models of word2vec use the words on both sides, and have no hidden layer: CBOW predicts the middle word from the average of the embeddings around it, skip-gram predicts each word around from the embedding of the middle word. The embeddings and the probabilities are made up."
+  title="Ba kiến trúc học biểu diễn nhúng thông qua dự đoán từ"
+  desc="Mô hình của Bengio dự đoán từ tiếp theo từ vector nhúng của các từ đứng trước (được ghép nối rồi đi qua một tầng ẩn). Hai mô hình của word2vec lấy ngữ cảnh ở cả hai phía và bỏ hoàn toàn tầng ẩn: CBOW dự đoán từ ở giữa từ trung bình cộng các vector nhúng xung quanh, còn skip-gram dự đoán từng từ xung quanh từ vector nhúng của từ ở giữa. Các giá trị vector và xác suất trong hình là giả lập để minh họa."
 />
 
-<PaperNote id="mikolov2013a" look="Figure 1: CBOW and skip-gram side by side. And Table 8, with analogies that work (Paris − France + Italy = Rome) and some that do not: Einstein is to scientist as Mozart is to violinist.">
+<PaperNote id="mikolov2013a" look="Hình 1: kiến trúc CBOW và skip-gram đặt cạnh nhau. Và xem Bảng 8 với những phép loại suy (analogies) thành công (Paris − France + Italy = Rome) cùng một số ví dụ chưa chuẩn xác: Einstein đối với nhà khoa học cũng như Mozart đối với... nghệ sĩ vĩ cầm.">
 
-In December 2012, Yoshua Bengio asked Mikolov to submit a paper to ICLR, a new conference that Bengio had co-founded, and Mikolov wrote this one during his Christmas holidays (as he told in an interview in 2023). It was rejected, although about 70% of the submissions were accepted, and one reviewer complained that the model did not consider the order of the words (we will come back to this in section 7). It was published in the workshop of the conference instead. Its main claim is speed: CBOW learns vectors of 300 dimensions from 1.6 billion words in less than a day, on a single CPU. The paper also introduces the analogy test set of section 5.4.
+Vào tháng 12 năm 2012, Yoshua Bengio khuyến khích Mikolov nộp một bài báo tới ICLR — một hội nghị khoa học mới do chính Bengio đồng sáng lập — và Mikolov đã viết bài báo này ngay trong kỳ nghỉ lễ Giáng sinh của mình (như ông kể lại trong một cuộc phỏng vấn năm 2023). Bài báo đã bị từ chối ở vòng chính thức dù tỷ lệ chấp nhận của hội nghị năm đó lên tới khoảng 70%, trong đó một phản biện viên phàn nàn rằng mô hình không hề xét đến trật tự của các từ (chúng ta sẽ quay lại vấn đề này ở mục 7). Cuối cùng, bài báo được chuyển sang đăng tại nhánh hội thảo (*workshop*) của hội nghị. Tuyên bố đột phá lớn nhất của công trình chính là tốc độ: mô hình CBOW học được các vector 300 chiều từ kho ngữ liệu 1,6 tỷ từ trong chưa đầy một ngày chỉ trên một CPU duy nhất! Bài báo này cũng chính thức giới thiệu bộ dữ liệu kiểm tra phép loại suy từ vựng (*word analogy test set*) mà chúng ta sẽ thực hành ở mục 5.4.
 
 </PaperNote>
 
-Let's write skip-gram. For this, two matrices $W$ and $U$ have to be learned. $W$ is the embedding matrix (dimension $D \times V$, as in section 4.1) that associates an embedding vector $v_w$, its column, to each word $w$. $U$ is the output projector matrix (dimension $V \times D$) in the linear layer, which can also be seen as providing a vector $u_c$, its row, for each candidate output word $c$.
+Hãy viết tường minh công thức toán học của mô hình **skip-gram**. Để huấn luyện mô hình này, ta cần học hai ma trận $W$ và $U$. Trong đó, $W$ là ma trận nhúng từ trung tâm (kích thước $D \times V$, giống như ở mục 4.1) gán một vector nhúng $v_w$ (cột thứ $w$ của $W$) cho mỗi từ $w$. Còn $U$ là ma trận chiếu đầu ra (kích thước $V \times D$) ở tầng tuyến tính cuối, có thể hiểu như việc cung cấp thêm một vector ngữ cảnh $u_c$ (hàng thứ $c$ của $U$) cho mỗi từ ứng viên đầu ra $c$.
 
-The probability that the word $c$ appears around the middle word $w$ is then a softmax of dot products:
+Khi đó, xác suất để từ ngữ cảnh $c$ xuất hiện xung quanh từ trung tâm $w$ được mô hình hóa bằng hàm softmax trên các tích vô hướng:
 $$
 q(c \mid w) = \frac{e^{u_c \cdot v_w}}{\sum_{c'=1}^{V} e^{u_{c'} \cdot v_w}},
 $$
-and the model is trained, as usual, by minimizing the cross-entropy over all the pairs (middle word, word around it) of the training text.
+và mô hình được huấn luyện như thường lệ bằng cách cực tiểu hóa hàm mất mát entropy chéo trên toàn bộ các cặp (từ trung tâm, từ ngữ cảnh xung quanh) trích ra từ văn bản huấn luyện.
 
-But the denominator is still a sum over the whole vocabulary: the cost of the softmax has not gone away. The second paper of word2vec [@mikolov2013b] removes it with a trick called **negative sampling**. Instead of asking the model "which of the V words appears around $w$?", it asks a yes-or-no question: "is $(w, c)$ a real pair, taken from the text, or a fake one?". For each real pair, we draw $k$ random words $n_1 \dots n_k$, which make $k$ fake pairs $(w, n_i)$, and we train a logistic regression (section 3.2) to tell the real pair from the fake ones, with the dot product as its score:
+Thế nhưng mẫu số của công thức trên vẫn là một tổng chạy qua toàn bộ $V$ từ trong bộ từ vựng: chi phí đắt đỏ của hàm softmax vẫn chưa hề biến mất! Bài báo thứ hai về word2vec [@mikolov2013b] đã giải quyết triệt để nút thắt này bằng một thủ thuật sắc sảo mang tên **lấy mẫu âm (negative sampling)**. Thay vì bắt mô hình trả lời câu hỏi lớn "trong số $V$ từ của từ vựng, từ nào xuất hiện xung quanh $w$?", bài toán được chuyển thành câu hỏi nhị phân Đúng/Sai đơn giản hơn rất nhiều: "cặp từ $(w, c)$ này là một cặp từ thật trích từ văn bản, hay là một cặp từ giả do tạo ngẫu nhiên?". Cụ thể, ứng với mỗi cặp từ thật $(w, c)$, ta rút ngẫu nhiên $k$ từ nhiễu $n_1 \dots n_k$ từ bộ từ vựng để tạo thành $k$ cặp từ giả $(w, n_i)$, rồi huấn luyện một bộ phân loại hồi quy logistic (mục 3.2) để phân biệt cặp thật với các cặp giả, sử dụng chính tích vô hướng của hai vector làm điểm số (*logit*):
 
 $$
 \mathcal{L} = -\log \sigma(u_c \cdot v_w) - \sum_{i=1}^{k} \log \sigma(-u_{n_i} \cdot v_w).
 $$
 
-Since $\sigma(-z) = 1 - \sigma(z)$, the first term is the cross-entropy loss of section 3.2 for a pair labeled 1 (real), and each of the others for a pair labeled 0 (fake). With $k = 5$, each pair costs 6 dot products, instead of one for each of the 33,277 words of WikiText-2. The fake words are drawn from the counts of the words raised to the power 3/4, which gives the rare words a little more chance than their frequency alone.
+Vì tính chất đối xứng của hàm sigmoid là $\sigma(-z) = 1 - \sigma(z)$, số hạng đầu tiên chính là hàm mất mát entropy chéo nhị phân ở mục 3.2 cho một cặp mang nhãn 1 (cặp thật), và mỗi số hạng trong tổng phía sau ứng với một cặp mang nhãn 0 (cặp giả). Với $k = 5$, mỗi cặp từ huấn luyện chỉ tốn đúng 6 phép tính tích vô hướng, thay vì phải tính tích vô hướng với toàn bộ 33.277 từ của WikiText-2! Các từ giả (mẫu âm) được lấy mẫu theo phân phối tần số đếm của từ nâng lên lũy thừa $3/4$ — một mẹo thực nghiệm giúp các từ hiếm có cơ hội được chọn làm mẫu âm cao hơn một chút so với tần suất tự nhiên của chúng.
 
-<PaperNote id="mikolov2013b" look="Figure 2: the countries and their capitals, projected in 2 dimensions. We draw the same picture with GloVe in section 5.4.">
+<PaperNote id="mikolov2013b" look="Hình 2: tên các quốc gia và thủ đô tương ứng được chiếu xuống không gian 2 chiều. Chúng ta sẽ vẽ lại biểu đồ tương tự bằng GloVe ở mục 5.4.">
 
-The second paper of word2vec adds negative sampling and subsampling, and learns vectors for phrases like "New York Times", whose meaning is not the sum of the meanings of their words. With these tricks, "an optimized single-machine implementation can train on more than 100 billion words in one day". Google released the code in 2013, with vectors trained on about 100 billion words of Google News: 3 million words and phrases, in 300 dimensions. For years, these "GoogleNews vectors" were among the most used embeddings of NLP. The reviews of the paper are public, and one of the reviewers wrote: "I would not call the contributions significantly original." Ten years later, the paper received the Test of Time award of NeurIPS.
+Bài báo thứ hai của word2vec bổ sung hai kỹ thuật lấy mẫu âm (*negative sampling*) và lấy mẫu con (*subsampling*), đồng thời học luôn vector biểu diễn cho cả các cụm từ cố định như "New York Times" — những cụm mà ý nghĩa tổng thể không phải là tổng đơn thuần của từng từ rời rạc. Với những cải tiến này, *"một bản cài đặt tối ưu hóa chạy trên một máy đơn lẻ có thể huấn luyện hơn 100 tỷ từ chỉ trong vòng một ngày"*. Google đã công bố mã nguồn mở vào năm 2013 kèm theo bộ vector được huấn luyện sẵn trên khoảng 100 tỷ từ của kho tin tức Google News: gồm 3 triệu từ và cụm từ trong không gian 300 chiều. Suốt nhiều năm sau đó, bộ "vector GoogleNews" này là một trong những biểu diễn nhúng được sử dụng rộng rãi nhất trong cộng đồng NLP. Nội dung bình duyệt (*peer reviews*) của bài báo hiện vẫn được lưu trữ công khai, trong đó có một phản biện viên từng nhận xét: *"Tôi không cho rằng những đóng góp trong bài báo này có tính nguyên bản cao."* Mười năm sau, chính bài báo này đã được trao giải thưởng danh giá Test of Time Award (Công trình vượt thời gian) tại hội nghị NeurIPS!
 
 </PaperNote>
 
-One last trick: **subsampling**. Frequent words like "the" appear in the window of almost every word, and tell us little about it. So before building the pairs, each occurrence of a word of frequency $f$ is dropped with probability $1 - \sqrt{t/f}$, where $t$ is a threshold, around $10^{-5}$ in the paper. With $t = 10^{-4}$, about 4% of the occurrences of "the" in WikiText-2 are kept, and all the occurrences of the words of frequency below $10^{-4}$. This is the intuition of the IDF of section 3.3 again: a word that is everywhere carries little information.
+Còn một thủ thuật cuối cùng nữa: **lấy mẫu con các từ phổ biến (subsampling)**. Những hư từ xuất hiện dày đặc như "the" có mặt trong cửa sổ ngữ cảnh của hầu hết mọi từ, và chẳng cung cấp được mấy thông tin hữu ích. Vì vậy, trước khi ghép các cặp từ huấn luyện, mỗi lần xuất hiện của một từ có tần suất tương đối $f$ sẽ bị loại bỏ ngẫu nhiên với xác suất $1 - \sqrt{t/f}$, trong đó $t$ là một ngưỡng hằng số (thường chọn khoảng $10^{-5}$ trong bài báo gốc). Trên tập WikiText-2, nếu chọn $t = 10^{-4}$, chỉ khoảng 4% số lần xuất hiện của từ "the" được giữ lại, trong khi toàn bộ các từ có tần suất dưới $10^{-4}$ đều được giữ nguyên 100%. Đây một lần nữa chính là trực giác đằng sau trọng số IDF ở mục 3.3: một từ xuất hiện ở khắp mọi nơi thì mang rất ít thông tin.
 
-<Optional title="The hierarchical softmax" subtitle="the other way around the softmax">
+<Optional title="Softmax phân cấp (Hierarchical softmax)" subtitle="một con đường khác để né chi phí tính softmax trên toàn bộ từ vựng">
 
-The first paper of word2vec avoided the softmax in another way. The words of the vocabulary are the leaves of a binary tree, built so that frequent words are close to the root (a Huffman tree). To give a probability to a word, the model follows the path from the root to its leaf, and at each node, a logistic regression gives the probability of going left or right. The probability of the word is the product of the probabilities of these choices. A path has about $\log_2 V$ nodes: 15 logistic regressions for 33,277 words, instead of 33,277 scores. Negative sampling, simpler, replaced it in the second paper.
+Bài báo đầu tiên của word2vec đã tránh việc tính tổng softmax trên toàn bộ từ vựng theo một cách khác. Toàn bộ các từ trong bộ từ vựng được sắp xếp làm các nút lá của một cây nhị phân, được xây dựng sao cho các từ xuất hiện thường xuyên nằm gần nút gốc hơn (cây mã hóa Huffman). Để tính xác suất cho một từ, mô hình đi dọc theo đường dẫn từ nút gốc xuống tới nút lá của từ đó; tại mỗi nút nhánh trên đường đi, một bộ hồi quy logistic nhị phân sẽ quyết định xác suất rẽ trái hay rẽ phải. Xác suất cuối cùng của từ ở nút lá chính là tích các xác suất rẽ nhánh dọc theo đường đi. Một đường đi trên cây chỉ dài khoảng $\log_2 V$ nút: tức chỉ cần tính khoảng 15 phép hồi quy logistic cho bộ từ vựng 33.277 từ, thay vì phải tính toàn bộ 33.277 điểm số. Tuy nhiên, kỹ thuật lấy mẫu âm (*negative sampling*) ở bài báo thứ hai — vốn đơn giản và nhanh hơn — đã dần thay thế hoàn toàn phương pháp này trong thực tế.
 
 </Optional>
 
-Let's train skip-gram with negative sampling on WikiText-2, the text on which we trained Bengio's model in exercise 4.2, and compare the two.
+Bây giờ, hãy tự tay huấn luyện mô hình skip-gram kết hợp lấy mẫu âm trên tập dữ liệu WikiText-2 — chính là văn bản mà chúng ta đã dùng để huấn luyện mô hình của Bengio ở bài tập 4.2 — rồi đặt hai mô hình lên bàn cân so sánh.
 
-<Exercise number="5.2" title="Train word2vec on WikiText-2" data="WikiText-2" nb="05-2-word2vec">
+<Exercise number="5.2" title="Huấn luyện word2vec trên WikiText-2" data="WikiText-2" nb="05-2-word2vec">
 
-Train a skip-gram model with negative sampling on the training text of WikiText-2. Subsample the frequent words with $t = 10^{-4}$, then pair each remaining word with the 2 words before it and the 2 words after it. For each real pair, draw 5 fake context words from the counts of the words raised to the power 3/4. Train embeddings of size D = 100 for 3 epochs, then print the 5 nearest neighbors of the six words of exercise 4.2 ("three", "he", "city", "film", "excellent" and "terrible"). Compare the neighbors and the training time with those of Bengio's model in exercise 4.2.
+Hãy huấn luyện một mô hình skip-gram với kỹ thuật lấy mẫu âm trên văn bản huấn luyện của WikiText-2. Trước hết, hãy lọc bớt các từ phổ biến bằng kỹ thuật lấy mẫu con (*subsampling*) với ngưỡng $t = 10^{-4}$, sau đó ghép mỗi từ còn lại với 2 từ đứng trước nó và 2 từ đứng sau nó. Ứng với mỗi cặp từ thật, hãy lấy mẫu 5 từ ngữ cảnh giả theo phân phối tần số đếm nâng lên lũy thừa $3/4$. Huấn luyện các vector nhúng có kích thước $D = 100$ trong 3 epoch, sau đó in ra 5 từ láng giềng gần nhất của sáu từ ở bài tập 4.2 ("three", "he", "city", "film", "excellent" và "terrible"). Hãy so sánh danh sách các từ láng giềng cũng như thời gian huấn luyện với mô hình của Bengio ở bài tập 4.2.
 
-The starter code builds the training sequence, with step (1) of the solution of exercise 2.1, and gives each word of the vocabulary an index, as in the starter of exercise 4.2.
+Đoạn mã khởi đầu xây dựng chuỗi văn bản huấn luyện theo bước (1) trong lời giải bài tập 2.1, và gán cho mỗi từ trong từ vựng một chỉ số nguyên giống như ở mã khởi đầu của bài tập 4.2.
 
 <Starter nb="05-2-word2vec" />
 
@@ -94,25 +94,25 @@ The starter code builds the training sequence, with step (1) of the solution of 
 
 <Hint>
 
-Count the words with a dictionary, as in section 2. Then turn the subsampled sequence of word indices into a tensor `sequence`: `sequence[:-1]` and `sequence[1:]` pair each word with the next one, and `sequence[:-2]` and `sequence[2:]` with the word two positions later. Use each of these pairs in both directions.
+Hãy đếm tần số các từ bằng một từ điển (*dictionary*) như ở mục 2. Sau khi thực hiện lọc lấy mẫu con (*subsampling*), hãy chuyển chuỗi chỉ số từ còn lại thành một tensor `sequence`: khi đó `sequence[:-1]` và `sequence[1:]` sẽ ghép mỗi từ với từ đứng liền kề sau nó, còn `sequence[:-2]` và `sequence[2:]` sẽ ghép mỗi từ với từ cách nó hai vị trí. Hãy sử dụng tất cả các cặp này theo cả hai chiều (trước–sau và sau–trước).
 
 </Hint>
 
 <Hint>
 
-Use two `nn.Embedding(V, D)`: one for the middle words, whose rows are the embeddings $v$ that we keep, and one for the context words, the output vectors $u$. Start both from small values, with `nn.init.normal_(..., std=0.1)`. For a batch of pairs, the scores are `(center * context).sum(dim=1)`, where `center` and `context` have size (batch, D).
+Hãy khởi tạo hai lớp `nn.Embedding(V, D)`: một lớp dành cho các từ trung tâm (mà các hàng của nó chính là ma trận biểu diễn nhúng $v$ ta sẽ giữ lại sau khi học xong), và một lớp dành cho các từ ngữ cảnh (chứa các vector đầu ra $u$). Khởi tạo cả hai ma trận với các giá trị ngẫu nhiên nhỏ bằng `nn.init.normal_(..., std=0.1)`. Với một batch gồm các cặp từ, điểm số tích vô hướng được tính nhanh gọn bằng `(center * context).sum(dim=1)`, trong đó cả `center` và `context` đều có kích thước `(batch, D)`.
 
 </Hint>
 
 <Hint>
 
-`torch.multinomial(noise, n, replacement=True)` draws n word indices, with probabilities proportional to `noise`, here the counts raised to the power 3/4. For each batch, put the score of each real pair and the scores of its 5 fake pairs side by side, in a tensor of size (batch, 6), with the labels 1, 0, 0, 0, 0, 0. `nn.BCEWithLogitsLoss()` then computes the loss of negative sampling.
+Hàm `torch.multinomial(noise, n, replacement=True)` giúp rút ngẫu nhiên $n$ chỉ số từ với xác suất tỷ lệ thuận với trọng số trong tensor `noise` — ở đây là số đếm tần số của từng từ nâng lên lũy thừa $3/4$. Với mỗi batch, hãy ghép điểm số của mỗi cặp từ thật đặt cạnh điểm số của 5 cặp từ giả tương ứng thành một tensor có kích thước `(batch, 6)`, đi kèm với vector nhãn mục tiêu là `1, 0, 0, 0, 0, 0`. Khi đó, `nn.BCEWithLogitsLoss()` sẽ tính chính xác hàm mất mát của kỹ thuật lấy mẫu âm.
 
 </Hint>
 
 <Hint>
 
-Train with Adam (learning rate 0.003) on batches of 4,096 pairs. For the neighbors, reuse the code of exercise 4.2 on the matrix of the middle words.
+Hãy huấn luyện bằng thuật toán Adam (tốc độ học `lr=0.003`) với kích thước lô (*batch size*) là 4.096 cặp. Để tìm các từ láng giềng gần nhất, hãy tái sử dụng đoạn mã của bài tập 4.2 áp dụng trên ma trận nhúng của từ trung tâm.
 
 </Hint>
 
@@ -120,7 +120,7 @@ Train with Adam (learning rate 0.003) on batches of 4,096 pairs. For the neighbo
 
 <Checkpoint nb="05-2-word2vec">
 
-Subsampling keeps 997,693 of the 2,051,910 words, which gives 3,990,766 pairs. The training takes about 15 seconds on a laptop CPU. The neighbors of "three" are other numbers, and those of "film" include "cinema" and "movie". The neighbors of "excellent" and "terrible" look random. Your neighbors can differ, especially those of the rare words.
+Bước lọc lấy mẫu con giữ lại 997.693 từ trên tổng số 2.051.910 từ ban đầu, tạo ra 3.990.766 cặp từ huấn luyện. Toàn bộ quá trình huấn luyện chỉ mất khoảng 15 giây trên CPU của máy tính xách tay! Các từ láng giềng của "three" vẫn là những con số khác, và láng giềng của "film" bao gồm "cinema" và "movie". Láng giềng của hai từ hiếm "excellent" và "terrible" vẫn trông ngẫu nhiên. Kết quả cụ thể trên máy của bạn có thể xê dịch đôi chút, đặc biệt là với các từ hiếm.
 
 </Checkpoint>
 
@@ -128,7 +128,7 @@ Subsampling keeps 997,693 of the 2,051,910 words, which gives 3,990,766 pairs. T
 
 <WhatToNotice>
 
-Word2vec trains in 15 seconds, where Bengio's model needed almost 6 minutes on the same text and the same computer, with fewer pairs per epoch: per pair, word2vec is about 30 times faster. The neighbors are of the same kind: numbers with numbers, "he" with "him" and "she". But they are not quite the same: "film" is now closest to "cinema" and "movie", words of the same topic, while Bengio's model put it next to "book", "novel" and "album", words that play the same role in a sentence. As for the rare words, they are noise again: "excellent" appears only 28 times in the training text. 2 million words are not enough, and this is where the speed of word2vec matters. **Word2vec is cheap enough to learn from billions of words.**
+Mô hình word2vec huấn luyện xong chỉ trong vỏn vẹn 15 giây, trong khi mô hình của Bengio ngốn gần 6 phút trên cùng một văn bản và cùng một chiếc máy tính dù có ít cặp huấn luyện hơn trong mỗi epoch: tính trung bình trên mỗi cặp mẫu, word2vec nhanh hơn gấp khoảng 30 lần! Các từ láng giềng thu được mang tính chất tương tự: số đi với số, đại từ "he" đi với "him" và "she". Tuy nhiên có một sự khác biệt thú vị về sắc thái: từ "film" giờ đây nằm gần nhất với "cinema" (điện ảnh) và "movie" (bộ phim) — tức những từ thuộc cùng trường chủ đề — trong khi mô hình của Bengio lại xếp nó cạnh "book", "novel" và "album" — những từ đóng cùng vai trò ngữ pháp ở vị trí tiếp theo trong câu. Còn đối với các từ hiếm như "excellent" (chỉ xuất hiện 28 lần), kết quả vẫn là nhiễu: một văn bản dài 2 triệu từ là chưa đủ lớn, và đó chính là lúc tốc độ vượt trội của word2vec phát huy giá trị. **Word2vec đủ nhẹ và nhanh để có thể học từ hàng tỷ từ văn bản.**
 
 </WhatToNotice>
 
@@ -136,70 +136,70 @@ Word2vec trains in 15 seconds, where Bengio's model needed almost 6 minutes on t
 
 ### 5.3 GloVe
 
-Word2vec learns by predicting, one window at a time. A year later, Jeffrey Pennington, Richard Socher and Christopher Manning went back to counting [@pennington2014]. Their model, *GloVe* (for *global vectors*), first counts, over the whole training text, how many times each word $j$ appears in the window of each word $i$. This gives a *co-occurrence matrix* $X$ of size V × V, like the counts of pairs of section 2.1, but with a window on both sides of the word. Then GloVe looks for vectors whose dot products give the logarithm of these counts:
+Word2vec học biểu diễn nhúng thông qua bài toán dự đoán từng cửa sổ ngữ cảnh một. Một năm sau đó, nhóm nghiên cứu tại Đại học Stanford gồm Jeffrey Pennington, Richard Socher và Christopher Manning đã quay trở lại với phương pháp đếm truyền thống [@pennington2014]. Mô hình của họ, mang tên **GloVe** (viết tắt của *Global Vectors* — Vector toàn cục), trước hết duyệt qua toàn bộ kho ngữ liệu huấn luyện để đếm xem mỗi từ $j$ xuất hiện bao nhiêu lần trong cửa sổ ngữ cảnh của mỗi từ $i$. Bước này tạo ra một *ma trận đồng xuất hiện (co-occurrence matrix)* $X$ có kích thước $V \times V$, tương tự như bảng đếm các cặp từ ở mục 2.1 nhưng mở rộng cửa sổ ra cả hai phía của từ trung tâm. Sau đó, GloVe tìm kiếm các vector từ sao cho tích vô hướng của chúng xấp xỉ trực tiếp giá trị logarit của các số đếm đồng xuất hiện này:
 
 $$
 w_i \cdot \tilde{w}_j + b_i + \tilde{b}_j \approx \log X_{ij},
 $$
 
-where $w_i$ and $\tilde{w}_j$ are two vectors of the words, as in skip-gram, and $b_i$ and $\tilde{b}_j$ are biases. The vectors are fitted by least squares, weighted by a function of the count $X_{ij}$: the rare pairs, whose counts are noisy, weigh less, and the weight stops growing beyond 100 occurrences, so that the very frequent pairs do not dominate. Like the Latent Semantic Analysis of section 4.1, **GloVe compresses a big table of counts into dense vectors of a few hundred dimensions.**
+trong đó $w_i$ và $\tilde{w}_j$ là hai bộ vector biểu diễn từ (tương ứng với từ trung tâm và từ ngữ cảnh giống như trong skip-gram), còn $b_i$ và $\tilde{b}_j$ là các số hạng độ chệch (*biases*) vô hướng. Các vector này được khớp bằng phương pháp bình phương tối thiểu có trọng số (*weighted least squares*), trong đó mỗi cặp $(i, j)$ được nhân với một hàm trọng số phụ thuộc vào số đếm $X_{ij}$: những cặp từ hiếm gặp (vốn có số đếm nhiều nhiễu) sẽ nhận trọng số nhỏ hơn, đồng thời hàm trọng số cũng được chặn trần không tăng nữa khi số lần đồng xuất hiện vượt quá 100 nhằm ngăn không cho các cặp hư từ quá phổ biến lấn át toàn bộ hàm mục tiêu. Giống như phương pháp Phân tích Ngữ nghĩa Tiềm ẩn (LSA) ở mục 4.1, **GloVe nén một bảng đếm khổng lồ thành các vector đặc chỉ gồm vài trăm chiều.**
 
-<PaperNote id="pennington2014" look="Table 1: the probabilities of solid, gas, water and fashion near ice and near steam, and their ratios.">
+<PaperNote id="pennington2014" look="Bảng 1: xác suất xuất hiện của các từ solid (rắn), gas (khí), water (nước) và fashion (thời trang) ở gần từ ice (băng đá) so với ở gần từ steam (hơi nước), cùng tỷ số giữa các xác suất đó.">
 
-GloVe starts from a remark about ratios. In 6 billion words, "solid" appears 8.9 times more often near "ice" than near "steam", and "gas" about 12 times less often. "Water", related to both, and "fashion", related to neither, have ratios close to 1 (1.36 and 0.96). As the authors put it, "compared to the raw probabilities, the ratio is better able to distinguish relevant words (solid and gas) from irrelevant words (water and fashion)". GloVe is designed so that the difference between the vectors of two words predicts the logarithm of such ratios. On the analogy test set of section 5.4, the GloVe vectors trained on 6 billion words get 71.7%, against 69.1% for skip-gram trained by the authors on the same text.
+Mô hình GloVe khởi nguồn từ một quan sát rất tinh tế về tỷ số xác suất đồng xuất hiện. Trong một kho ngữ liệu gồm 6 tỷ từ, từ "solid" (rắn) xuất hiện gần từ "ice" (băng đá) thường xuyên gấp 8,9 lần so với gần từ "steam" (hơi nước); ngược lại, từ "gas" (khí) xuất hiện gần "ice" ít hơn khoảng 12 lần so với gần "steam". Trong khi đó, từ "water" (nước — vốn liên quan đến cả hai) và từ "fashion" (thời trang — chẳng liên quan đến từ nào) lại có tỷ số xác suất xấp xỉ bằng 1 (lần lượt là 1,36 và 0,96). Như các tác giả nhận xét: *"so với các xác suất thô đứng riêng lẻ, tỷ số giữa hai xác suất có khả năng phân biệt vượt trội giữa những từ liên quan mật thiết (solid và gas) với những từ không mang tính phân loại (water và fashion)"*. Hàm mục tiêu của GloVe được thiết kế toán học sao cho hiệu số giữa hai vector từ dự đoán trực tiếp logarit của những tỷ số xác suất như vậy. Trên bộ dữ liệu kiểm tra phép loại suy ở mục 5.4, các vector GloVe huấn luyện trên 6 tỷ từ đạt độ chính xác 71,7%, vượt qua mức 69,1% của mô hình skip-gram do chính nhóm tác giả huấn luyện trên cùng kho ngữ liệu.
 
 </PaperNote>
 
-So which is better, predicting or counting? In 2014, Omer Levy and Yoav Goldberg showed that the two are much closer than they look [@levy2014]. Consider skip-gram with negative sampling, with $k$ fake pairs for each real pair. If the embeddings are large enough, its loss is minimal when the dot product of the vectors of a word $w$ and of a context word $c$ is
+Vậy rốt cuộc phương pháp nào ưu việt hơn: dự đoán (như word2vec) hay đếm toàn cục (như GloVe)? Ngay trong năm 2014, Omer Levy và Yoav Goldberg đã chứng minh một kết quả lý thuyết bất ngờ rằng hai trường phái này thực chất gần gũi với nhau hơn vẻ bề ngoài rất nhiều [@levy2014]. Hãy xét mô hình skip-gram với kỹ thuật lấy mẫu âm sử dụng $k$ cặp từ giả cho mỗi cặp từ thật. Nếu số chiều của không gian nhúng đủ lớn, hàm mất mát của mô hình này đạt giá trị cực tiểu toàn cục khi tích vô hướng giữa vector từ trung tâm $w$ và vector từ ngữ cảnh $c$ thỏa mãn phương trình:
 
 $$
 v_w \cdot u_c = \log \frac{p(w, c)}{p(w)\, p(c)} - \log k,
 $$
 
-where $p(w, c)$ is the probability that $c$ appears in the window of $w$, and $p(w)$ and $p(c)$ are the frequencies of the two words. The logarithm is the *pointwise mutual information* (PMI) of the two words: it compares how often they appear together with how often they would if they were independent. It is high for "ice" and "cold", and close to zero for "ice" and "the". So word2vec, without ever building the table, factorizes a table of co-occurrence statistics, just like GloVe and LSA. **Predicting the context and counting the contexts end up computing nearly the same thing.**
+trong đó $p(w, c)$ là xác suất để từ $c$ xuất hiện trong cửa sổ ngữ cảnh của từ $w$, còn $p(w)$ và $p(c)$ là tần suất xuất hiện độc lập của hai từ đó. Đại lượng logarit ở số hạng đầu tiên chính là **thông tin tương hỗ điểm (Pointwise Mutual Information — PMI)** giữa hai từ: nó đo lường xem hai từ xuất hiện cùng nhau thường xuyên gấp bao nhiêu lần so với trường hợp chúng hoàn toàn độc lập thống kê với nhau. Giá trị PMI rất cao đối với cặp từ "ice" và "cold", nhưng lại xấp xỉ bằng 0 đối với cặp "ice" và "the". Như vậy, dù không bao giờ xây dựng bảng đếm trong bộ nhớ, mô hình word2vec về bản chất vẫn đang thực hiện phân rã ma trận (*matrix factorization*) trên một bảng thống kê đồng xuất hiện — giống hệt như cái đích của GloVe và LSA! **Dự đoán ngữ cảnh cục bộ và đếm thống kê ngữ cảnh toàn cục suy cho cùng đều hội tụ về gần như cùng một bài toán toán học.**
 
-<Optional title="Where the PMI comes from" subtitle="the optimum of negative sampling in three lines">
+<Optional title="Nguồn gốc công thức PMI" subtitle="chứng minh nghiệm tối ưu của lấy mẫu âm chỉ trong ba dòng biến đổi">
 
-Take a word $w$ and a context word $c$, and write $x = v_w \cdot u_c$. In the loss of negative sampling, summed over the whole text, the pair $(w, c)$ appears as a real pair $\#(w, c)$ times, the number of times $c$ is in the window of $w$. It also appears as a fake pair: each of the $\#(w)$ real pairs of $w$ draws $k$ fake words, and $c$ is drawn with probability $p_n(c)$, so about $k\, \#(w)\, p_n(c)$ times. The part of the loss that depends on $x$ is
+Hãy xét một từ trung tâm $w$ và một từ ngữ cảnh $c$ cố định, đồng thời đặt ẩn phụ $x = v_w \cdot u_c$. Trong tổng hàm mất mát của kỹ thuật lấy mẫu âm tính trên toàn bộ văn bản huấn luyện, cặp $(w, c)$ xuất hiện với tư cách là một cặp từ thật đúng $\#(w, c)$ lần (số lần từ $c$ nằm trong cửa sổ của từ $w$). Bên cạnh đó, nó cũng xuất hiện với tư cách là một cặp từ giả: mỗi lần trong tổng số $\#(w)$ cặp từ thật của $w$, thuật toán rút ra $k$ từ giả, và từ $c$ được rút trúng với xác suất $p_n(c)$, tức trung bình khoảng $k\, \#(w)\, p_n(c)$ lần. Do đó, thành phần trong tổng hàm mất mát phụ thuộc riêng vào biến $x$ có dạng:
 
 $$
 -\#(w, c) \log \sigma(x) - k\, \#(w)\, p_n(c) \log \sigma(-x).
 $$
 
-Its derivative with respect to $x$ is $-\#(w, c)\, \sigma(-x) + k\, \#(w)\, p_n(c)\, \sigma(x)$, which is zero when $e^x = \sigma(x) / \sigma(-x) = \#(w, c) / \big(k\, \#(w)\, p_n(c)\big)$. With the frequencies $p(w, c) = \#(w, c)/N$ and $p(w) = \#(w)/N$, where $N$ is the total number of real pairs, and with fake words drawn from the plain frequencies, $p_n(c) = p(c)$, this gives the formula above. With the power 3/4 of word2vec, $p(c)$ is replaced by its smoothed version. The argument assumes that each dot product can take any value, which requires large enough embeddings.
+Lấy đạo hàm của biểu thức này theo $x$, ta được $-\#(w, c)\, \sigma(-x) + k\, \#(w)\, p_n(c)\, \sigma(x)$. Cho đạo hàm bằng 0, ta giải ra ngay $e^x = \sigma(x) / \sigma(-x) = \#(w, c) / \big(k\, \#(w)\, p_n(c)\big)$. Thay các tần suất tương đối $p(w, c) = \#(w, c)/N$ và $p(w) = \#(w)/N$ (với $N$ là tổng số cặp từ thật trong kho ngữ liệu), đồng thời giả sử các từ giả được lấy mẫu theo đúng tần suất tự nhiên $p_n(c) = p(c)$, ta thu được chính xác công thức PMI trừ đi $\log k$ ở trên! Nếu dùng phân phối lấy mẫu âm lũy thừa $3/4$ của word2vec thì mẫu số $p(c)$ chỉ đơn giản được thay bằng phiên bản làm mượt lũy thừa tương ứng. Lưu ý rằng phép chứng minh này giả định tích vô hướng $x$ của mỗi cặp từ có thể nhận giá trị tự do độc lập nhau — điều kiện đòi hỏi số chiều $D$ của vector nhúng phải đủ lớn.
 
 </Optional>
 
-<PaperNote id="levy2014" look="Table 2: the SVD of the shifted PMI table against skip-gram, on four tests. The SVD wins on the similarity of words, skip-gram on the analogies.">
+<PaperNote id="levy2014" look="Bảng 2: so sánh phương pháp phân rã SVD trên bảng PMI dịch chuyển với mô hình skip-gram qua bốn bài kiểm tra. SVD giành chiến thắng ở tác vụ đo độ tương đồng từ, trong khi skip-gram thắng ở tác vụ giải phép loại suy (analogies).">
 
-The paper that connected predicting and counting. Its main result is the formula above: skip-gram with negative sampling, as implemented in word2vec, factorizes a table of PMI without saying so. The authors then took the direct route: build the table of a Wikipedia corpus of 1.5 billion words, subtract $\log k$, set the negative entries to zero, and compress it with an SVD. On the similarity of words, it is as good as word2vec. On the analogies, it is behind, for instance 44.8% against 62.7% on a set of grammatical analogies. Why set the negative entries to zero? Because they are unreliable, and as the authors put it, "humans can easily think of positive associations (e.g. "Canada" and "snow") but find it much harder to invent negative ones ("Canada" and "desert")".
+Bài báo đã bắc nhịp cầu nối liền hai trường phái dự đoán và đếm từ. Kết quả lý thuyết trung tâm của bài báo chính là phương trình ở trên: mô hình skip-gram kết hợp lấy mẫu âm trong word2vec thực chất đang ngầm phân rã ma trận PMI dịch chuyển (*shifted PMI*). Từ phát hiện này, hai tác giả đã thử đi theo con đường trực diện: xây dựng trực tiếp bảng PMI trên kho ngữ liệu Wikipedia gồm 1,5 tỷ từ, trừ đi hằng số $\log k$, gán toàn bộ các ô có giá trị âm về 0 (gọi là ma trận PPMI — *Positive PMI*), rồi nén ma trận đó xuống số chiều thấp bằng phép phân rã SVD. Trên các bộ dữ liệu đánh giá độ tương đồng từ vựng, phương pháp SVD trực tiếp này đạt kết quả ngang ngửa với word2vec. Tuy nhiên trên bài toán loại suy từ vựng (*analogies*), nó lại tỏ ra hụt hơi — chẳng hạn chỉ đạt 44,8% so với 62,7% của skip-gram trên tập câu hỏi loại suy ngữ pháp. Tại sao lại phải gán các giá trị PMI âm về 0? Bởi vì thống kê về việc hai từ "hiếm khi đi cùng nhau" trên kho ngữ liệu hữu hạn cực kỳ nhiễu và thiếu tin cậy; hơn nữa như các tác giả nhận xét: *"con người có thể dễ dàng nghĩ ngay ra các mối liên tưởng khẳng định (ví dụ: 'Canada' và 'tuyết'), nhưng lại rất khó hình dung ra các mối liên tưởng phủ định ('Canada' và 'sa mạc')"*.
 
 </PaperNote>
 
-The Stanford team released GloVe vectors trained on several corpora. In the rest of this section, we use the vectors trained on 6 billion words of Wikipedia and news articles: 400,000 words in lower case, in 300 dimensions. This is 3,000 times more text than WikiText-2.
+Nhóm nghiên cứu tại Stanford đã công bố rộng rãi các bộ vector GloVe được huấn luyện sẵn trên nhiều kho ngữ liệu lớn. Trong phần còn lại của mục này, chúng ta sẽ sử dụng bộ vector được huấn luyện trên 6 tỷ từ trích từ Wikipedia và các bài báo tin tức: gồm 400.000 từ viết thường trong không gian 300 chiều. Quy mô văn bản này lớn gấp 3.000 lần so với tập dữ liệu WikiText-2 của chúng ta.
 
-### 5.4 What embeddings capture
+### 5.4 Các biểu diễn nhúng nắm bắt được những thông tin gì?
 
-The first thing embeddings capture is similarity: the nearest neighbors of exercises 4.2 and 5.2. But they also hold a more surprising structure. Take the vector $v_\text{paris} - v_\text{france} + v_\text{spain}$, and look for the word whose vector is the closest: it is "madrid". In other words, the difference $v_\text{paris} - v_\text{france}$ is almost the same as $v_\text{madrid} - v_\text{spain}$: there is a direction in the space of embeddings that means "the capital of". In the same way, the word closest to $v_\text{king} - v_\text{man} + v_\text{woman}$ is "queen", once we exclude "king" itself (we will come back to this detail in exercise 5.4).
+Điều đầu tiên mà các biểu diễn nhúng nắm bắt được chính là độ tương đồng ngữ nghĩa: thể hiện qua danh sách các từ láng giềng gần nhất trong bài tập 4.2 và 5.2. Thế nhưng bên trong không gian vector ấy còn ẩn chứa một cấu trúc hình học đáng kinh ngạc hơn nhiều! Hãy lấy hiệu và tổng của các vector $v_\text{paris} - v_\text{france} + v_\text{spain}$, rồi tìm xem từ nào trong từ vựng có vector nằm gần kết quả đó nhất: câu trả lời chính là "madrid". Nói cách khác, vector hiệu $v_\text{paris} - v_\text{france}$ gần như bằng đúng vector hiệu $v_\text{madrid} - v_\text{spain}$: tồn tại một phương hướng nhất định trong không gian nhúng mang ý nghĩa là quan hệ *"thủ đô của"*. Hoàn toàn tương tự, từ có vector nằm gần nhất với $v_\text{king} - v_\text{man} + v_\text{woman}$ chính là "queen" (nữ hoàng), sau khi ta loại trừ chính từ "king" khỏi danh sách ứng viên (chúng ta sẽ bàn kỹ hơn về chi tiết thú vị này trong bài tập 5.4).
 
 <HtmlEmbed
   src="d3-analogy-directions.html"
   data="analogy-directions.json"
-  title="Relations are directions"
-  desc="For each relation, the GloVe vectors of 9 pairs of words, projected on 2 dimensions with a principal component analysis (PCA), and an arrow from the first word of each pair to the second. The arrows are almost parallel: going from a country to its capital, or from a man to a woman, is about the same move everywhere in the space. Hover over a word to highlight its pair. After Figure 2 of <a href='#bib-mikolov2013b'>Mikolov et al. (2013b)</a>."
+  title="Các mối quan hệ ngữ nghĩa biểu hiện thành các phương hướng hình học"
+  desc="Ứng với mỗi mối quan hệ, hình vẽ biểu diễn các vector GloVe của 9 cặp từ sau khi được chiếu xuống mặt phẳng 2 chiều bằng phương pháp Phân tích Thành phần Chính (PCA), cùng mũi tên nối từ từ thứ nhất sang từ thứ hai của mỗi cặp. Các mũi tên gần như song song với nhau: bước dịch chuyển từ một quốc gia sang thủ đô của nó, hay từ giống đực sang giống cái, đều tương ứng với cùng một vector tịnh tiến ở khắp nơi trong không gian. Hãy di chuột qua từng từ để làm nổi bật cặp của nó. Phỏng theo Hình 2 của <a href='#bib-mikolov2013b'>Mikolov et al. (2013b)</a>."
 />
 
-<PaperNote id="mikolov2013c" look="Figure 2: the parallel arrows man → woman, uncle → aunt and king → queen. It is a drawing, not a plot of real vectors.">
+<PaperNote id="mikolov2013c" look="Hình 2: các mũi tên song song man → woman, uncle → aunt và king → queen. Lưu ý rằng hình trong bài báo gốc là hình vẽ minh họa ý tưởng chứ không phải đồ thị chiếu từ vector thực.">
 
-The analogy king − man + woman ≈ queen first appeared in this paper, with the vectors of a recurrent language model trained on 320 million words of Broadcast News. Mikolov found it during an internship at Microsoft Research. As he told in 2023, he asked his supervisor, Geoffrey Zweig, what the closest vector to king − man + woman would be: Zweig "told me this was a rather silly idea and that nothing sensible could come out of this". It returned "queen". The paper then measures the idea on 8,000 grammatical analogies: the best score is 39.6%, with several models combined.
+Phép loại suy nổi tiếng $\text{king} - \text{man} + \text{woman} \approx \text{queen}$ xuất hiện lần đầu tiên chính trong bài báo này, sử dụng các vector trích từ một mô hình ngôn ngữ mạng nơ-ron hồi quy (RNN) huấn luyện trên 320 triệu từ của tập tin tức Broadcast News. Mikolov đã tình cờ phát hiện ra tính chất này trong thời gian thực tập tại Microsoft Research. Như ông kể lại vào năm 2023, ông đã hỏi người hướng dẫn của mình là Geoffrey Zweig xem liệu vector nào sẽ nằm gần nhất với biểu thức $\text{king} - \text{man} + \text{woman}$: Zweig *"bảo tôi rằng đó là một ý tưởng khá ngớ ngẩn và chẳng thể nào cho ra kết quả gì có nghĩa đâu"*. Thế rồi máy tính trả về kết quả là "queen"! Ngay trong bài báo đó, nhóm tác giả đã thiết lập thước đo định lượng cho ý tưởng này trên 8.000 câu hỏi loại suy ngữ pháp và đạt điểm số cao nhất là 39,6% khi kết hợp nhiều mô hình lại với nhau.
 
 </PaperNote>
 
-This gives a way to answer analogies, "a is to b as c is to ?": look for the word whose vector is the closest to $v_b - v_a + v_c$. Mikolov et al. turned it into a test of the quality of embeddings [@mikolov2013a]: 19,544 analogies in 14 categories, about meaning (capitals, currencies, family) and about grammar (plurals, tenses, comparatives). Let's try it on GloVe. As in some experiments of the first paper of word2vec, we only keep the 30,000 most frequent words, both for the questions and for the answers.
+Tính chất hình học này mở ra một phương pháp đại số để giải các câu đố loại suy (*analogies*) dạng "$a$ đối với $b$ thì cũng như $c$ đối với ?": chỉ cần tìm từ có vector nằm gần nhất với vector mục tiêu $v_b - v_a + v_c$. Mikolov và cộng sự đã biến bài toán này thành một bộ tiêu chuẩn (*benchmark*) để đánh giá chất lượng của các biểu diễn nhúng [@mikolov2013a]: gồm 19.544 câu hỏi loại suy chia làm 14 danh mục, bao quát cả về mặt ngữ nghĩa (thủ đô, đơn vị tiền tệ, quan hệ gia đình) lẫn về mặt ngữ pháp (số nhiều, thì của động từ, so sánh hơn/nhất). Hãy cùng thử nghiệm bộ câu hỏi này trên các vector GloVe. Giống như thiết lập trong một số thí nghiệm của bài báo word2vec đầu tiên, chúng ta sẽ chỉ giữ lại 30.000 từ phổ biến nhất làm không gian tìm kiếm cho cả câu hỏi lẫn câu trả lời.
 
-<Exercise number="5.4" title="Solve analogies with GloVe" data="GloVe, analogy test set" nb="05-4-analogies">
+<Exercise number="5.4" title="Giải bài toán loại suy (analogies) bằng GloVe" data="GloVe, bộ dữ liệu kiểm tra loại suy" nb="05-4-analogies">
 
-Answer the analogies "man is to king as woman is to ?", "france is to paris as spain is to ?", "big is to bigger as small is to ?", "walk is to walked as swim is to ?" and "man is to doctor as woman is to ?". For each one, look for the word whose GloVe vector is the closest to $v_b - v_a + v_c$, first excluding the three words of the question from the answers, then allowing them. Then measure the accuracy on the analogy test set of Mikolov et al. in both ways, separately for the questions about meaning and about grammar.
+Hãy tìm câu trả lời cho 5 phép loại suy sau: "man đối với king thì cũng như woman đối với ?", "france đối với paris thì cũng như spain đối với ?", "big đối với bigger thì cũng như small đối với ?", "walk đối với walked thì cũng như swim đối với ?" và "man đối với doctor thì cũng như woman đối với ?". Với mỗi câu, hãy tìm từ có vector GloVe gần nhất với $v_b - v_a + v_c$ theo hai cách: đầu tiên là loại trừ cả ba từ nằm trong đề bài khỏi tập ứng viên trả lời, sau đó là cho phép trả lời bằng chính các từ trong đề bài. Tiếp theo, hãy đo độ chính xác trên toàn bộ bộ dữ liệu kiểm tra loại suy của Mikolov và cộng sự theo cả hai cách, tách riêng kết quả cho nhóm câu hỏi ngữ nghĩa (*meaning*) và nhóm câu hỏi ngữ pháp (*grammar*).
 
 <Starter nb="05-4-analogies" />
 
@@ -207,19 +207,19 @@ Answer the analogies "man is to king as woman is to ?", "france is to paris as s
 
 <Hint>
 
-Divide each vector by its length first, so that the dot products give the cosine similarities. The target $v_b - v_a + v_c$ does not need to be divided by its length: dividing it by a positive number does not change the ranking of the words.
+Trước tiên, hãy chuẩn hóa mỗi vector trong từ vựng bằng cách chia cho độ dài Euclid của nó, để phép nhân tích vô hướng cho ra trực tiếp độ tương đồng cosine. Lưu ý rằng vector mục tiêu $v_b - v_a + v_c$ không cần phải chia chuẩn hóa độ dài: việc chia nó cho một hằng số dương không làm thay đổi thứ tự xếp hạng của các từ ứng viên.
 
 </Hint>
 
 <Hint>
 
-`vectors @ target` gives the dot products of the target with the 30,000 vectors at once. To exclude a word, set its score to `-math.inf` before taking the `argmax`.
+Biểu thức `vectors @ target` sẽ tính cùng lúc tích vô hướng của vector mục tiêu với toàn bộ 30.000 vector từ vựng. Để loại trừ một từ khỏi danh sách ứng viên, bạn chỉ cần gán điểm số của từ đó bằng `-math.inf` trước khi gọi hàm tìm vị trí lớn nhất `argmax`.
 
 </Hint>
 
 <Hint>
 
-The words of the test set are capitalized ("Athens", "Greece"), while GloVe only has lower-case words: put them in lower case. Skip the questions with a word outside the 30,000. The categories about grammar are those whose `Subject` starts with "gram".
+Các từ trong bộ dữ liệu kiểm tra loại suy có chứa chữ viết hoa ("Athens", "Greece"), trong khi bộ từ vựng GloVe chỉ chứa chữ viết thường: hãy chuyển tất cả về chữ thường (`.lower()`). Bỏ qua những câu hỏi có bất kỳ từ nào nằm ngoài 30.000 từ phổ biến nhất. Các danh mục kiểm tra về ngữ pháp là những dòng có trường `Subject` bắt đầu bằng tiền tố `"gram"`.
 
 </Hint>
 
@@ -227,7 +227,7 @@ The words of the test set are capitalized ("Athens", "Greece"), while GloVe only
 
 <Checkpoint nb="05-4-analogies">
 
-With the question words excluded, the answers are "queen", "madrid", "larger" (a mistake), "swam" and "physician", and the accuracy is 79.2% on meaning and 70.6% on grammar. With the question words allowed, three of the five answers are a word of the question, starting with "king", and the accuracy falls to 24.8% on meaning and 20.7% on grammar. 14,877 of the 19,544 questions have their four words among the 30,000 most frequent words.
+Khi loại trừ các từ trong đề bài, 5 câu trả lời thu được lần lượt là "queen", "madrid", "larger" (một lỗi sai thú vị thay vì "smaller"), "swam" và "physician"; độ chính xác trên toàn bộ tập kiểm tra đạt 79,2% ở phần ngữ nghĩa và 70,6% ở phần ngữ pháp. Ngược lại, khi cho phép trả lời bằng các từ có trong đề bài, 3 trong số 5 câu hỏi trả về chính một từ nằm trong câu hỏi (bắt đầu bằng việc trả về "king" thay vì "queen"), và độ chính xác toàn cục tụt dốc thảm hại xuống chỉ còn 24,8% ở phần ngữ nghĩa và 20,7% ở phần ngữ pháp. Có 14.877 câu trên tổng số 19.544 câu hỏi có đủ cả bốn từ nằm trong nhóm 30.000 từ phổ biến nhất.
 
 </Checkpoint>
 
@@ -235,41 +235,41 @@ With the question words excluded, the answers are "queen", "madrid", "larger" (a
 
 <WhatToNotice>
 
-GloVe answers about three analogies out of four, without having been trained for it: it was only fitted to the counts of pairs of words. The questions about meaning are mostly about geography, since capitals and American states make up 85% of them in the test set. Now look at the second column. When the words of the question are allowed, the best answer is most often one of them: "man is to king as woman is to king". The vector $v_\text{king} - v_\text{man} + v_\text{woman}$ is still closer to $v_\text{king}$ than to any other vector, because the difference between "man" and "woman" is small compared with everything that makes "king" different from other words. On the whole test set, the accuracy falls from 74% to 22%. **"Queen" is not the word closest to king − man + woman: it is the closest one once "king" is excluded.**
+GloVe trả lời đúng khoảng ba trên bốn câu hỏi loại suy dù không hề được huấn luyện chuyên biệt cho tác vụ này: toàn bộ quá trình học của nó chỉ là khớp logarit số đếm của các cặp từ! Các câu hỏi về ngữ nghĩa trong bộ dữ liệu chủ yếu xoay quanh kiến thức địa lý, bởi tên thủ đô và các bang của Hoa Kỳ chiếm tới 85% số câu hỏi trong nhóm này. Nhưng bây giờ hãy nhìn vào cột kết quả thứ hai. Khi các từ trong đề bài được phép xuất hiện ở câu trả lời, ứng viên gần nhất hầu hết lại chính là một trong các từ của câu hỏi: "man đối với king thì cũng như woman đối với... king"! Thực tế là vector $v_\text{king} - v_\text{man} + v_\text{woman}$ vẫn nằm gần vector $v_\text{king}$ hơn bất kỳ từ nào khác trong từ vựng, bởi khoảng cách dịch chuyển nhỏ bé giữa "man" và "woman" chẳng thấm vào đâu so với khoảng cách ngăn cách từ "king" với phần còn lại của từ vựng. Trên toàn bộ tập kiểm tra, nếu bỏ quy tắc loại trừ này, độ chính xác rơi thẳng đứng từ 74% xuống còn 22%. **"Queen" thực chất không phải là từ gần nhất với biểu thức $\text{king} - \text{man} + \text{woman}$: nó chỉ là từ gần nhất sau khi ta đã cấm mô hình trả lời là "king".**
 
 </WhatToNotice>
 
 </Exercise>
 
-This is the first caveat of analogies: **an analogy search must exclude the words of the question**, otherwise it returns one of them most of the time. The rule is in the first paper of word2vec, and in most evaluations since. But it also forces an answer that is not a word of the question, even when the best answer is one of them. In the exercise, "man is to doctor as woman is to ?" gives "physician" with the rule, and "doctor" without it. Keep this in mind when you read that embeddings answer "man is to computer programmer as woman is to homemaker" [@bolukbasi2016].
+Đây là lưu ý quan trọng đầu tiên khi nói về phép loại suy vector: **thuật toán tìm kiếm loại suy bắt buộc phải loại trừ các từ nằm trong câu hỏi**, nếu không trong đa số trường hợp nó sẽ chỉ lặp lại một trong các từ của đề bài. Quy tắc loại trừ ngầm này đã có mặt ngay từ bài báo word2vec đầu tiên và được giữ nguyên trong hầu hết các nghiên cứu đánh giá kể từ đó. Thế nhưng quy tắc này cũng vô tình ép mô hình phải chọn một từ khác bằng mọi giá, ngay cả khi câu trả lời hợp lý nhất chính là một từ đã có trong câu hỏi! Trong bài tập vừa rồi, câu hỏi "man đối với doctor thì cũng như woman đối với ?" trả về "physician" (thầy thuốc) khi áp dụng luật cấm, và trả về đúng "doctor" (bác sĩ) khi gỡ bỏ luật cấm đó. Hãy luôn ghi nhớ chi tiết kỹ thuật này mỗi khi bạn đọc thấy những tuyên bố nổi tiếng kiểu như biểu diễn nhúng trả lời câu "đàn ông đối với lập trình viên máy tính thì cũng như phụ nữ đối với người nội trợ (*homemaker*)" [@bolukbasi2016].
 
-<PaperNote id="nissim2020" look="Table 1: the famous analogies, with the question words excluded and allowed. With the standard search on the GoogleNews vectors, man is to doctor as woman is to gynecologist; when the question words are allowed, the answer is doctor.">
+<PaperNote id="nissim2020" look="Bảng 1: các phép loại suy định kiến giới nổi tiếng khi loại trừ và khi cho phép các từ trong câu hỏi. Với thuật toán tìm kiếm tiêu chuẩn trên bộ vector GoogleNews, câu 'man đối với doctor cũng như woman đối với ?' trả về 'gynecologist' (bác sĩ phụ khoa); nhưng khi cho phép các từ trong câu hỏi, câu trả lời đơn giản là 'doctor'.">
 
-In 2016, a paper with a striking title showed that the GoogleNews vectors answer "man is to computer programmer as woman is to x" with x = homemaker, and many papers followed with similar examples. The authors of this paper point out that the code behind such results never returns a word of the question: "man is to doctor as woman is to doctor" is impossible by construction. On the test set of Mikolov et al., allowing the question words lowers the accuracy from 71% to 21%, as in exercise 5.4. They do not claim that embeddings have no bias: "We stand by the truth that human biases are present in word embeddings, and, of course, the need to address them." Their point is that analogies are a poor tool to measure them.
+Năm 2016, một bài báo với tiêu đề rất gây chú ý đã chỉ ra rằng bộ vector GoogleNews giải phép loại suy "man đối với computer programmer cũng như woman đối với $x$" bằng kết quả $x =$ homemaker (người nội trợ), kéo theo hàng loạt công trình sau đó trích dẫn các ví dụ tương tự. Trong bài báo phản biện năm 2020 này, nhóm tác giả Nissim và cộng sự đã vạch rõ rằng đoạn mã nguồn đằng sau những kết quả ấy đã cài đặt cứng quy tắc cấm trả về bất kỳ từ nào có mặt trong câu hỏi: tức là câu trả lời "man đối với doctor cũng như woman đối với doctor" đã bị loại bỏ hoàn toàn ngay từ trong trứng nước! Trên bộ dữ liệu kiểm tra của Mikolov và cộng sự, việc cho phép trả lời bằng từ trong câu hỏi làm độ chính xác giảm từ 71% xuống 21%, đúng như chúng ta vừa kiểm chứng ở bài tập 5.4. Tất nhiên, nhóm tác giả không hề phủ nhận sự tồn tại của định kiến trong dữ liệu: *"Chúng tôi hoàn toàn đồng tình với sự thật rằng các định kiến của con người có hiện diện trong các biểu diễn nhúng từ, và tất nhiên cần phải được giải quyết."* Luận điểm cốt lõi của họ là: phép tính loại suy có ràng buộc loại trừ là một công cụ đo lường sai lệch và dễ gây hiểu lầm khi dùng để chẩn đoán định kiến.
 
 </PaperNote>
 
-The second caveat: **the meaning is in the directions, not in the coordinates.** It is tempting to look for the coordinate of the embeddings that encodes gender, or the one that encodes royalty. But the losses of word2vec and GloVe only depend on dot products of vectors, and dot products do not change if all the vectors are rotated in the same way. A rotated embedding is just as good as the original, and each of its coordinates is completely different. So a single coordinate has no meaning in itself: only directions do, like $v_\text{woman} - v_\text{man}$. Hinton's network of section 4.1 was different: each of its units went through its own non-linearity, so a rotation would change the outputs of the network. There, the axes are special, and a unit can have a meaning of its own.
+Lưu ý quan trọng thứ hai: **ý nghĩa nằm ở các phương hướng (directions), chứ không nằm ở từng trục tọa độ riêng lẻ (coordinates).** Chúng ta rất dễ nảy sinh ý muốn đi tìm xem chiều tọa độ thứ bao nhiêu trong vector nhúng mã hóa giới tính, hay chiều tọa độ nào mã hóa tính chất hoàng gia. Thế nhưng hãy nhìn lại hàm mất mát của cả word2vec lẫn GloVe: chúng chỉ phụ thuộc duy nhất vào các tích vô hướng giữa các vector, mà tích vô hướng thì hoàn toàn bất biến nếu ta quay đồng thời toàn bộ không gian vector đi cùng một góc bất kỳ! Một bộ vector nhúng sau khi bị quay bằng một phép biến đổi trực giao vẫn tối ưu hàm mất mát tốt y hệt như bộ vector gốc, dù giá trị số ở từng tọa độ của nó đã thay đổi hoàn toàn. Do đó, một tọa độ đơn lẻ tự thân nó không mang ý nghĩa cố định nào cả: chỉ có các phương hướng tương đối — chẳng hạn như vector hiệu $v_\text{woman} - v_\text{man}$ — mới mang ý nghĩa. Mạng nơ-ron của Hinton ở mục 4.1 thì khác: mỗi nút ở tầng ẩn đi qua hàm kích hoạt phi tuyến của riêng nó, nên một phép quay không gian sẽ làm thay đổi đầu ra của mạng. Ở kiến trúc đó, các trục tọa độ có vai trò đặc biệt và mỗi nút đơn lẻ có thể tự gắn với một khái niệm riêng.
 
-### 5.5 Transfer learning
+### 5.5 Học chuyển giao (Transfer learning)
 
-Let's go back to our movie reviews. We now have embeddings learned on 6 billion words, and the deep averaging network of section 4.3 starts with an embedding matrix: we can copy the GloVe vectors into it. This is *transfer learning*: what was learned on one task, here fitting the counts of pairs of words, is reused for another one, classifying reviews. There are two ways to do it:
-- *freeze* the embeddings: keep $W$ fixed, and only train the hidden layers and the head on the labeled reviews;
-- *fine-tune* the embeddings: start from the GloVe vectors, but let the training on the reviews change them, like the other parameters.
+Bây giờ, hãy quay trở lại với các bài đánh giá phim IMDB của chúng ta. Trong tay ta hiện đã có bộ biểu diễn nhúng được học từ 6 tỷ từ văn bản, và kiến trúc mạng lấy trung bình sâu (DAN) ở mục 4.3 lại bắt đầu bằng chính một ma trận nhúng: ta hoàn toàn có thể chép các vector GloVe vào làm ma trận khởi tạo cho mạng này! Đây chính là **học chuyển giao (transfer learning)**: tri thức học được từ một tác vụ này (ở đây là bài toán khớp số đếm các cặp từ trên kho ngữ liệu lớn) được chuyển giao và tái sử dụng cho một tác vụ khác (phân loại bài đánh giá phim). Có hai chiến lược phổ biến để thực hiện việc này:
+- *đóng băng (freeze)* các biểu diễn nhúng: giữ cố định hoàn toàn ma trận $W$, và chỉ huấn luyện các tầng ẩn cùng đầu phân loại trên tập bài đánh giá có nhãn;
+- *tinh chỉnh (fine-tune)* các biểu diễn nhúng: khởi tạo $W$ bằng các vector GloVe, nhưng cho phép quá trình huấn luyện trên các bài đánh giá tiếp tục cập nhật và dịch chuyển chúng giống như mọi tham số khác của mạng.
 
 <HtmlEmbed
   src="d3-transfer.html"
-  title="Three ways to get the embedding matrix of a classifier"
-  desc="From scratch, the embedding matrix W starts at random and is learned from the labeled reviews, as in section 4.3. With transfer learning, W is first learned on raw text, for instance by word2vec or GloVe, then copied into the classifier, where it is either kept fixed (frozen) or trained further with the rest of the network (fine-tuned). The values of the matrices are made up."
+  title="Ba cách thiết lập ma trận nhúng cho một bộ phân loại"
+  desc="Khi huấn luyện từ đầu (from scratch), ma trận nhúng W được khởi tạo ngẫu nhiên và học hoàn toàn từ các bài đánh giá có nhãn như ở mục 4.3. Với học chuyển giao (transfer learning), W trước hết được học trên kho văn bản thô khổng lồ (chẳng hạn bằng word2vec hoặc GloVe), sau đó được sao chép sang bộ phân loại — tại đây nó có thể được giữ cố định (đóng băng / frozen) hoặc tiếp tục được cập nhật cùng phần còn lại của mạng (tinh chỉnh / fine-tuned). Các con số trong ma trận là giả lập để minh họa."
 />
 
-Frozen embeddings keep everything they learned from the 6 billion words, including what they know about words that appear in few labeled reviews, or in none. As we saw in section 4.3, the weight of a word in the head then depends on its embedding, so similar words get similar weights. Fine-tuned embeddings can also adapt to the task, but the words that appear in the labeled reviews move, while the others stay where they were. Let's compare the two with the training from scratch of section 4.3.
+Khi đóng băng biểu diễn nhúng, mạng giữ lại trọn vẹn mọi tri thức học được từ 6 tỷ từ văn bản, bao gồm cả thông tin về những từ rất hiếm khi xuất hiện (hoặc thậm chí không hề xuất hiện) trong tập bài đánh giá huấn luyện. Như ta đã phân tích ở mục 4.3, khi $W$ cố định, tác động của mỗi từ lên đầu phân loại phụ thuộc trực tiếp vào vị trí vector nhúng của nó, nhờ vậy những từ đồng nghĩa sẽ tự động được xử lý giống nhau. Ngược lại, khi tinh chỉnh (*fine-tune*), các biểu diễn nhúng có thể linh hoạt thích nghi với bài toán phân tích cảm xúc, nhưng chỉ những từ có xuất hiện trong tập huấn luyện mới được dịch chuyển, còn những từ vắng mặt sẽ đứng yên tại vị trí cũ. Hãy cùng so sánh cả hai chiến lược này với phương pháp huấn luyện từ đầu ở mục 4.3.
 
-<Exercise number="5.5a" title="Start the averaging network from GloVe" data="IMDB, GloVe" nb="05-5a-pretrained-dan">
+<Exercise number="5.5a" title="Khởi tạo mạng lấy trung bình sâu từ GloVe" data="IMDB, GloVe" nb="05-5a-pretrained-dan">
 
-Build the embedding matrix $W$ of the deep averaging network of exercise 4.3 from the GloVe vectors of the 10,000 words of the vocabulary (D = 300). Train the network three times: with $W$ random (from scratch), with $W$ copied from GloVe and frozen, and with $W$ copied from GloVe and fine-tuned. Compare their test accuracies. Then print the 5 nearest neighbors of "good" and "bad" in GloVe, and in $W$ after fine-tuning.
+Hãy xây dựng ma trận nhúng $W$ cho mạng lấy trung bình sâu của bài tập 4.3 từ các vector GloVe của 10.000 từ trong bộ từ vựng ($D = 300$). Hãy huấn luyện mạng theo ba chế độ: với $W$ khởi tạo ngẫu nhiên (huấn luyện từ đầu — *from scratch*), với $W$ sao chép từ GloVe và đóng băng (*frozen*), và với $W$ sao chép từ GloVe và tinh chỉnh (*fine-tuned*). Hãy so sánh độ chính xác trên tập kiểm tra của cả ba mô hình. Sau đó, hãy in ra 5 từ láng giềng gần nhất của hai từ "good" và "bad" trong bộ vector GloVe gốc, và trong ma trận $W$ sau khi đã tinh chỉnh trên IMDB.
 
-The starter code repeats steps (1) and (2) of the solution of exercise 3.2, which split the reviews and count their words, and loads all the GloVe vectors, as in the starter of exercise 5.4. The network is not in the starter: start from your code of exercise 4.3.
+Đoạn mã khởi đầu lặp lại bước (1) và (2) trong lời giải bài tập 3.2 (chia dữ liệu và đếm từ), đồng thời nạp sẵn toàn bộ các vector GloVe giống như ở mã khởi đầu của bài tập 5.4. Kiến trúc mạng không được viết sẵn trong mã khởi đầu: bạn hãy lấy từ mã nguồn bài tập 4.3 của mình.
 
 <Starter nb="05-5a-pretrained-dan" />
 
@@ -277,19 +277,19 @@ The starter code repeats steps (1) and (2) of the solution of exercise 3.2, whic
 
 <Hint>
 
-`vectorizer.get_feature_names_out()` gives the words of the vocabulary, in the order of the count vectors. Build $W$ as a tensor of size 300 × 10,000, with the GloVe vector of word j in column j, and copy it into the first layer of the network with `model[0].weight.data = W_glove.clone()`. A few words, like "hadn", have no GloVe vector: leave their column at zero.
+Phương thức `vectorizer.get_feature_names_out()` trả về danh sách các từ trong bộ từ vựng theo đúng thứ tự cột của vector đếm. Hãy tạo ma trận $W$ dưới dạng một tensor kích thước $300 \times 10{,}000$, đặt vector GloVe của từ thứ $j$ vào cột thứ $j$, rồi chép nó vào tầng đầu tiên của mạng bằng lệnh `model[0].weight.data = W_glove.clone()`. Một vài mảnh từ bị cắt lẻ như `"hadn"` không có mặt trong từ điển GloVe: cứ để nguyên cột của chúng bằng 0.
 
 </Hint>
 
 <Hint>
 
-To freeze $W$, call `model[0].weight.requires_grad_(False)`: PyTorch then does not compute its gradient. Give the optimizer only the parameters that are trained: `[p for p in model.parameters() if p.requires_grad]`.
+Để đóng băng ma trận $W$, hãy gọi `model[0].weight.requires_grad_(False)`: PyTorch sẽ bỏ qua không tính đạo hàm cho ma trận này. Khi khởi tạo bộ tối ưu hóa (*optimizer*), chỉ truyền vào những tham số thực sự cần huấn luyện: `[p for p in model.parameters() if p.requires_grad]`.
 
 </Hint>
 
 <Hint>
 
-Exercise 5.5b trains the same network on subsets of the reviews, down to 100 reviews. To prepare for it, write a function `train(model, X, labels)` that draws each batch of 64 reviews at random from `X` (with `torch.randint`), for 1,500 batches, and keeps the model with the best validation accuracy, measured every 100 batches.
+Ở bài tập 5.5b tiếp theo, chúng ta sẽ huấn luyện chính mạng này trên các tập con nhỏ hơn của dữ liệu đánh giá (giảm xuống tới mức chỉ còn 100 bài). Để chuẩn bị sẵn cho bài đó, bạn nên viết một hàm `train(model, X, labels)` thực hiện rút ngẫu nhiên từng batch gồm 64 bài đánh giá từ `X` (dùng `torch.randint`) trong 1.500 batch liên tiếp, và lưu lại bản sao mô hình có độ chính xác xác thực cao nhất (đo sau mỗi 100 batch).
 
 </Hint>
 
@@ -297,7 +297,7 @@ Exercise 5.5b trains the same network on subsets of the reviews, down to 100 rev
 
 <Checkpoint nb="05-5a-pretrained-dan">
 
-The test accuracy is 87.6% from scratch, 83.3% with GloVe frozen, and 88.1% with GloVe fine-tuned. In GloVe, the nearest neighbor of "bad" is "good". After fine-tuning, the neighbors of "bad" are "worse", "unfortunately", "awful", "nothing" and "worst".
+Độ chính xác trên tập kiểm tra đạt 87,6% khi huấn luyện từ đầu, 83,3% khi dùng GloVe đóng băng, và 88,1% khi dùng GloVe có tinh chỉnh. Trong không gian GloVe gốc, từ láng giềng gần nhất của "bad" lại chính là... "good"! Nhưng sau khi được tinh chỉnh trên dữ liệu đánh giá phim, 5 láng giềng gần nhất của "bad" đã chuyển thành "worse", "unfortunately", "awful", "nothing" và "worst".
 
 </Checkpoint>
 
@@ -305,27 +305,27 @@ The test accuracy is 87.6% from scratch, 83.3% with GloVe frozen, and 88.1% with
 
 <WhatToNotice>
 
-With 20,000 labeled reviews, pre-training barely helps: fine-tuned GloVe gains half a point over the training from scratch, and frozen GloVe loses more than 4 points. Iyyer et al. found the same on IMDB, as we will see below. Why are the frozen embeddings so poor? Look at the neighbors of "bad" in GloVe: the first one is "good". The two words appear in the same contexts ("the film was ___", "a ___ idea"), so for a model of the counts of pairs of words, they are almost the same word. The difference of sentiment is in the vectors, but it is a small part of them. Fine-tuning makes it a big part: after training on the reviews, "bad" is close to "worse", "awful" and "worst", as Kim also observed with word2vec vectors [@kim2014]. **Pre-trained embeddings know the language, not the task.**
+Khi có sẵn tới 20.000 bài đánh giá có nhãn, việc tiền huấn luyện hầu như chẳng giúp ích được bao nhiêu: GloVe có tinh chỉnh chỉ nhỉnh hơn huấn luyện từ đầu vỏn vẹn 0,5 điểm phần trăm, còn GloVe đóng băng thậm chí lại tụt hậu hơn 4 điểm! Nhóm tác giả Iyyer và cộng sự cũng ghi nhận hiện tượng y hệt trên tập IMDB, như chúng ta sẽ thấy ngay dưới đây. Tại sao các biểu diễn nhúng đóng băng lại hoạt động kém đến vậy? Hãy nhìn vào từ láng giềng gần nhất của "bad" (tệ) trong bộ GloVe gốc: từ đứng đầu bảng lại chính là "good" (tốt)! Lý do là vì hai tính từ đối lập này xuất hiện trong những ngữ cảnh câu giống hệt nhau ("bộ phim này rất ___", "một ý tưởng ___"), nên đối với một mô hình thống kê đồng xuất hiện từ, chúng gần như là hai anh em song sinh. Thông tin phân biệt sắc thái tích cực và tiêu cực thực chất vẫn có nằm trong các vector GloVe, nhưng nó chỉ chiếm một phần phương sai rất nhỏ so với điểm chung về mặt ngữ pháp. Quá trình tinh chỉnh (*fine-tuning*) đã khuếch đại sự khác biệt cảm xúc đó lên thành yếu tố chủ đạo: sau khi học trên các bài đánh giá phim, từ "bad" đã dọn về ở cạnh "worse", "awful" và "worst" — đúng như hiện tượng mà Yoon Kim cũng từng quan sát thấy với các vector word2vec [@kim2014]. **Các biểu diễn nhúng tiền huấn luyện hiểu cấu trúc tổng quát của ngôn ngữ, chứ chưa hiểu mục tiêu đặc thù của tác vụ đích.**
 
 </WhatToNotice>
 
 </Exercise>
 
-In their paper, Iyyer et al. ran the same comparison [@iyyer2015]. Their variants NBOW-RAND and DAN-RAND start from random embeddings of 300 dimensions instead of GloVe. The effect depends a lot on the dataset. On short sentences, pre-training helps clearly: on binary SST, the Stanford Sentiment Treebank [@socher2013], made of short sentences from movie reviews, the DAN gets 86.3% with GloVe and 83.2% with random embeddings; on the sentences of Rotten Tomatoes, 80.3% and 77.3%. On IMDB, the gain is tiny: 89.4% and 88.8%. With long reviews and 25,000 labels, there is enough data to learn the embeddings of the useful words from scratch.
+Trong bài báo giới thiệu mạng DAN, Iyyer và cộng sự cũng đã thực hiện phép so sánh tương tự [@iyyer2015]. Hai biến thể đối chứng `NBOW-RAND` và `DAN-RAND` của họ khởi tạo từ các vector nhúng ngẫu nhiên 300 chiều thay vì dùng GloVe. Họ nhận thấy hiệu quả của tiền huấn luyện phụ thuộc rất lớn vào đặc điểm của từng bộ dữ liệu. Trên các bộ dữ liệu gồm những câu ngắn, tiền huấn luyện phát huy tác dụng rõ rệt: trên tập SST nhị phân (*Stanford Sentiment Treebank* [@socher2013] — gồm các câu đơn trích từ bài đánh giá phim), mạng DAN đạt 86,3% khi khởi tạo bằng GloVe so với 83,2% khi khởi tạo ngẫu nhiên; trên tập câu ngắn Rotten Tomatoes, tỷ số là 80,3% so với 77,3%. Thế nhưng trên tập IMDB, mức chênh lệch lại cực kỳ nhỏ: 89,4% so với 88,8%. Khi các bài đánh giá đều dài và có tới 25.000 nhãn huấn luyện, bản thân dữ liệu của tác vụ đích đã đủ lớn để mô hình tự học tốt biểu diễn nhúng cho những từ quan trọng ngay từ đầu.
 
-<PaperNote id="iyyer2015" look="Table 1: compare each “-RAND” row with the row below it. The GloVe vectors give 2 to 3 points on the short sentences of RT and SST, and less than 1 point on IMDB.">
+<PaperNote id="iyyer2015" look="Bảng 1: hãy so sánh từng dòng có hậu tố “-RAND” với dòng ngay bên dưới nó. Các vector GloVe mang lại mức tăng từ 2 đến 3 điểm phần trăm trên các câu ngắn của RT và SST, nhưng chưa tới 1 điểm trên tập IMDB.">
 
-In this paper, the networks start from GloVe vectors trained on Common Crawl, and fine-tune them during the training. The authors conclude that "the choice of composition function is not as important as initializing with pretrained embeddings and using a deep network". And they asked the question of exercise 5.5a: "Is it possible that unsupervised training algorithms are already capturing sentiment?" Their answer is yes, partly: a logistic regression trained on frozen GloVe vectors tells the positive words of a sentiment lexicon from the negative ones with more than 95% accuracy. So the sentiment is in the vectors, but it is not what makes two words close.
+Trong công trình này, các mạng nơ-ron được khởi tạo từ bộ vector GloVe huấn luyện trên kho dữ liệu web Common Crawl, rồi tiếp tục được tinh chỉnh trong quá trình huấn luyện phân loại. Nhóm tác giả đi đến kết luận rằng *"việc lựa chọn hàm kết hợp cú pháp phức tạp không quan trọng bằng việc khởi tạo bằng các biểu diễn nhúng tiền huấn luyện và sử dụng một mạng sâu nhiều tầng"*. Đồng thời, họ cũng đặt ra chính câu hỏi mà chúng ta vừa khảo sát ở bài tập 5.5a: *"Liệu các thuật toán huấn luyện không giám sát có tự nắm bắt được sắc thái cảm xúc hay không?"* Câu trả lời của họ là có, một phần: một bộ phân loại hồi quy logistic huấn luyện trên các vector GloVe đóng băng có thể phân biệt các từ tích cực và tiêu cực trong một từ điển cảm xúc chuẩn với độ chính xác trên 95%. Như vậy, thông tin cảm xúc thực sự có nằm sẵn trong không gian vector GloVe, chỉ có điều nó không phải là yếu tố chính quyết định khoảng cách xa gần tổng thể giữa hai từ.
 
 </PaperNote>
 
-This suggests that pre-training should matter most when labels are few. Let's measure it.
+Phân tích trên gợi ý rằng tiền huấn luyện sẽ phát huy giá trị lớn nhất khi dữ liệu gán nhãn của tác vụ đích khan hiếm. Hãy cùng kiểm chứng giả thuyết này bằng thực nghiệm.
 
-<Exercise number="5.5b" star title="Train with fewer labels" data="IMDB, GloVe" nb="05-5b-label-efficiency">
+<Exercise number="5.5b" star title="Huấn luyện khi có ít nhãn dữ liệu hơn" data="IMDB, GloVe" nb="05-5b-label-efficiency">
 
-Train the three versions of exercise 5.5a (from scratch, GloVe frozen, GloVe fine-tuned) on 100, 300, 1,000, 3,000, 10,000 and 20,000 training reviews drawn at random, and plot their test accuracy against the number of labeled reviews.
+Hãy huấn luyện cả ba phiên bản mô hình ở bài tập 5.5a (huấn luyện từ đầu, GloVe đóng băng, và GloVe tinh chỉnh) trên các tập con gồm 100, 300, 1.000, 3.000, 10.000 và 20.000 bài đánh giá huấn luyện được lấy mẫu ngẫu nhiên, sau đó vẽ biểu đồ so sánh độ chính xác trên tập kiểm tra theo số lượng bài đánh giá có nhãn.
 
-The starter code repeats steps (1) to (3) of the solution of exercise 5.5a, after the code of exercises 3.2 and 5.4 that they need. It gives the GloVe matrix `W_glove`, the function `make_model`, which builds one of the three versions, and the function `train`, which trains a model on the reviews that you give it. What is left is the loop over the numbers of reviews, and the chart.
+Đoạn mã khởi đầu lặp lại các bước từ (1) đến (3) trong lời giải của bài tập 5.5a (cùng phần mã nền của bài 3.2 và 5.4). Nó cung cấp sẵn ma trận `W_glove`, hàm `make_model` để tạo một trong ba phiên bản mạng, và hàm `train` để huấn luyện mạng trên tập bài đánh giá được truyền vào. Phần việc còn lại của bạn là viết vòng lặp chạy qua các quy mô dữ liệu và vẽ biểu đồ kết quả.
 
 <Starter nb="05-5b-label-efficiency" />
 
@@ -333,19 +333,19 @@ The starter code repeats steps (1) to (3) of the solution of exercise 5.5a, afte
 
 <Hint>
 
-`random.sample(range(len(train_labels)), n)` draws n distinct indices, and `X_train[chosen]` selects the rows of the sparse matrix of the counts.
+Hàm `random.sample(range(len(train_labels)), n)` giúp rút ngẫu nhiên $n$ chỉ số không trùng lặp, và `X_train[chosen]` sẽ trích xuất các hàng tương ứng từ ma trận đếm thưa.
 
 </Hint>
 
 <Hint>
 
-With 100 reviews, the accuracy changes a lot from one draw to the next: average it over 3 draws for the sizes up to 1,000.
+Khi chỉ có 100 bài đánh giá, độ chính xác sẽ dao động khá mạnh tùy thuộc vào mẫu ngẫu nhiên rút được: hãy lấy trung bình kết quả qua 3 lần rút mẫu độc lập đối với các quy mô từ 1.000 bài trở xuống.
 
 </Hint>
 
 <Hint>
 
-We keep the validation set of 5,000 reviews to choose the best model, whatever the number of training reviews. This is a little optimistic: someone who has only 100 labeled reviews does not have 5,000 more to validate on.
+Ở đây chúng ta vẫn giữ nguyên tập xác thực gồm 5.000 bài đánh giá để chọn mô hình tốt nhất ở mọi quy mô huấn luyện. Lưu ý rằng thiết lập này hơi ưu ái hơn thực tế một chút: trong thực tiễn, một người chỉ kiếm được 100 bài đánh giá có nhãn thì tất nhiên cũng không thể có sẵn thêm 5.000 bài có nhãn khác để làm tập xác thực.
 
 </Hint>
 
@@ -353,7 +353,7 @@ We keep the validation set of 5,000 reviews to choose the best model, whatever t
 
 <Checkpoint nb="05-5b-label-efficiency">
 
-With 100 labeled reviews, the test accuracy is 69.2% from scratch, 75.2% with GloVe frozen, and 73.4% with GloVe fine-tuned. Frozen GloVe is the best version with 100 reviews, and fine-tuned GloVe from 300 reviews on. With 20,000 reviews, the training from scratch and fine-tuned GloVe both reach 87.5%, and frozen GloVe stays at 83.3%. These last numbers differ a little from those of exercise 5.5a, because the batches are not drawn in the same order.
+Khi chỉ có 100 bài đánh giá có nhãn, độ chính xác trên tập kiểm tra là 69,2% khi huấn luyện từ đầu, vọt lên 75,2% với GloVe đóng băng, và đạt 73,4% với GloVe tinh chỉnh. GloVe đóng băng là phiên bản tốt nhất ở mốc 100 bài đánh giá, còn từ mốc 300 bài trở đi thì GloVe tinh chỉnh vươn lên dẫn đầu. Ở mốc 20.000 bài đánh giá, cả huấn luyện từ đầu lẫn GloVe tinh chỉnh đều hội tụ về mức 87,5%, trong khi GloVe đóng băng dừng lại ở 83,3%. Những con số cuối này chênh lệch một chút xíu so với bài tập 5.5a do thứ tự lấy mẫu các batch không giống hệt nhau.
 
 </Checkpoint>
 
@@ -361,54 +361,54 @@ With 100 labeled reviews, the test accuracy is 69.2% from scratch, 75.2% with Gl
 
 <WhatToNotice>
 
-With 100 labeled reviews, the GloVe vectors are worth 6 points: 75.2% frozen, against 69.2% from scratch. Only 3,686 of the 10,000 words of the vocabulary appear in 100 random reviews. From scratch, the 6,314 other words keep their random embeddings, and the model knows nothing about them when it meets them in a test review. With frozen GloVe vectors, every word comes with what was learned from 6 billion words, and gets a weight close to the weights of similar words, even if it appears in no labeled review. As the number of labels grows, the gap closes: from 1,000 reviews on, the frozen embeddings are the worst version, and with 20,000 reviews, fine-tuning GloVe and training from scratch give the same accuracy. **Pre-training matters most when labels are few.**
+Khi chỉ có vỏn vẹn 100 bài đánh giá được gán nhãn, các vector GloVe mang lại mức cải thiện quý giá lên tới 6 điểm phần trăm: 75,2% khi đóng băng so với 69,2% khi học từ đầu! Lý do rất rõ ràng: trong 100 bài đánh giá ngẫu nhiên, chỉ có khoảng 3.686 từ trên tổng số 10.000 từ của bộ từ vựng từng xuất hiện ít nhất một lần. Nếu huấn luyện từ đầu, 6.314 từ còn lại sẽ giữ nguyên vector khởi tạo ngẫu nhiên ban đầu, và mô hình hoàn toàn mù tịt khi bắt gặp chúng trong tập kiểm tra. Ngược lại, với các vector GloVe đóng băng, mọi từ trong từ vựng đều mang sẵn hành trang tri thức đúc kết từ 6 tỷ từ văn bản, nhờ đó nhận được một trọng số hợp lý gần với trọng số của những từ đồng nghĩa đã xuất hiện trong 100 bài huấn luyện. Khi số lượng nhãn tăng dần lên, khoảng cách này thu hẹp lại: từ mốc 1.000 bài đánh giá trở đi, việc đóng băng cứng nhắc trở thành phương án kém nhất, và đến mốc 20.000 bài thì việc tinh chỉnh GloVe hay học từ đầu đều cho độ chính xác ngang nhau. **Tiền huấn luyện phát huy giá trị lớn nhất khi dữ liệu gán nhãn khan hiếm.**
 
 </WhatToNotice>
 
 </Exercise>
 
-This is a first answer to the second question of this post: what is learned on a task with abundant data can be transferred to another task. But only the first layer of the network is transferred. The hidden layers and the head are still learned from the labeled reviews alone. The average still forgets the order of the words: whatever the embeddings, the two hard reviews with the same words get exactly the same probability. And each word has a single vector, whatever the sentence it is in. The next section takes stock of these limits.
+Vậy là chúng ta đã có câu trả lời đầu tiên cho câu hỏi lớn thứ hai đặt ra ở đầu bài viết: những tri thức học được từ một tác vụ có nguồn dữ liệu dồi dào hoàn toàn có thể chuyển giao sang hỗ trợ một tác vụ khác. Tuy nhiên, ở giai đoạn lịch sử này, mới chỉ có duy nhất tầng đầu tiên của mạng nơ-ron (ma trận nhúng từ) là được chuyển giao! Các tầng ẩn phía sau và đầu phân loại vẫn phải học lại từ đầu trên dữ liệu gán nhãn của từng bài toán. Hơn nữa, phép lấy trung bình cộng vẫn quên sạch trật tự từ: dù biểu diễn nhúng có tinh vi đến đâu, hai câu đánh giá khó có cùng tập từ vựng nhưng ngược nghĩa nhau vẫn nhận xác suất dự đoán giống hệt nhau. Và cuối cùng, mỗi từ trong từ điển chỉ có duy nhất một vector cố định, bất kể nó đang nằm trong câu văn nào và mang nghĩa bóng hay nghĩa đen. Mục tiếp theo sẽ cùng chúng ta nhìn nhận lại toàn diện những giới hạn này.
 
-If you want to dig deeper, below are a few bonus exercises.
+Nếu bạn muốn đào sâu hơn, dưới đây là một số bài tập mở rộng.
 
 <Bonus>
 
-**CBOW.** Replace skip-gram with CBOW in exercise 5.2: average the embeddings of the 4 words around each word, and give a score to this average with the real middle word and with 5 fake ones. Do the neighbors change?
+**Mô hình CBOW.** Hãy thay thế kiến trúc skip-gram bằng CBOW trong bài tập 5.2: lấy trung bình cộng các vector nhúng của 4 từ xung quanh mỗi vị trí, rồi tính điểm tích vô hướng của vector trung bình này với từ thật ở chính giữa cùng 5 từ giả lấy mẫu âm. Danh sách các từ láng giềng có thay đổi không?
 
 </Bonus>
 
 <Bonus>
 
-**The size of the window.** Train the skip-gram model of exercise 5.2 with 1 word and with 10 words on each side. How do the neighbors change?
+**Kích thước cửa sổ ngữ cảnh.** Hãy huấn luyện lại mô hình skip-gram ở bài tập 5.2 với cửa sổ ngữ cảnh hẹp (1 từ mỗi bên) và cửa sổ ngữ cảnh rộng (10 từ mỗi bên). Tính chất của các từ láng giềng thay đổi như thế nào?
 
 </Bonus>
 
 <Bonus>
 
-**More text.** Train the skip-gram model of exercise 5.2 on text8 (`afmck/text8`), the first 100 MB of a cleaned English Wikipedia: 17 million words, 8 times WikiText-2. Compare the neighbors, and evaluate both models on the analogy test set of exercise 5.4.
+**Huấn luyện trên nhiều văn bản hơn.** Hãy huấn luyện mô hình skip-gram của bài tập 5.2 trên bộ dữ liệu `text8` (`afmck/text8`) — 100 MB đầu tiên của Wikipedia tiếng Anh đã làm sạch: gồm 17 triệu từ, lớn gấp 8 lần WikiText-2. Hãy so sánh các từ láng giềng và đánh giá cả hai mô hình trên bộ dữ liệu kiểm tra loại suy của bài tập 5.4.
 
 </Bonus>
 
 <Bonus>
 
-**Counting instead of predicting.** Build the co-occurrence matrix of WikiText-2 with a window of 2 words, replace its entries by their PMI, set the negative ones to zero, and compress it to 100 dimensions with a truncated SVD (`torch.svd_lowrank`), as Levy and Goldberg did [@levy2014]. Are the neighbors as good as those of exercise 5.2?
+**Đếm thay vì dự đoán.** Hãy xây dựng ma trận đồng xuất hiện của WikiText-2 với cửa sổ ngữ cảnh 2 từ mỗi bên, thay thế các phần tử bằng giá trị PMI tương ứng, gán các giá trị âm về 0 (ma trận PPMI), rồi nén xuống 100 chiều bằng phép phân rã SVD rút gọn (`torch.svd_lowrank`), giống như thí nghiệm của Levy và Goldberg [@levy2014]. Các từ láng giềng thu được có tốt ngang với kết quả của bài tập 5.2 không?
 
 </Bonus>
 
 <Bonus>
 
-**A rotation.** Multiply all the GloVe vectors by a random orthogonal matrix (the Q of `torch.linalg.qr` of a random matrix). Check that the neighbors and the analogies of exercise 5.4 do not change, while all the coordinates do.
+**Phép quay không gian.** Hãy nhân toàn bộ các vector GloVe với một ma trận trực giao ngẫu nhiên (ma trận $Q$ thu được từ phép phân rã QR `torch.linalg.qr` trên một ma trận ngẫu nhiên). Hãy kiểm tra để thấy rằng danh sách các từ láng giềng và kết quả giải bài toán loại suy ở bài tập 5.4 hoàn toàn không thay đổi, mặc dù giá trị tại mọi trục tọa độ đều đã biến đổi.
 
 </Bonus>
 
 <Bonus>
 
-**A direction for gender.** Compute $v_\text{woman} - v_\text{man}$, $v_\text{queen} - v_\text{king}$ and $v_\text{girl} - v_\text{boy}$ in GloVe. How similar are these three directions? Project a few words of professions on their average: which ones are on the side of "woman"? Read Nissim et al. first [@nissim2020].
+**Phương hướng biểu diễn giới tính.** Hãy tính các vector hiệu $v_\text{woman} - v_\text{man}$, $v_\text{queen} - v_\text{king}$ và $v_\text{girl} - v_\text{boy}$ trong không gian GloVe. Ba phương hướng này có độ tương đồng cosine với nhau cao đến mức nào? Hãy chiếu vector của một số từ chỉ nghề nghiệp lên phương trung bình của ba vector hiệu này: những nghề nghiệp nào nằm lệch về phía "woman"? Hãy đọc trước bài báo của Nissim và cộng sự [@nissim2020].
 
 </Bonus>
 
 <Bonus>
 
-**Text of the same kind.** Train the skip-gram model of exercise 5.2 on the 50,000 unlabeled reviews of IMDB (the `unsupervised` split), and use these embeddings in exercise 5.5a instead of GloVe. Does text of the same kind beat 3,000 times more text of another kind?
+**Văn bản cùng miền lĩnh vực (In-domain text).** Hãy huấn luyện mô hình skip-gram của bài tập 5.2 trên 50.000 bài đánh giá phim chưa gán nhãn của bộ dữ liệu IMDB (phân tập `unsupervised`), rồi dùng các biểu diễn nhúng này cho bài tập 5.5a thay vì bộ vector GloVe. Liệu một lượng văn bản nhỏ hơn nhưng cùng lĩnh vực điện ảnh có đánh bại được kho văn bản tổng quát lớn gấp 3.000 lần không?
 
 </Bonus>

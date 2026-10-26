@@ -7,9 +7,9 @@ export const seconds = 1;
 ```python
 import torch
 
-# A sequence of L random embeddings of size D, as a batch of one
-# sequence: PyTorch's recurrent layers with batch_first=True expect
-# a tensor of shape (batch, L, D)
+# Một chuỗi gồm L vector nhúng ngẫu nhiên kích thước D, dưới dạng
+# lô gồm một chuỗi: các tầng hồi quy của PyTorch với batch_first=True
+# nhận đầu vào là tensor có kích thước (batch, L, D)
 L, D = 100, 100
 torch.manual_seed(0)
 embeddings = torch.randn(1, L, D)
@@ -20,8 +20,8 @@ print(f"embeddings: {tuple(embeddings.shape)}")
 <section className="code-output"><pre>{"embeddings: (1, 100, 100)"}</pre></section>
 
 ```python
-# (1) A plain RNN and an LSTM with hidden states of size H, untrained,
-# with the default initialization of PyTorch
+# (1) Một mạng RNN thuần và một mạng LSTM với trạng thái ẩn kích
+# thước H, chưa huấn luyện, dùng khởi tạo mặc định của PyTorch
 from torch import nn
 
 H = 100
@@ -30,32 +30,32 @@ rnn = nn.RNN(D, H, batch_first=True)
 lstm = nn.LSTM(D, H, batch_first=True)
 
 
-# (2) The norm of the gradient of the last state with respect to each
-# embedding. backward() needs a single number: take the sum of the
-# components of the last state.
+# (2) Chuẩn đạo hàm của trạng thái cuối cùng theo từng vector nhúng.
+# backward() cần một số vô hướng: lấy tổng các thành phần của trạng
+# thái cuối cùng.
 def gradient_norms(model, embeddings):
-    x = embeddings.clone().requires_grad_()   # track the gradient
-    states, _ = model(x)   # (1, L, H): the state after each word
+    x = embeddings.clone().requires_grad_()   # theo dõi đạo hàm
+    states, _ = model(x)   # (1, L, H): trạng thái sau mỗi từ
     states[0, -1].sum().backward()
-    # One norm per word, computed in float64: in float32, the
-    # squares of the tiny components would round to 0
+    # Một chuẩn cho mỗi từ, tính ở float64: trong float32, bình
+    # phương của các thành phần cực nhỏ sẽ bị làm tròn thành 0
     return x.grad[0].double().norm(dim=1)
 
 
-# (3) A copy of the LSTM with the bias of its forget gate set to 3.
-# PyTorch adds two biases, bias_ih_l0 and bias_hh_l0, each holding
-# the biases of the 4 gates one after the other: input, forget,
-# cell, output, H values each.
+# (3) Một bản sao của LSTM với độ chệch (bias) của cổng quên đặt
+# bằng 3. PyTorch cộng hai vector độ chệch, bias_ih_l0 và bias_hh_l0,
+# mỗi vector chứa độ chệch của 4 cổng nối tiếp nhau: cổng vào, cổng
+# quên, ô nhớ, cổng ra, mỗi cổng H giá trị.
 import copy
 
 open_lstm = copy.deepcopy(lstm)
 with torch.no_grad():
-    open_lstm.bias_ih_l0[H:2 * H] = 3.0   # the forget gate
+    open_lstm.bias_ih_l0[H:2 * H] = 3.0   # cổng quên
     open_lstm.bias_hh_l0[H:2 * H] = 0.0
 
 
-# (4) Plot the norms against the distance from the end of the
-# sequence: 0 for the last embedding, L - 1 for the first one
+# (4) Vẽ biểu đồ các chuẩn theo khoảng cách tính từ cuối chuỗi:
+# 0 cho vector nhúng cuối cùng, L - 1 cho vector nhúng đầu tiên
 import matplotlib.pyplot as plt
 
 models = {"RNN": rnn, "LSTM": lstm,

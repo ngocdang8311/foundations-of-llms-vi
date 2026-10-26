@@ -1,0 +1,54 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+import math
+import torch
+import torch.nn.functional as F
+
+torch.manual_seed(42)
+B, L, d_k = 2, 6, 16
+Q = torch.randn(B, L, d_k)
+K = torch.randn(B, L, d_k)
+V = torch.randn(B, L, d_k)
+print("Kích thước Q, K, V:", tuple(Q.shape))
+```
+
+<section className="code-output"><pre>{"Kích thước Q, K, V: (2, 6, 16)"}</pre></section>
+
+```python
+# (1) Hàm tính Scaled Dot-Product Causal Self-Attention
+def causal_attention(q, k, v):
+    L_seq = q.size(-2)
+    scores = (q @ k.transpose(-2, -1)) / math.sqrt(q.size(-1))
+    mask = torch.triu(
+        torch.ones(L_seq, L_seq, dtype=torch.bool, device=q.device),
+        diagonal=1,
+    )
+    scores = scores.masked_fill(mask, float("-inf"))
+    weights = F.softmax(scores, dim=-1)
+    return weights @ v, weights
+
+out1, w1 = causal_attention(Q, K, V)
+row_sums = [round(x, 4) for x in w1[0].sum(dim=-1).tolist()]
+upper_sum = torch.triu(w1, diagonal=1).sum().item()
+
+print("Kích thước đầu ra out:", tuple(out1.shape))
+print("Tổng trọng số mỗi hàng:", row_sums)
+print(f"Tổng trọng số tam giác trên (j > i): {upper_sum:.6f}")
+
+# (2) Kiểm chứng tính nhân quả: thay đổi các token ở vị trí t >= 4
+Q2, K2, V2 = Q.clone(), K.clone(), V.clone()
+Q2[:, 4:] = torch.randn_like(Q2[:, 4:])
+K2[:, 4:] = torch.randn_like(K2[:, 4:])
+V2[:, 4:] = torch.randn_like(V2[:, 4:])
+
+out2, _ = causal_attention(Q2, K2, V2)
+diff_past = (out1[:, :3] - out2[:, :3]).abs().max().item()
+diff_future = (out1[:, 4:] - out2[:, 4:]).abs().max().item()
+print(f"Sai khác tại vị trí k <= 2 khi sửa token 4, 5: {diff_past:.2e}")
+print(f"Sai khác tại vị trí k > 2 khi sửa token 4, 5:  {diff_future:.2e}")
+```
+
+<section className="code-output"><pre>{"Kích thước đầu ra out: (2, 6, 16)\nTổng trọng số mỗi hàng: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]\nTổng trọng số tam giác trên (j > i): 0.000000\nSai khác tại vị trí k <= 2 khi sửa token 4, 5: 0.00e+00\nSai khác tại vị trí k > 2 khi sửa token 4, 5:  6.41e-01"}</pre></section>

@@ -1,0 +1,218 @@
+<div class="d3-ch1-fertility"></div>
+<style>
+  .d3-ch1-fertility { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-ch1-fertility .ft-header {
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+    gap: 10px; margin-bottom: 12px;
+  }
+  .d3-ch1-fertility .ft-modes { display: flex; gap: 6px; flex-wrap: wrap; }
+  .d3-ch1-fertility .ft-btn {
+    border: 1px solid var(--border-color); background: var(--surface-bg); color: var(--text-color);
+    font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: inherit;
+  }
+  .d3-ch1-fertility .ft-btn.is-active {
+    background: var(--primary-color); color: #fff; border-color: var(--primary-color); font-weight: 600;
+  }
+  .d3-ch1-fertility .ft-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; }
+  .d3-ch1-fertility .ft-swatch {
+    display: inline-block; width: 11px; height: 11px; border-radius: 3px;
+    margin-right: 5px; vertical-align: middle;
+  }
+  .d3-ch1-fertility svg { display: block; width: 100%; overflow: visible; }
+  .d3-ch1-fertility .axis path, .d3-ch1-fertility .axis line { stroke: var(--axis-color); }
+  .d3-ch1-fertility .axis text { fill: var(--tick-color); font-size: 11.5px; }
+  .d3-ch1-fertility .grid line { stroke: var(--grid-color); }
+  .d3-ch1-fertility .grid path { stroke: none; }
+  .d3-ch1-fertility .ft-summary {
+    margin-top: 10px; padding: 10px 14px; border-radius: 8px;
+    background: var(--surface-bg); border: 1px solid var(--border-color);
+    font-size: 12.5px; color: var(--muted-color);
+  }
+  .d3-ch1-fertility .ft-summary strong { color: var(--text-color); }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    // Parallel translation of the same passage (~100 English words equivalent)
+    const DATA = [
+      {
+        lang: 'Tiếng Anh',
+        fertility: { gpt2: 1.21, cl100k: 1.18, llama3: 1.15 },
+        relTokens: { gpt2: 1.00, cl100k: 1.00, llama3: 1.00 },
+        bpt: { gpt2: 4.45, cl100k: 4.56, llama3: 4.68 }
+      },
+      {
+        lang: 'Tiếng Pháp',
+        fertility: { gpt2: 1.85, cl100k: 1.52, llama3: 1.44 },
+        relTokens: { gpt2: 1.58, cl100k: 1.32, llama3: 1.26 },
+        bpt: { gpt2: 3.12, cl100k: 3.80, llama3: 4.01 }
+      },
+      {
+        lang: 'Tiếng Việt',
+        fertility: { gpt2: 3.98, cl100k: 2.14, llama3: 1.82 },
+        relTokens: { gpt2: 4.92, cl100k: 2.70, llama3: 2.28 },
+        bpt: { gpt2: 1.48, cl100k: 2.75, llama3: 3.24 }
+      },
+      {
+        lang: 'Tiếng Trung',
+        fertility: { gpt2: 2.65, cl100k: 1.62, llama3: 1.38 },
+        relTokens: { gpt2: 3.10, cl100k: 1.90, llama3: 1.62 },
+        bpt: { gpt2: 1.60, cl100k: 2.62, llama3: 3.08 }
+      },
+      {
+        lang: 'Mã Python',
+        fertility: { gpt2: 2.40, cl100k: 1.34, llama3: 1.29 },
+        relTokens: { gpt2: 2.15, cl100k: 1.20, llama3: 1.16 },
+        bpt: { gpt2: 2.25, cl100k: 4.03, llama3: 4.18 }
+      }
+    ];
+
+    const TOKENIZERS = [
+      { key: 'gpt2', label: 'GPT-2 (50K vocab)' },
+      { key: 'cl100k', label: 'GPT-4 cl100k (100K vocab)' },
+      { key: 'llama3', label: 'Llama-3 (128K vocab)' }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch1-fertility'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch1-fertility'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let metric = 'fertility'; // 'fertility' | 'relTokens' | 'bpt'
+
+      container.innerHTML = `
+        <div class="ft-header">
+          <div class="ft-modes">
+            <button type="button" class="ft-btn is-active" data-m="fertility">Fertility (Tokens / từ)</button>
+            <button type="button" class="ft-btn" data-m="relTokens">Chi phí tương đối (so với Tiếng Anh = 1×)</button>
+            <button type="button" class="ft-btn" data-m="bpt">Hiệu suất nén (Bytes / token)</button>
+          </div>
+          <div class="ft-legend"></div>
+        </div>
+        <div class="ft-chart"></div>
+        <div class="ft-summary"></div>
+      `;
+
+      const modesBox = container.querySelector('.ft-modes');
+      const legendBox = container.querySelector('.ft-legend');
+      const chartBox = container.querySelector('.ft-chart');
+      const summaryBox = container.querySelector('.ft-summary');
+      const svg = d3.select(chartBox).append('svg').attr('role', 'img')
+        .attr('aria-label', 'Biểu đồ so sánh hệ số phân mảnh fertility giữa các ngôn ngữ');
+
+      modesBox.querySelectorAll('.ft-btn').forEach((b) => {
+        b.addEventListener('click', () => {
+          metric = b.dataset.m;
+          modesBox.querySelectorAll('.ft-btn').forEach((el) => el.classList.toggle('is-active', el === b));
+          render();
+        });
+      });
+
+      const getColors = () => {
+        try {
+          const c = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 3);
+          if (c && c.length >= 3) return c;
+        } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#59a14f'];
+      };
+
+      function render() {
+        const totalW = container.clientWidth || 680;
+        const height = 260;
+        const margin = { top: 18, right: 20, bottom: 34, left: 48 };
+        const iw = Math.max(220, totalW - margin.left - margin.right);
+        const ih = height - margin.top - margin.bottom;
+
+        const colors = getColors();
+        legendBox.innerHTML = TOKENIZERS.map((t, i) => `
+          <span><i class="ft-swatch" style="background:${colors[i]}"></i>${t.label}</span>
+        `).join('');
+
+        svg.attr('width', totalW).attr('height', height);
+        svg.selectAll('*').remove();
+
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        const x0 = d3.scaleBand().domain(DATA.map((d) => d.lang)).range([0, iw]).paddingInner(0.24).paddingOuter(0.1);
+        const x1 = d3.scaleBand().domain(TOKENIZERS.map((t) => t.key)).range([0, x0.bandwidth()]).padding(0.08);
+        const yMax = metric === 'relTokens' ? 5.5 : metric === 'bpt' ? 5.2 : 4.5;
+        const y = d3.scaleLinear().domain([0, yMax]).range([ih, 0]);
+
+        g.append('g').attr('class', 'grid')
+          .call(d3.axisLeft(y).ticks(5).tickSize(-iw).tickFormat(''));
+
+        g.append('g').attr('class', 'axis x')
+          .attr('transform', `translate(0,${ih})`)
+          .call(d3.axisBottom(x0).tickSizeOuter(0));
+
+        g.append('g').attr('class', 'axis y')
+          .call(d3.axisLeft(y).ticks(5));
+
+        const groups = g.selectAll('g.lang-group').data(DATA).join('g')
+          .attr('class', 'lang-group')
+          .attr('transform', (d) => `translate(${x0(d.lang)},0)`);
+
+        groups.selectAll('rect').data((d) => TOKENIZERS.map((t, i) => ({
+          key: t.key,
+          val: d[metric][t.key],
+          color: colors[i]
+        }))).join('rect')
+          .attr('x', (d) => x1(d.key))
+          .attr('y', (d) => y(d.val))
+          .attr('width', x1.bandwidth())
+          .attr('height', (d) => Math.max(0, ih - y(d.val)))
+          .attr('rx', 3)
+          .attr('fill', (d) => d.color)
+          .attr('opacity', 0.88);
+
+        groups.selectAll('text.val').data((d) => TOKENIZERS.map((t) => ({
+          key: t.key,
+          val: d[metric][t.key]
+        }))).join('text')
+          .attr('class', 'val')
+          .attr('x', (d) => x1(d.key) + x1.bandwidth() / 2)
+          .attr('y', (d) => y(d.val) - 5)
+          .attr('text-anchor', 'middle')
+          .attr('font-size', 10.5)
+          .attr('fill', 'var(--muted-color)')
+          .text((d) => metric === 'relTokens' ? `${d.val.toFixed(2)}×` : d.val.toFixed(2));
+
+        if (metric === 'fertility') {
+          summaryBox.innerHTML = '<strong>Nhận xét:</strong> Trên GPT-2 (50K), mỗi từ tiếng Việt bị cắt thành trung bình <strong>3.98 tokens</strong> (so với 1.21 ở tiếng Anh). Việc mở rộng từ vựng lên 100K–128K ở GPT-4 và Llama-3 giúp giảm fertility tiếng Việt xuống còn <strong>1.82–2.14 tokens/từ</strong>.';
+        } else if (metric === 'relTokens') {
+          summaryBox.innerHTML = '<strong>Bất bình đẳng chi phí (“Thuế Token”):</strong> Cùng một đoạn văn bản dịch song ngữ, người dùng tiếng Việt tốn gấp <strong>4.92 lần</strong> số token trên GPT-2 và <strong>2.28–2.70 lần</strong> trên Llama-3/GPT-4 so với tiếng Anh — đồng nghĩa chi phí API đắt hơn và tốc độ sinh chậm hơn tương ứng.';
+        } else {
+          summaryBox.innerHTML = '<strong>Hiệu suất nén (Bytes/token — càng cao càng tốt):</strong> Các bộ tách từ hiện đại gộp khoảng trắng thụt lề trong mã Python (tăng từ 2.25 lên <strong>4.18 bytes/token</strong>) và gộp nguyên âm đa byte tiếng Việt (tăng từ 1.48 lên <strong>3.24 bytes/token</strong>).';
+        }
+      }
+
+      render();
+      document.addEventListener('palettes:updated', render);
+      if (window.ResizeObserver) new ResizeObserver(() => render()).observe(container);
+      else window.addEventListener('resize', render);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    else ensureD3(bootstrap);
+  })();
+</script>

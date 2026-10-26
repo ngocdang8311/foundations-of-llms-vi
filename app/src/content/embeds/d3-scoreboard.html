@@ -101,23 +101,23 @@
         if (lowerIsBetter) {
           const lo = Math.log10(10), hi = Math.log10(50000);
           frac = (v) => Math.max(0.02, Math.min(1, (Math.log10(v) - lo) / (hi - lo)));
-          scaleNote = 'bars on a log scale';
+          scaleNote = 'thanh biểu diễn theo thang log';
         } else {
           const lo = Math.floor((Math.min(...rows.map((r) => r.value)) - 2) / 5) * 5, hi = 100;
           frac = (v) => Math.max(0.02, Math.min(1, (v - lo) / (hi - lo)));
-          scaleNote = `bars from ${lo} to ${hi}`;
+          scaleNote = `thanh từ ${lo} đến ${hi}`;
         }
 
         container.innerHTML = '';
         const head = document.createElement('div');
         head.className = 'board-head';
-        head.innerHTML = `<span>${board.metric}${lowerIsBetter ? ', lower is better' : ', higher is better'}</span><span class="scale">${scaleNote}</span>`;
+        head.innerHTML = `<span>${board.metric}${lowerIsBetter ? ', càng thấp càng tốt' : ', càng cao càng tốt'}</span><span class="scale">${scaleNote}</span>`;
         container.appendChild(head);
 
         const grid = document.createElement('div');
         grid.className = 'rows';
         grid.setAttribute('role', 'table');
-        grid.innerHTML = `<div class="cell head" role="columnheader">Model</div><div class="cell head" role="columnheader">Section</div><div class="cell head value" role="columnheader">${board.column || board.metric}</div><div class="cell head bar-cell" role="columnheader"></div>`;
+        grid.innerHTML = `<div class="cell head" role="columnheader">Mô hình</div><div class="cell head" role="columnheader">Mục</div><div class="cell head value" role="columnheader">${board.column || board.metric}</div><div class="cell head bar-cell" role="columnheader"></div>`;
         rows.forEach((r) => {
           const isRef = !r.notebook;
           const isNew = !isRef && highlight.has(String(r.section));
@@ -127,11 +127,11 @@
           const name = document.createElement('span');
           name.className = 'name';
           name.textContent = r.label;
-          if (isNew) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'new'; name.appendChild(t); }
+          if (isNew) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'mới'; name.appendChild(t); }
           label.appendChild(name);
           const src = document.createElement('span');
           src.className = 'source';
-          src.textContent = isRef ? `published: ${r.source}` : 'our model, in an exercise';
+          src.textContent = isRef ? `đã công bố: ${r.source}` : 'mô hình của chúng ta (trong bài tập)';
           label.appendChild(src);
           const section = document.createElement('div');
           section.className = `cell section${cls}`;
@@ -152,9 +152,9 @@
 
         const legend = document.createElement('div');
         legend.className = 'legend';
-        legend.innerHTML = `<div class="legend-title">Legend</div><div class="items">
-          <span class="item"><span class="swatch" style="background:${ours}"></span><span>our models, from the exercises</span></span>
-          <span class="item"><span class="swatch" style="background:var(--muted-color);opacity:.45"></span><span>published results</span></span>
+        legend.innerHTML = `<div class="legend-title">Chú giải</div><div class="items">
+          <span class="item"><span class="swatch" style="background:${ours}"></span><span>mô hình của chúng ta (từ các bài tập)</span></span>
+          <span class="item"><span class="swatch" style="background:var(--muted-color);opacity:.45"></span><span>kết quả đã công bố</span></span>
         </div>`;
         container.appendChild(legend);
       }

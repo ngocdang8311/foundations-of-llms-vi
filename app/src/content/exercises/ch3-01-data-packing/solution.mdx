@@ -1,0 +1,71 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import torch
+
+# 8 đoạn văn bản đã được tách thành danh sách các ID token
+# (EOS_ID = 0 đóng vai trò là token <|endoftext|>, PAD_ID = -1)
+EOS_ID = 0
+PAD_ID = -1
+raw_docs = [
+    [12, 45, 89, 23, 67],
+    [34, 78, 91, 15, 62, 88, 41, 19, 53, 77],
+    [105, 204, 18],
+    [56, 31, 90, 44, 11, 72, 65],
+    [81, 14, 29, 63],
+    [99, 42, 17, 83, 25, 61, 38, 74, 50],
+    [16, 84, 39, 71, 22],
+    [47, 93, 28, 64, 13, 86],
+]
+context_length = 8
+print(f"Số tài liệu: {len(raw_docs)}, tổng số token: "
+      f"{sum(len(d) for d in raw_docs)}")
+```
+
+<section className="code-output"><pre>{"Số tài liệu: 8, tổng số token: 49"}</pre></section>
+
+```python
+# (1) Đo hiệu suất của phương pháp đệm (Padding) truyền thống
+padded_batch = []
+for doc in raw_docs:
+    seq = (doc + [EOS_ID])[:context_length]
+    seq = seq + [PAD_ID] * (context_length - len(seq))
+    padded_batch.append(seq)
+
+padded_tensor = torch.tensor(padded_batch)
+valid_pad = (padded_tensor != PAD_ID).sum().item()
+total_pad = padded_tensor.numel()
+eff_pad = 100.0 * valid_pad / total_pad
+print(f"[Padding] Kích thước batch: {tuple(padded_tensor.shape)} -> "
+      f"Hiệu suất token: {eff_pad:.1f}% (Lãng phí {100 - eff_pad:.1f}%)")
+
+
+# (2) Xây dựng hàm pack_documents nối chuỗi bằng EOS_ID và cắt khối
+def pack_documents(docs, ctx_len, eos_id=0):
+    stream = []
+    for doc in docs:
+        stream.extend(doc)
+        stream.append(eos_id)
+    # Cần (ctx_len + 1) token cho mỗi cặp (x, y) dịch chuyển 1 vị trí
+    num_blocks = (len(stream) - 1) // ctx_len
+    xs, ys = [], []
+    for i in range(num_blocks):
+        start = i * ctx_len
+        xs.append(stream[start : start + ctx_len])
+        ys.append(stream[start + 1 : start + ctx_len + 1])
+    return torch.tensor(xs), torch.tensor(ys), len(stream)
+
+
+X, Y, stream_len = pack_documents(raw_docs, context_length, EOS_ID)
+eff_pack = 100.0 * (X != PAD_ID).sum().item() / X.numel()
+print(f"[Packing] Tổng luồng token: {stream_len} -> "
+      f"Số khối (x, y) độ dài {context_length}: {len(X)}")
+print(f"[Packing] Kích thước X: {X.shape}, Y: {Y.shape}")
+print(f"[Packing] Hiệu suất sử dụng token trên X: {eff_pack:.1f}%")
+print(f"\nKhối #0 - Đầu vào x: {X[0].tolist()}")
+print(f"Khối #0 - Nhãn đích y: {Y[0].tolist()}")
+```
+
+<section className="code-output"><pre>{"[Padding] Kích thước batch: (8, 8) -> Hiệu suất token: 71.9% (Lãng phí 28.1%)\n[Packing] Tổng luồng token: 57 -> Số khối (x, y) độ dài 8: 7\n[Packing] Kích thước X: torch.Size([7, 8]), Y: torch.Size([7, 8])\n[Packing] Hiệu suất sử dụng token trên X: 100.0%\n\nKhối #0 - Đầu vào x: [12, 45, 89, 23, 67, 0, 34, 78]\nKhối #0 - Nhãn đích y: [45, 89, 23, 67, 0, 34, 78, 91]"}</pre></section>

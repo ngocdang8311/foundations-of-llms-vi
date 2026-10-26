@@ -1,0 +1,58 @@
+export const cells = 2;
+
+export const seconds = 3;
+
+```python
+import torch
+
+torch.manual_seed(2026)
+tokens = ["Hà", "Nội", "Sài", "Gòn", "Đà", "Nẵng"]
+# Phân phối của mô hình đích lớn p(x) và mô hình nháp nhỏ q(x)
+p_target = torch.tensor([0.42, 0.25, 0.15, 0.10, 0.05, 0.03])
+q_draft = torch.tensor([0.22, 0.38, 0.18, 0.08, 0.09, 0.05])
+
+print("Tổng p(x):", p_target.sum().item(), "| Tổng q(x):", q_draft.sum().item())
+```
+
+<section className="code-output"><pre>{"Tổng p(x): 1.0 | Tổng q(x): 1.0"}</pre></section>
+
+```python
+def speculative_Verify_samples(p, q, num_trials=200_000):
+    # (1) Mô hình nháp đề xuất x ~ q(x)
+    x_draft = torch.multinomial(q, num_samples=num_trials, replacement=True)
+
+    # (2) Chấp nhận x với xác suất min(1, p(x) / q(x))
+    accept_prob = torch.clamp(p[x_draft] / q[x_draft], max=1.0)
+    u = torch.rand(num_trials)
+    accepted = u < accept_prob
+
+    # (3) Nếu bị bác bỏ, rút mẫu bù từ p'(x) = norm(max(0, p(x) - q(x)))
+    residual = torch.clamp(p - q, min=0.0)
+    p_res = residual / residual.sum()
+    num_rej = int((~accepted).sum().item())
+    x_final = x_draft.clone()
+    x_final[~accepted] = torch.multinomial(
+        p_res, num_samples=num_rej, replacement=True
+    )
+    return x_final, accepted.float().mean().item()
+
+
+alpha_theory = torch.minimum(p_target, q_draft).sum().item()
+samples, alpha_emp = speculative_Verify_samples(p_target, q_draft)
+counts = torch.bincount(samples, minlength=len(tokens)).float()
+p_emp = counts / len(samples)
+max_err = (p_emp - p_target).abs().max().item()
+
+print(f"Tỷ lệ chấp nhận lý thuyết α = Σ min(p, q): {alpha_theory*100:.2f}%")
+print(f"Tỷ lệ chấp nhận thực nghiệm (200,000 mẫu):  {alpha_emp*100:.2f}%")
+print(f"Sai lệch cực đại |p_spec(x) - p(x)|:       {max_err:.4f}\n")
+print("Token  |  p_target(x) |  q_draft(x)  |  p_spec(x)")
+print("-" * 49)
+for i, tok in enumerate(tokens):
+    print(
+        f"{tok:6s} |     {p_target[i]:.4f}   |"
+        f"    {q_draft[i]:.4f}    |    {p_emp[i]:.4f}"
+    )
+```
+
+<section className="code-output"><pre>{"Tỷ lệ chấp nhận lý thuyết α = Σ min(p, q): 78.00%\nTỷ lệ chấp nhận thực nghiệm (200,000 mẫu):  77.96%\nSai lệch cực đại |p_spec(x) - p(x)|:       0.0014\n\nToken  |  p_target(x) |  q_draft(x)  |  p_spec(x)\n-------------------------------------------------\nHà     |     0.4200   |    0.2200    |    0.4191\nNội    |     0.2500   |    0.3800    |    0.2514\nSài    |     0.1500   |    0.1800    |    0.1498\nGòn    |     0.1000   |    0.0800    |    0.0999\nĐà     |     0.0500   |    0.0900    |    0.0497\nNẵng   |     0.0300   |    0.0500    |    0.0301"}</pre></section>

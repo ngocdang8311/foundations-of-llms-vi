@@ -120,7 +120,7 @@
 
         const thead = document.createElement('thead');
         const headRow = document.createElement('tr');
-        headRow.innerHTML = '<th scope="col">Review</th><th scope="col">Label</th>';
+        headRow.innerHTML = '<th scope="col">Bài đánh giá</th><th scope="col">Nhãn</th>';
         models.forEach((m) => {
           const th = document.createElement('th');
           th.className = 'model';
@@ -129,7 +129,7 @@
           const section = document.createElement('span');
           section.className = 'section';
           const a = document.createElement('a');
-          a.textContent = `section ${m.section}`;
+          a.textContent = `mục ${m.section}`;
           const href = sectionHref(String(m.section));
           if (href) a.href = href;
           section.appendChild(a);
@@ -161,8 +161,9 @@
           const label = document.createElement('td');
           label.className = 'label';
           const positive = review.label === 'positive';
-          label.innerHTML = `<span class="swatch" style="background:${positive ? pos : neg}"></span><span class="label-text">${review.label}</span>`;
-          label.title = review.label;
+          const labelVi = positive ? 'tích cực' : 'tiêu cực';
+          label.innerHTML = `<span class="swatch" style="background:${positive ? pos : neg}"></span><span class="label-text">${labelVi}</span>`;
+          label.title = labelVi;
           tr.append(text, label);
           models.forEach((m, j) => {
             const p = m.p_positive[i];
@@ -171,8 +172,8 @@
             const td = document.createElement('td');
             td.className = `p${isRight ? '' : ' wrong'}`;
             td.style.background = tint(p);
-            td.title = `${m.label}: p(positive) = ${p.toFixed(4)}${isRight ? '' : ', wrong'}`;
-            td.innerHTML = `${p.toFixed(3)}<span class="mark" aria-label="${isRight ? 'right' : 'wrong'}">${isRight ? '' : '✗'}</span>`;
+            td.title = `${m.label}: p(tích cực) = ${p.toFixed(4)}${isRight ? '' : ', sai'}`;
+            td.innerHTML = `${p.toFixed(3)}<span class="mark" aria-label="${isRight ? 'đúng' : 'sai'}">${isRight ? '' : '✗'}</span>`;
             tr.appendChild(td);
           });
           tbody.appendChild(tr);
@@ -181,7 +182,7 @@
 
         const tfoot = document.createElement('tfoot');
         const footRow = document.createElement('tr');
-        footRow.innerHTML = '<td colspan="2">Right answers</td>';
+        footRow.innerHTML = '<td colspan="2">Số câu trả lời đúng</td>';
         right.forEach((n) => {
           const td = document.createElement('td');
           td.className = 'p';
@@ -196,11 +197,11 @@
 
         const legend = document.createElement('div');
         legend.className = 'legend';
-        legend.innerHTML = `<div class="legend-title">Legend</div><div class="items">
-          <span class="item"><span class="swatch" style="background:${tint(0)}"></span><span>predicted negative</span></span>
-          <span class="item"><span class="swatch" style="background:${tint(1)}"></span><span>predicted positive</span></span>
-          <span class="item"><span>✗ wrong answer</span></span>
-          <span class="item"><span>the stronger the color, the more confident the model</span></span>
+        legend.innerHTML = `<div class="legend-title">Chú giải</div><div class="items">
+          <span class="item"><span class="swatch" style="background:${tint(0)}"></span><span>dự đoán tiêu cực</span></span>
+          <span class="item"><span class="swatch" style="background:${tint(1)}"></span><span>dự đoán tích cực</span></span>
+          <span class="item"><span>✗ dự đoán sai</span></span>
+          <span class="item"><span>màu càng đậm, mô hình càng tự tin</span></span>
         </div>`;
         container.appendChild(legend);
       }

@@ -76,7 +76,7 @@
             </div>
           </div>
           <div class="control-group">
-            <span class="control-label">Context (the n − 1 previous words)</span>
+            <span class="control-label">Ngữ cảnh (n − 1 từ đứng trước)</span>
             <div class="sentence"></div>
           </div>
         </div>
@@ -86,7 +86,7 @@
       const chartEl = container.querySelector('.chart');
 
       const svg = d3.select(chartEl).append('svg').attr('width', '100%')
-        .attr('role', 'img').attr('aria-label', 'Probabilities of the 10 most likely next words');
+        .attr('role', 'img').attr('aria-label', 'Xác suất của 10 từ tiếp theo có khả năng xảy ra cao nhất');
       const g = svg.append('g');
 
       const fmtPct = (p) => (p >= 0.1 ? d3.format('.0%')(p) : p >= 0.001 ? d3.format('.1%')(p) : p > 0 ? '<0.1%' : '0%');
@@ -96,7 +96,7 @@
         sentence.innerHTML = '';
         const s = document.createElement('span');
         s.className = row.context ? 'w' : 'none';
-        s.textContent = row.context || 'no context';
+        s.textContent = row.context || 'không có ngữ cảnh';
         sentence.append(s, ' ');
         const slot = document.createElement('span');
         slot.className = 'slot';
@@ -108,7 +108,7 @@
         const width = container.clientWidth || 600;
         const rows = row.top.map(([word, count]) => ({ key: 'w:' + word, label: word, p: count / row.total, kind: 'word' }));
         const other = row.total - row.top.reduce((a, [, c]) => a + c, 0);
-        rows.push({ key: 'other', label: state.n === 1 ? 'all the other words' : 'other words seen after it', p: other / row.total, kind: 'other' });
+        rows.push({ key: 'other', label: state.n === 1 ? 'tất cả các từ khác' : 'các từ khác xuất hiện sau ngữ cảnh này', p: other / row.total, kind: 'other' });
 
         const rowH = 22;
         const labelW = Math.min(190, Math.max(150, Math.round(width * 0.3)));

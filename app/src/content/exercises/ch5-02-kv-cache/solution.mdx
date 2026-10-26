@@ -1,0 +1,80 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import math
+import torch
+import torch.nn as nn
+
+torch.manual_seed(7)
+B, L_prompt, gen_steps, d_model = 1, 8, 16, 64
+W_q = nn.Linear(d_model, d_model, bias=False)
+W_k = nn.Linear(d_model, d_model, bias=False)
+W_v = nn.Linear(d_model, d_model, bias=False)
+W_o = nn.Linear(d_model, d_model, bias=False)
+
+seq_tokens = torch.randn(B, L_prompt + gen_steps, d_model)
+print("Kích thước chuỗi mô phỏng:", tuple(seq_tokens.shape))
+```
+
+<section className="code-output"><pre>{"Kích thước chuỗi mô phỏng: (1, 24, 64)"}</pre></section>
+
+```python
+def causal_attn_step(x, kv_cache=None):
+    # (1) Chiếu tuyến tính Q, K, V cho các token đầu vào x
+    q, k, v = W_q(x), W_k(x), W_v(x)
+    qkv_calls = x.size(1)
+
+    # (2) Nối k, v mới vào bộ nhớ đệm kv_cache nếu có
+    if kv_cache is not None:
+        k_prev, v_prev = kv_cache
+        k = torch.cat([k_prev, k], dim=1)
+        v = torch.cat([v_prev, v], dim=1)
+    new_cache = (k, v)
+
+    # (3) Tính điểm chú ý nhân quả và đầu ra cho vị trí cuối cùng
+    scores = (q @ k.transpose(-2, -1)) / math.sqrt(d_model)
+    L_q, L_k = q.size(1), k.size(1)
+    if L_q > 1:
+        mask = torch.triu(
+            torch.ones(L_q, L_k, dtype=torch.bool), diagonal=1
+        )
+        scores = scores.masked_fill(mask, -float("inf"))
+    weights = torch.softmax(scores, dim=-1)
+    out = W_o(weights @ v)
+    return out[:, -1:, :], new_cache, qkv_calls
+
+
+with torch.no_grad():
+    # (A) Không dùng KV Cache: mỗi bước truyền lại toàn bộ tiền tố
+    outs_nocache, calls_nocache = [], 0
+    for step in range(gen_steps + 1):
+        cur_len = L_prompt + step
+        out_t, _, c = causal_attn_step(seq_tokens[:, :cur_len, :])
+        outs_nocache.append(out_t)
+        calls_nocache += c
+
+    # (B) Có KV Cache: pha Prefill (8 token) + 16 bước Decode (1 token)
+    outs_cached, calls_cached = [], 0
+    out_0, cache, c = causal_attn_step(seq_tokens[:, :L_prompt, :])
+    outs_cached.append(out_0)
+    calls_cached += c
+    for step in range(1, gen_steps + 1):
+        tok_t = seq_tokens[:, L_prompt + step - 1 : L_prompt + step, :]
+        out_t, cache, c = causal_attn_step(tok_t, kv_cache=cache)
+        outs_cached.append(out_t)
+        calls_cached += c
+
+diff = (torch.cat(outs_nocache, 1) - torch.cat(outs_cached, 1)).abs()
+print(f"Sai số tuyệt đối lớn nhất (No-Cache vs KV-Cache): {diff.max():.2e}")
+print("Kích thước bộ đệm K, V sau cùng:", tuple(cache[0].shape))
+print(f"Số lượt chiếu QKV tuyến tính (Không Cache): {calls_nocache} lượt")
+ratio = calls_nocache / calls_cached
+print(
+    f"Số lượt chiếu QKV tuyến tính (Có KV Cache): {calls_cached} lượt"
+    f" (Giảm {ratio:.1f}x)"
+)
+```
+
+<section className="code-output"><pre>{"Sai số tuyệt đối lớn nhất (No-Cache vs KV-Cache): 2.98e-08\nKích thước bộ đệm K, V sau cùng: (1, 24, 64)\nSố lượt chiếu QKV tuyến tính (Không Cache): 268 lượt\nSố lượt chiếu QKV tuyến tính (Có KV Cache): 24 lượt (Giảm 11.2x)"}</pre></section>

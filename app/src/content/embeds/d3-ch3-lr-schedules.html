@@ -1,0 +1,290 @@
+<div class="d3-ch3-lr-schedules"></div>
+<style>
+  .d3-ch3-lr-schedules {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch3-lr-schedules .lr-controls {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+  }
+  .d3-ch3-lr-schedules .lr-ctrl {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .d3-ch3-lr-schedules .lr-ctrl-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .d3-ch3-lr-schedules .lr-ctrl-val {
+    font-weight: 800;
+    color: var(--primary-color);
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-ch3-lr-schedules input[type="range"] {
+    width: 100%;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch3-lr-schedules svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-width: 750px;
+    margin: 0 auto;
+    overflow: visible;
+  }
+  .d3-ch3-lr-schedules .lr-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .d3-ch3-lr-schedules .lr-leg-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .d3-ch3-lr-schedules .lr-swatch {
+    width: 16px;
+    height: 3.5px;
+    border-radius: 2px;
+    display: inline-block;
+  }
+  @media (max-width: 640px) {
+    .d3-ch3-lr-schedules .lr-controls {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => { if (window.d3 && typeof window.d3.select === 'function') cb(); };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch3-lr-schedules'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch3-lr-schedules'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container) return;
+      if (container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      const T = 1000;
+      const MAX_LR = 6e-4;
+      let warmupSteps = 60;
+      let minLrRatio = 0.10;
+      let wsdDecaySteps = 180;
+
+      const controls = document.createElement('div');
+      controls.className = 'lr-controls';
+
+      const makeCtrl = (label, min, max, step, val, fmt) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'lr-ctrl';
+        const top = document.createElement('div');
+        top.className = 'lr-ctrl-top';
+        const lbl = document.createElement('span');
+        lbl.textContent = label;
+        const vSpan = document.createElement('span');
+        vSpan.className = 'lr-ctrl-val';
+        vSpan.textContent = fmt(val);
+        top.append(lbl, vSpan);
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = String(min);
+        input.max = String(max);
+        input.step = String(step);
+        input.value = String(val);
+        wrap.append(top, input);
+        controls.appendChild(wrap);
+        return { input, vSpan, fmt };
+      };
+
+      const ctrlWarmup = makeCtrl('Bước khởi động (warmup_steps)', 10, 250, 5, warmupSteps, (v) => `${v} bước (${Math.round(v / 10)}%)`);
+      const ctrlMinLr = makeCtrl('Tỷ lệ min_lr / max_lr', 0.0, 0.30, 0.02, minLrRatio, (v) => `${Math.round(v * 100)}% (${(v * MAX_LR * 1e4).toFixed(2)}e-4)`);
+      const ctrlWsd = makeCtrl('Pha giảm WSD (decay_steps)', 80, 350, 10, wsdDecaySteps, (v) => `${v} bước cuối`);
+      container.appendChild(controls);
+
+      const W = 750, H = 250;
+      const svg = d3.select(container).append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('role', 'img')
+        .attr('aria-label', 'Biểu đồ lịch trình tốc độ học Cosine vs WSD và hội tụ hàm mất mát');
+
+      const legDiv = document.createElement('div');
+      legDiv.className = 'lr-legend';
+      container.appendChild(legDiv);
+
+      const pad = { top: 28, bottom: 34, left: 52, mid: 60, right: 16 };
+      const plotW = (W - pad.left - pad.right - pad.mid) / 2;
+      const plotH = H - pad.top - pad.bottom;
+
+      const gLeft = svg.append('g').attr('transform', `translate(${pad.left},${pad.top})`);
+      const gRight = svg.append('g').attr('transform', `translate(${pad.left + plotW + pad.mid},${pad.top})`);
+
+      gLeft.append('text')
+        .attr('x', plotW / 2).attr('y', -10)
+        .attr('text-anchor', 'middle').attr('font-weight', '700').attr('font-size', '12.5px')
+        .attr('fill', 'var(--text-color)')
+        .text('1. Lịch trình tốc độ học η(t) (×10⁻⁴)');
+
+      gRight.append('text')
+        .attr('x', plotW / 2).attr('y', -10)
+        .attr('text-anchor', 'middle').attr('font-weight', '700').attr('font-size', '12.5px')
+        .attr('fill', 'var(--text-color)')
+        .text('2. Quỹ đạo hội tụ Hàm mất mát L(t)');
+
+      const xScale = d3.scaleLinear().domain([0, T]).range([0, plotW]);
+      const yScaleLr = d3.scaleLinear().domain([0, 6.5]).range([plotH, 0]);
+      const yScaleLoss = d3.scaleLinear().domain([2.2, 6.5]).range([plotH, 0]);
+
+      gLeft.append('g').attr('transform', `translate(0,${plotH})`).call(d3.axisBottom(xScale).ticks(5));
+      gLeft.append('g').call(d3.axisLeft(yScaleLr).ticks(5));
+      gRight.append('g').attr('transform', `translate(0,${plotH})`).call(d3.axisBottom(xScale).ticks(5));
+      gRight.append('g').call(d3.axisLeft(yScaleLoss).ticks(5));
+
+      svg.selectAll('.domain, .tick line').attr('stroke', 'var(--border-color)');
+      svg.selectAll('.tick text').attr('fill', 'var(--muted-color)').attr('font-size', '10px');
+
+      gLeft.append('text').attr('x', plotW / 2).attr('y', plotH + 28).attr('text-anchor', 'middle').attr('font-size', '11px').attr('fill', 'var(--muted-color)').text('Bước huấn luyện t');
+      gRight.append('text').attr('x', plotW / 2).attr('y', plotH + 28).attr('text-anchor', 'middle').attr('font-size', '11px').attr('fill', 'var(--muted-color)').text('Bước huấn luyện t');
+
+      const warmupShadeL = gLeft.append('rect').attr('y', 0).attr('height', plotH).attr('opacity', 0.12);
+      const decayLineWsd = gLeft.append('line').attr('y1', 0).attr('y2', plotH).attr('stroke-dasharray', '3,3');
+
+      const pathLrCos = gLeft.append('path').attr('fill', 'none').attr('stroke-width', 2.5);
+      const pathLrWsd = gLeft.append('path').attr('fill', 'none').attr('stroke-width', 2.5);
+
+      const pathLossNoWarm = gRight.append('path').attr('fill', 'none').attr('stroke-width', 1.6).attr('stroke-dasharray', '3,3');
+      const pathLossCos = gRight.append('path').attr('fill', 'none').attr('stroke-width', 2.5);
+      const pathLossWsd = gRight.append('path').attr('fill', 'none').attr('stroke-width', 2.5);
+
+      let COL_COS = '#4e79a7', COL_WSD = '#f28e2b', COL_BAD = '#e15759';
+      const readPalette = () => {
+        try {
+          if (window.ColorPalettes) {
+            const cat = window.ColorPalettes.getColors('categorical', 3);
+            if (cat && cat.length >= 3) {
+              COL_COS = cat[0];
+              COL_WSD = cat[1];
+              COL_BAD = cat[2];
+            }
+          }
+        } catch (_) {}
+      };
+      readPalette();
+
+      const cosineLr = (t) => {
+        const minLr = minLrRatio * 6.0;
+        if (t < warmupSteps) return 6.0 * (t / Math.max(1, warmupSteps));
+        const prog = (t - warmupSteps) / Math.max(1, T - warmupSteps);
+        return minLr + 0.5 * (6.0 - minLr) * (1 + Math.cos(Math.PI * prog));
+      };
+
+      const wsdLr = (t) => {
+        const minLr = minLrRatio * 6.0;
+        const decayStart = Math.max(warmupSteps + 10, T - wsdDecaySteps);
+        if (t < warmupSteps) return 6.0 * (t / Math.max(1, warmupSteps));
+        if (t < decayStart) return 6.0;
+        const prog = (t - decayStart) / Math.max(1, T - decayStart);
+        return minLr + 0.5 * (6.0 - minLr) * (1 + Math.cos(Math.PI * prog));
+      };
+
+      const render = () => {
+        ctrlWarmup.vSpan.textContent = ctrlWarmup.fmt(warmupSteps);
+        ctrlMinLr.vSpan.textContent = ctrlMinLr.fmt(minLrRatio);
+        ctrlWsd.vSpan.textContent = ctrlWsd.fmt(wsdDecaySteps);
+
+        const steps = d3.range(0, T + 1, 10);
+        const lineLr = (fn) => d3.line().x((t) => xScale(t)).y((t) => yScaleLr(fn(t)))(steps);
+
+        pathLrCos.attr('d', lineLr(cosineLr)).attr('stroke', COL_COS);
+        pathLrWsd.attr('d', lineLr(wsdLr)).attr('stroke', COL_WSD);
+
+        warmupShadeL
+          .attr('x', 0)
+          .attr('width', xScale(warmupSteps))
+          .attr('fill', COL_COS);
+
+        const decayStart = Math.max(warmupSteps + 10, T - wsdDecaySteps);
+        decayLineWsd
+          .attr('x1', xScale(decayStart))
+          .attr('x2', xScale(decayStart))
+          .attr('stroke', COL_WSD);
+
+        // Simulate realistic loss trajectories based on cumulative effective learning & current LR noise
+        let cumCos = 0, cumWsd = 0;
+        const lossCosPts = [], lossWsdPts = [], lossBadPts = [];
+        const instabilityPenalty = warmupSteps < 25 ? (25 - warmupSteps) * 0.035 : 0;
+
+        steps.forEach((t) => {
+          const lrC = cosineLr(t);
+          const lrW = wsdLr(t);
+          cumCos += lrC * 10;
+          cumWsd += lrW * 10;
+
+          // Loss = base_decay(cum_lr) + lr_noise(current_lr)
+          const lCos = 2.45 + 3.6 * Math.exp(-cumCos / 1100) + 0.075 * lrC + instabilityPenalty * Math.exp(-t / 250);
+          const lWsd = 2.43 + 3.6 * Math.exp(-cumWsd / 1180) + 0.082 * lrW + instabilityPenalty * Math.exp(-t / 250);
+          const lBad = 3.15 + 2.9 * Math.exp(-t / 320) + (t < 80 ? 0.65 * Math.sin(t / 8) : 0.15 * Math.exp(-t / 500));
+
+          lossCosPts.push([xScale(t), yScaleLoss(Math.min(6.4, lCos))]);
+          lossWsdPts.push([xScale(t), yScaleLoss(Math.min(6.4, lWsd))]);
+          lossBadPts.push([xScale(t), yScaleLoss(Math.min(6.4, lBad))]);
+        });
+
+        const ptsLine = d3.line();
+        pathLossCos.attr('d', ptsLine(lossCosPts)).attr('stroke', COL_COS);
+        pathLossWsd.attr('d', ptsLine(lossWsdPts)).attr('stroke', COL_WSD);
+        pathLossNoWarm.attr('d', ptsLine(lossBadPts)).attr('stroke', COL_BAD);
+
+        legDiv.innerHTML = `
+          <span class="lr-leg-item"><span class="lr-swatch" style="background:${COL_COS}"></span><strong>Warmup + Cosine Decay</strong> (Giảm mượt toàn cục)</span>
+          <span class="lr-leg-item"><span class="lr-swatch" style="background:${COL_WSD}"></span><strong>Warmup-Stable-Decay (WSD)</strong> (Giữ phẳng rồi sụt nhanh ở pha Decay)</span>
+          <span class="lr-leg-item"><span class="lr-swatch" style="background:${COL_BAD}; opacity:0.8"></span><strong>Không có Warmup</strong> (Bất ổn định đầu kỳ, hội tụ kém)</span>
+        `;
+      };
+
+      ctrlWarmup.input.addEventListener('input', () => { warmupSteps = Number(ctrlWarmup.input.value); render(); });
+      ctrlMinLr.input.addEventListener('input', () => { minLrRatio = Number(ctrlMinLr.input.value); render(); });
+      ctrlWsd.input.addEventListener('input', () => { wsdDecaySteps = Number(ctrlWsd.input.value); render(); });
+
+      render();
+      document.addEventListener('palettes:updated', () => { readPalette(); render(); });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => ensureD3(bootstrap), { once: true });
+    } else {
+      ensureD3(bootstrap);
+    }
+  })();
+</script>

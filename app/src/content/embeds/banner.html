@@ -3,6 +3,7 @@
   .d3-banner { padding: 22px 24px; border: 1px solid var(--border-color); border-radius: 10px; background: color-mix(in oklab, var(--text-color) 5%, var(--page-bg)); text-align: center; color: var(--text-color); }
   .d3-banner .source { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-color); }
   .d3-banner .review { margin: 0; font-size: 22px; line-height: 1.45; text-wrap: balance; }
+  .d3-banner .review-vi { margin: 8px 0 0; font-size: 15px; line-height: 1.45; font-style: italic; color: var(--muted-color); text-wrap: balance; }
   .d3-banner .verdict { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 24px; margin-top: 16px; font-size: 15px; color: var(--muted-color); }
   .d3-banner .model { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 10px; }
   .d3-banner .model > span { white-space: nowrap; }
@@ -44,18 +45,22 @@
 
       const source = document.createElement('p');
       source.className = 'source';
-      source.textContent = 'Sentiment classification of an Internet Movie Database review';
+      source.textContent = 'Phân loại cảm xúc một bài đánh giá phim trên IMDB';
 
       const review = document.createElement('p');
       review.className = 'review';
       review.textContent = `“${REVIEW.text}”`;
+
+      const reviewVi = document.createElement('p');
+      reviewVi.className = 'review-vi';
+      reviewVi.textContent = '“Chà, quả là một kiệt tác. Hai tiếng đồng hồ xuất sắc thuần túy, và tôi mới chỉ nhìn đồng hồ có hai mươi lần. Diễn xuất thuyết phục đến mức tôi thực sự tin rằng các diễn viên chỉ muốn ở một nơi nào khác. Một bộ phim hoàn hảo nếu bạn thích ngủ trưa.”';
 
       const verdict = document.createElement('div');
       verdict.className = 'verdict';
       const model = document.createElement('span');
       model.className = 'model';
       const name = document.createElement('span');
-      name.textContent = 'Bag-of-words model:';
+      name.textContent = 'Mô hình túi từ (Bag-of-words):';
       const gauge = document.createElement('span');
       gauge.className = 'gauge';
       gauge.setAttribute('aria-hidden', 'true');
@@ -65,12 +70,12 @@
       score.className = 'score';
       const showProbability = (p) => {
         fill.style.width = `${p * 100}%`;
-        score.textContent = `${Math.round(p * 100)}% positive`;
+        score.textContent = `${Math.round(p * 100)}% tích cực`;
       };
       showProbability(REVIEW.pPositive);
       model.append(name, gauge, score);
       verdict.append(model);
-      container.append(source, review, verdict);
+      container.append(source, review, reviewVi, verdict);
 
       (async () => {
         for (const path of DATA_PATHS) {

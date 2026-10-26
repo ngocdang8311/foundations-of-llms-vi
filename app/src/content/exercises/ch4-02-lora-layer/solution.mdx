@@ -1,0 +1,76 @@
+export const cells = 2;
+
+export const seconds = 3;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+d_in, d_out, r, alpha = 512, 512, 4, 8.0
+base_linear = nn.Linear(d_in, d_out, bias=False)
+
+# Tạo dữ liệu mục tiêu có độ lệch hạng thấp thực sự từ base_linear
+true_B = torch.randn(d_out, r) * 0.15
+true_A = torch.randn(r, d_in) * 0.15
+X = torch.randn(128, d_in)
+with torch.no_grad():
+    Y_target = F.linear(X, base_linear.weight + true_B @ true_A)
+
+print(f"Ma trận gốc W0: {base_linear.weight.numel():,} tham số")
+```
+
+<section className="code-output"><pre>{"Ma trận gốc W0: 262,144 tham số"}</pre></section>
+
+```python
+# (1) Định nghĩa lớp LoRALinear với W0 đóng băng, A ~ N(0,0.02^2), B = 0
+class LoRALinear(nn.Module):
+    def __init__(self, base: nn.Linear, r: int, alpha: float):
+        super().__init__()
+        self.base = base
+        self.base.weight.requires_grad_(False)
+        self.scaling = alpha / r
+        d_out, d_in = base.weight.shape
+        self.lora_A = nn.Parameter(torch.randn(r, d_in) * 0.02)
+        self.lora_B = nn.Parameter(torch.zeros(d_out, r))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        delta = (x @ self.lora_A.T) @ self.lora_B.T
+        return self.base(x) + self.scaling * delta
+
+    def merged_weight(self) -> torch.Tensor:
+        return self.base.weight + self.scaling * (self.lora_B @ self.lora_A)
+
+
+lora_layer = LoRALinear(base_linear, r=r, alpha=alpha)
+
+# (2) Kiểm tra tính chất bảo toàn tại t=0 và đếm số tham số
+with torch.no_grad():
+    init_diff = (lora_layer(X) - base_linear(X)).abs().max().item()
+    init_mse = F.mse_loss(lora_layer(X), Y_target).item()
+
+trainable = sum(p.numel() for p in lora_layer.parameters() if p.requires_grad)
+total_w0 = base_linear.weight.numel()
+print(f"Sai lệch lúc khởi tạo (t=0): {init_diff:.2e}")
+print(f"Tham số cần huấn luyện: {trainable:,} / {total_w0:,} ({100*trainable/total_w0:.2f}%)")
+print(f"MSE ban đầu (t=0):      {init_mse:.6f}")
+
+# (3) Tinh chỉnh chỉ trên A và B bằng AdamW rồi gộp trọng số
+opt = torch.optim.AdamW([lora_layer.lora_A, lora_layer.lora_B], lr=0.05)
+for _ in range(150):
+    opt.zero_grad()
+    loss = F.mse_loss(lora_layer(X), Y_target)
+    loss.backward()
+    opt.step()
+
+with torch.no_grad():
+    out_lora = lora_layer(X)
+    out_merged = F.linear(X, lora_layer.merged_weight())
+    merge_diff = (out_lora - out_merged).abs().max().item()
+
+print(f"MSE sau 150 bước LoRA:  {loss.item():.6f}")
+print(f"Sai lệch sau khi gộp W_merged = W0 + (alpha/r)*B@A: {merge_diff:.2e}")
+```
+
+<section className="code-output"><pre>{"Sai lệch lúc khởi tạo (t=0): 0.00e+00\nTham số cần huấn luyện: 4,096 / 262,144 (1.56%)\nMSE ban đầu (t=0):      0.451820\nMSE sau 150 bước LoRA:  0.000014\nSai lệch sau khi gộp W_merged = W0 + (alpha/r)*B@A: 1.19e-07"}</pre></section>

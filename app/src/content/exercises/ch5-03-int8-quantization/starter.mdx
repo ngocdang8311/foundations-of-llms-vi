@@ -1,0 +1,18 @@
+export const cells = 1;
+
+```python
+import torch
+
+torch.manual_seed(123)
+d_out, d_in = 256, 512
+W = torch.randn(d_out, d_in, dtype=torch.float32) * 0.08
+# Chèn một vài kênh ngoại lai (outlier channels) như trong LLM thực tế
+W[:, 17] *= 8.5
+W[:, 203] *= 6.0
+
+X = torch.randn(16, d_in, dtype=torch.float32)
+Y_ref = X @ W.T
+print(f"Ma trận W: {tuple(W.shape)} | Dung lượng FP16 gốc: {W.numel()*2/1024:.1f} KB")
+```
+
+<section className="code-output"><pre>{"Ma trận W: (256, 512) | Dung lượng FP16 gốc: 256.0 KB"}</pre></section>

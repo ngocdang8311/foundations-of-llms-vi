@@ -1,0 +1,250 @@
+<div class="d3-ch1-regex-splits"></div>
+<style>
+  .d3-ch1-regex-splits { position: relative; font-size: 13px; color: var(--text-color); }
+  .d3-ch1-regex-splits .rx-presets {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; align-items: center;
+  }
+  .d3-ch1-regex-splits .rx-btn {
+    border: 1px solid var(--border-color); background: var(--surface-bg); color: var(--text-color);
+    font-size: 12px; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-family: inherit;
+  }
+  .d3-ch1-regex-splits .rx-btn.is-active {
+    background: var(--primary-color); color: #fff; border-color: var(--primary-color); font-weight: 600;
+  }
+  .d3-ch1-regex-splits .rx-compare {
+    display: grid; grid-template-columns: 1fr; gap: 12px;
+  }
+  .d3-ch1-regex-splits .rx-card {
+    padding: 12px 14px; border-radius: 8px; background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+  }
+  .d3-ch1-regex-splits .rx-card-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px; font-weight: 700; font-size: 12.5px; flex-wrap: wrap; gap: 6px;
+  }
+  .d3-ch1-regex-splits .rx-tag {
+    font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+  }
+  .d3-ch1-regex-splits .rx-tokens {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 13.5px;
+  }
+  .d3-ch1-regex-splits .rx-chunk {
+    display: inline-flex; flex-direction: column; align-items: center;
+    padding: 4px 8px; border-radius: 5px; border: 1px solid var(--border-color);
+    background: var(--page-bg);
+  }
+  .d3-ch1-regex-splits .rx-chunk.is-bad {
+    border-style: dashed; font-weight: 700;
+  }
+  .d3-ch1-regex-splits .rx-chunk-rule {
+    font-size: 10px; color: var(--muted-color); margin-top: 2px; font-family: sans-serif;
+  }
+  .d3-ch1-regex-splits .rx-legend {
+    margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px 16px;
+    font-size: 12px; color: var(--muted-color);
+  }
+  .d3-ch1-regex-splits .rx-dot {
+    display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px;
+    vertical-align: middle;
+  }
+</style>
+<script>
+  (() => {
+    const EXAMPLES = [
+      {
+        key: 'punct',
+        label: 'Dấu câu & Từ gốc (dog., dog!, dog?)',
+        text: 'Wait: dog, dog., dog!, and dog? are the same dog.',
+        naive: [
+          { s: 'Wait: ', bad: true, note: 'Dính dấu :' },
+          { s: 'dog, ', bad: true, note: 'Gộp chữ + dấu phẩy' },
+          { s: 'dog., ', bad: true, note: 'Token riêng cho dog.,' },
+          { s: 'dog!, ', bad: true, note: 'Token riêng cho dog!,' },
+          { s: 'and dog', bad: true, note: 'Gộp xuyên khoảng trắng' },
+          { s: '? are ', bad: true, note: 'Dấu ? dính sang từ sau' },
+          { s: 'the same ', bad: true, note: 'Gộp 2 từ' },
+          { s: 'dog.', bad: true, note: 'Gộp dog + dấu chấm' }
+        ],
+        regex: [
+          { s: 'Wait', cat: 'word', rule: 'Từ chữ cái' },
+          { s: ':', cat: 'punct', rule: 'Dấu câu' },
+          { s: '␣dog', cat: 'word', rule: '␣ + Từ gốc' },
+          { s: ',', cat: 'punct', rule: 'Dấu câu' },
+          { s: '␣dog', cat: 'word', rule: '␣ + Từ gốc' },
+          { s: '.,', cat: 'punct', rule: 'Cụm dấu câu' },
+          { s: '␣dog', cat: 'word', rule: '␣ + Từ gốc' },
+          { s: '!,', cat: 'punct', rule: 'Cụm dấu câu' },
+          { s: '␣and', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣dog', cat: 'word', rule: '␣ + Từ gốc' },
+          { s: '?', cat: 'punct', rule: 'Dấu câu' },
+          { s: '␣are', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣the', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣same', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣dog', cat: 'word', rule: '␣ + Từ gốc' },
+          { s: '.', cat: 'punct', rule: 'Dấu câu' }
+        ]
+      },
+      {
+        key: 'numbers',
+        label: 'Tách nhóm chữ số & Dạng rút gọn',
+        text: "It's 2026: price is $1234567 or 99.5%!",
+        naive: [
+          { s: "It's 20", bad: true, note: 'Gộp chữ + số' },
+          { s: '26: ', bad: true, note: 'Số dính dấu :' },
+          { s: 'price is $', bad: true, note: 'Gộp 2 từ + ký hiệu $' },
+          { s: '12345', bad: true, note: 'Gộp 5 chữ số bất kỳ' },
+          { s: '67 or ', bad: true, note: 'Số dính từ or' },
+          { s: '99.5%!', bad: true, note: 'Số thập phân dính %!' }
+        ],
+        regex: [
+          { s: 'It', cat: 'word', rule: 'Từ chữ cái' },
+          { s: "'s", cat: 'contr', rule: "Hậu tố rút gọn ('s)" },
+          { s: '␣', cat: 'space', rule: 'Khoảng trắng' },
+          { s: '202', cat: 'num', rule: 'Nhóm ≤ 3 chữ số' },
+          { s: '6', cat: 'num', rule: 'Chữ số lẻ' },
+          { s: ':', cat: 'punct', rule: 'Dấu câu' },
+          { s: '␣price', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣is', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣$', cat: 'punct', rule: '␣ + Ký hiệu' },
+          { s: '123', cat: 'num', rule: 'Nhóm 3 chữ số' },
+          { s: '456', cat: 'num', rule: 'Nhóm 3 chữ số' },
+          { s: '7', cat: 'num', rule: 'Chữ số lẻ' },
+          { s: '␣or', cat: 'word', rule: '␣ + Từ' },
+          { s: '␣', cat: 'space', rule: 'Khoảng trắng' },
+          { s: '99', cat: 'num', rule: 'Nhóm ≤ 3 chữ số' },
+          { s: '.', cat: 'punct', rule: 'Dấu thập phân' },
+          { s: '5', cat: 'num', rule: 'Chữ số' },
+          { s: '%!', cat: 'punct', rule: 'Dấu câu' }
+        ]
+      },
+      {
+        key: 'code',
+        label: 'Mã nguồn Python & Thụt lề',
+        text: "if x_1 >= 1000:\n    return x_1",
+        naive: [
+          { s: 'if x_', bad: true, note: 'Gộp từ khóa + tên biến' },
+          { s: '1 >= 1000:\n    re', bad: true, note: 'Gộp số + xuống dòng + thụt lề' },
+          { s: 'turn x_1', bad: true, note: 'Gộp xuyên khoảng trắng' }
+        ],
+        regex: [
+          { s: 'if', cat: 'word', rule: 'Từ khóa' },
+          { s: '␣x', cat: 'word', rule: '␣ + Định danh' },
+          { s: '_', cat: 'punct', rule: 'Dấu gạch dưới' },
+          { s: '1', cat: 'num', rule: 'Chữ số' },
+          { s: '␣>=', cat: 'punct', rule: 'Toán tử' },
+          { s: '␣', cat: 'space', rule: 'Khoảng trắng' },
+          { s: '100', cat: 'num', rule: 'Nhóm 3 chữ số' },
+          { s: '0', cat: 'num', rule: 'Chữ số' },
+          { s: ':\n', cat: 'punct', rule: 'Dấu : + Xuống dòng' },
+          { s: '␣␣␣', cat: 'space', rule: 'Thụt lề (Indentation)' },
+          { s: '␣return', cat: 'word', rule: '␣ + Từ khóa' },
+          { s: '␣x', cat: 'word', rule: '␣ + Định danh' },
+          { s: '_', cat: 'punct', rule: 'Dấu gạch dưới' },
+          { s: '1', cat: 'num', rule: 'Chữ số' }
+        ]
+      }
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch1-regex-splits'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch1-regex-splits'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let curKey = 'punct';
+
+      container.innerHTML = `
+        <div class="rx-presets"></div>
+        <div class="rx-compare"></div>
+        <div class="rx-legend"></div>
+      `;
+
+      const presetsBox = container.querySelector('.rx-presets');
+      const compareBox = container.querySelector('.rx-compare');
+      const legendBox = container.querySelector('.rx-legend');
+
+      EXAMPLES.forEach((ex) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rx-btn';
+        btn.dataset.key = ex.key;
+        btn.textContent = ex.label;
+        btn.addEventListener('click', () => { curKey = ex.key; render(); });
+        presetsBox.appendChild(btn);
+      });
+
+      const getPalette = () => {
+        try {
+          const c = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 5);
+          if (c && c.length >= 4) return c;
+        } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#76b7b2'];
+      };
+
+      function render() {
+        const ex = EXAMPLES.find((e) => e.key === curKey) || EXAMPLES[0];
+        const [cWord, cNum, cContr, cBad, cPunct] = getPalette();
+        const catColor = { word: cWord, num: cNum, contr: cContr, punct: cPunct || '#76b7b2', space: 'var(--muted-color)' };
+
+        presetsBox.querySelectorAll('.rx-btn').forEach((b) => {
+          b.classList.toggle('is-active', b.dataset.key === curKey);
+        });
+
+        const naiveHtml = ex.naive.map((t) => `
+          <span class="rx-chunk is-bad" style="border-color:${cBad};background:color-mix(in oklab, ${cBad} 14%, var(--page-bg));">
+            <span>${t.s.replace(/ /g, '␣').replace(/\n/g, '↵')}</span>
+            <span class="rx-chunk-rule">${t.note}</span>
+          </span>
+        `).join('');
+
+        const regexHtml = ex.regex.map((t) => {
+          const col = catColor[t.cat] || cWord;
+          return `
+            <span class="rx-chunk" style="border-color:${col};background:color-mix(in oklab, ${col} 18%, var(--page-bg));">
+              <span style="font-weight:600;">${t.s}</span>
+              <span class="rx-chunk-rule">${t.rule}</span>
+            </span>
+          `;
+        }).join('');
+
+        compareBox.innerHTML = `
+          <div class="rx-card">
+            <div class="rx-card-header">
+              <span>1. Nếu áp dụng BPE trực tiếp trên chuỗi thô (Không có Pre-tokenization)</span>
+              <span class="rx-tag" style="background:color-mix(in oklab, ${cBad} 20%, var(--page-bg));color:${cBad};">Gộp lẫn từ, khoảng trắng & dấu câu</span>
+            </div>
+            <div class="rx-tokens">${naiveHtml}</div>
+          </div>
+          <div class="rx-card">
+            <div class="rx-card-header">
+              <span>2. Sau khi tách sơ bộ bằng Regex của GPT-4 (<code>cl100k_base</code>)</span>
+              <span class="rx-tag" style="background:color-mix(in oklab, ${cWord} 20%, var(--page-bg));color:${cWord};">BPE chỉ gộp bên trong từng hộp</span>
+            </div>
+            <div class="rx-tokens">${regexHtml}</div>
+          </div>
+        `;
+
+        legendBox.innerHTML = `
+          <span><i class="rx-dot" style="background:${cWord}"></i>Từ chữ cái (<code> ?\\p{L}+</code>)</span>
+          <span><i class="rx-dot" style="background:${cContr}"></i>Rút gọn (<code>'s|'t|'re|'ve|'ll</code>)</span>
+          <span><i class="rx-dot" style="background:${cNum}"></i>Nhóm ≤ 3 chữ số (<code> ?\\p{N}{1,3}</code>)</span>
+          <span><i class="rx-dot" style="background:${cPunct || '#76b7b2'}"></i>Dấu câu & ký hiệu (<code> ?[^\\s\\p{L}\\p{N}]+</code>)</span>
+        `;
+      }
+
+      render();
+      document.addEventListener('palettes:updated', render);
+    };
+
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    else bootstrap();
+  })();
+</script>

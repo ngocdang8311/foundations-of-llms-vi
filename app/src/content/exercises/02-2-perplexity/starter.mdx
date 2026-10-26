@@ -8,8 +8,8 @@ from datasets import load_dataset
 wikitext = load_dataset("Salesforce/wikitext", "wikitext-2-v1")
 
 
-# (1) Build the train sequence by splitting every line on spaces
-# [Copied from the solution of 2.1, step (1)]
+# (1) Tạo chuỗi huấn luyện bằng cách tách từ ở mỗi dòng theo dấu cách
+# [Sao chép từ lời giải bài 2.1, bước (1)]
 train_sequence = []
 for line in wikitext["train"]["text"]:
     train_sequence.extend(line.split())
@@ -18,8 +18,8 @@ print(f"text: {len(train_sequence)} words")
 print(f"vocabulary: {len(set(train_sequence))} words")
 
 
-# (2) Use a nested dict for counting bigrams
-# [Copied from the solution of 2.1, step (2)]
+# (2) Dùng từ điển lồng nhau để đếm các cặp từ (bigram)
+# [Sao chép từ lời giải bài 2.1, bước (2)]
 bigram_counts = {}
 for a, b in zip(train_sequence, train_sequence[1:]):
     if a not in bigram_counts:
@@ -31,10 +31,10 @@ for a, b in zip(train_sequence, train_sequence[1:]):
 print(f"distinct pairs: {sum(len(f) for f in bigram_counts.values())}")
 
 
-# ----------------------
-#  New in this exercise
-# ----------------------
-# The validation and test sequences, built in the same way
+# -------------------------
+#  Phần mới trong bài này
+# -------------------------
+# Chuỗi xác thực (validation) và kiểm tra (test), tạo tương tự
 val_sequence = []
 for line in wikitext["validation"]["text"]:
     val_sequence.extend(line.split())

@@ -1,0 +1,18 @@
+export const cells = 1;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(42)
+B, L, d_model, d_ff = 16, 32, 64, 128
+num_experts, top_k = 8, 2
+
+# Tạo batch token đầu vào và nhãn mục tiêu giả lập
+x = torch.randn(B, L, d_model)
+target = torch.randn(B, L, d_model)
+print(f"Input shape: {tuple(x.shape)} ({B * L} tokens)")
+```
+
+<section className="code-output"><pre>{"Input shape: (16, 32, 64) (512 tokens)"}</pre></section>

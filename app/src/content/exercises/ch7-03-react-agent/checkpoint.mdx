@@ -1,0 +1,3 @@
+export const cells = 1;
+
+<section className="code-output"><pre>{"Step 1 -> Action: search('llama3_8b')\n          Obs   : Llama-3 8B: layers=32, kv_heads=8, head_dim=128\nStep 2 -> Action: python_calc('2*2*32*8*128*32768 / (1024^3)')\n          Obs   : Error: TypeError: Use '**' for exponentiation in Python, not '^'\nStep 3 -> Action: python_calc('2*2*32*8*128*32768 / (1024**3)')\n          Obs   : 4.0\nFinal  -> 4.0 GiB (completed in 4 turns)"}</pre></section>

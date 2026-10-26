@@ -1,0 +1,25 @@
+export const cells = 1;
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(7)
+# B=4 cặp sở thích (prompt x, câu trả lời được chọn y_w, câu bị loại y_l)
+# Mỗi chuỗi có độ dài T=6 token từ bộ từ vựng V=32
+B, T, V = 4, 6, 32
+beta = 0.1
+
+ref_logits_w = torch.randn(B, T, V)
+ref_logits_l = torch.randn(B, T, V)
+# Khởi tạo chính sách pi_theta trùng khít với pi_ref lúc bắt đầu
+pi_logits_w = ref_logits_w.clone().detach().requires_grad_(True)
+pi_logits_l = ref_logits_l.clone().detach().requires_grad_(True)
+
+y_w = torch.randint(0, V, (B, T))
+y_l = torch.randint(0, V, (B, T))
+print(f"Batch: {B} cặp (y_w, y_l) | Độ dài T={T} | Hệ số beta={beta}")
+```
+
+<section className="code-output"><pre>{"Batch: 4 cặp (y_w, y_l) | Độ dài T=6 | Hệ số beta=0.1"}</pre></section>

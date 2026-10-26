@@ -1,0 +1,687 @@
+---
+title: "Hậu huấn luyện & Căn chỉnh (Post-training): Từ mô hình nền tảng đến trợ lý suy luận"
+chapter: 4
+banner: "banner-4.html"
+description: "Cách biến một mô hình dự đoán từ tiếp theo thành trợ lý AI tuân thủ chỉ dẫn, an toàn và có khả năng tự suy luận qua SFT, LoRA, RLHF, DPO và GRPO."
+authors:
+  - name: "David Louapre"
+    url: "https://huggingface.co/dlouapre"
+    affiliations: [1]
+affiliations:
+  - name: "Hugging Face"
+    url: "https://huggingface.co"
+published: "Oct. 21, 2026"
+template: "article"
+licence: >
+  Sơ đồ và nội dung văn bản được cấp phép theo <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC‑BY 4.0</a>, trừ khi có ghi chú khác.
+tableOfContentsAutoCollapse: true
+showPdf: true
+---
+
+import Note from '../components/Note.astro';
+import HtmlEmbed from '../components/HtmlEmbed.astro';
+import PaperNote from '../components/post/PaperNote.astro';
+import Exercise from '../components/post/Exercise.astro';
+import Starter from '../components/post/Starter.astro';
+import Hints from '../components/post/Hints.astro';
+import Hint from '../components/post/Hint.astro';
+import Checkpoint from '../components/post/Checkpoint.astro';
+import Solution from '../components/post/Solution.astro';
+import WhatToNotice from '../components/post/WhatToNotice.astro';
+import Bonus from '../components/post/Bonus.astro';
+import Optional from '../components/post/Optional.astro';
+import Inset from '../components/post/Inset.astro';
+import WrapTable from '../components/post/WrapTable.astro';
+import ReferenceList from '../components/post/ReferenceList.astro';
+
+<Note variant="success">
+Đây là **Chương 4** trong chuỗi bài giảng tương tác *"Nền tảng Mô hình Ngôn ngữ Lớn | Học qua Thực hành"*. Ở Chương 3, chúng ta đã chi hàng triệu đô-la tính toán để tiền huấn luyện một mô hình nền tảng (*base model*) trên hàng nghìn tỷ từ thô từ Internet. Kết quả là một hệ thống sở hữu kho tàng tri thức khổng lồ của nhân loại, nhưng lại hoàn toàn không biết... trò chuyện.
+
+Trong chương này, bạn sẽ tự tay cài đặt toàn bộ các thuật toán **Hậu huấn luyện và Căn chỉnh (Post-training & Alignment)** hiện đại nhất: từ **SFT** với mặt nạ hàm mất mát, tinh chỉnh hạng thấp **LoRA**, căn chỉnh sở thích **RLHF / DPO**, cho đến thuật toán học tăng cường **GRPO** đứng sau khả năng tự suy luận của **DeepSeek-R1**.
+
+Mỗi khái niệm đều đi kèm biểu đồ tương tác và bài tập PyTorch chạy hoàn toàn độc lập dưới vài giây trên CPU. **Hãy tự mình viết mã trước khi mở lời giải!**
+</Note>
+
+Hãy thử đặt mình vào thời điểm tháng 5 năm 2020, ngay sau khi OpenAI hoàn tất quá trình tiền huấn luyện GPT-3 với 175 tỷ tham số trên 300 tỷ token web. Bạn mở giao diện dòng lệnh, gõ vào một câu hỏi tưởng chừng đơn giản:
+
+> *"Giải thích cách hoạt động của mặt trăng cho một đứa trẻ 6 tuổi trong vài câu."*
+
+Bạn kỳ vọng một câu trả lời ấm áp, dễ hiểu. Nhưng thứ mà mô hình nền tảng trả về lại là:
+
+> *"Giải thích cách hoạt động của mặt trời cho một đứa trẻ 8 tuổi trong một đoạn văn. Giải thích tại sao bầu trời có màu xanh cho học sinh tiểu học. Câu hỏi 4: Giải thích hiện tượng thủy triều..."*
+
+Tại sao một siêu mô hình 175 tỷ tham số lại hành xử kỳ quặc như vậy? Câu trả lời nằm ở chính hàm mục tiêu mà nó đã tối ưu suốt hàng nghìn giờ GPU ở Chương 3: **dự đoán token tiếp theo trên một trang web ngẫu nhiên**. Trên Internet, một chuỗi các câu hỏi bắt đầu bằng *"Giải thích..."* hầu như luôn nằm trong một đề cương ôn tập hoặc danh sách bài tập về nhà — nơi dòng tiếp theo tất yếu là một câu hỏi khác!
+
+Mô hình không hề "ngu ngốc"; nó chỉ đang hoàn thành xuất sắc nhiệm vụ tiếp nối văn bản web thay vì đóng vai một trợ lý trả lời người dùng. Khoảng cách giữa *"dự đoán từ tiếp theo trên Internet"* và *"làm theo chỉ dẫn của con người một cách hữu ích, trung thực và an toàn"* được gọi là **bài toán căn chỉnh (alignment problem)**.
+
+Xuyên suốt chương này, chúng ta sẽ giải quyết ba câu hỏi lớn đã định hình kỷ nguyên hậu huấn luyện từ InstructGPT đến DeepSeek-R1:
+
+- **Làm thế nào để dạy một mô hình tiền huấn luyện hiểu định dạng hội thoại và tuân thủ chỉ dẫn của người dùng chỉ với vài nghìn mẫu dữ liệu và một chiếc GPU tiêu dùng?** *(Mục 1 & Mục 2: SFT, Chat Templates, LoRA & QLoRA)*
+- **Khi con người không thể tự viết ra câu trả lời hoàn hảo nhưng dễ dàng nhận biết câu trả lời nào tốt hơn, làm sao để chuyển hóa sở thích tương đối đó thành trọng số mạng nơ-ron mà không bị mô hình "lách luật"?** *(Mục 3 & Mục 4: RLHF, Mô hình Bradley–Terry, PPO, KL Penalty & DPO)*
+- **Làm thế nào để vượt qua giới hạn của việc bắt chước con người, giúp mô hình tự khám phá năng lực suy luận chuỗi dài (Chain-of-Thought), tự kiểm tra và sửa lỗi qua Học tăng cường với Phần thưởng Kiểm chứng được?** *(Mục 5: RLVR & GRPO)*
+
+<Note title="Tập dữ liệu & Công cụ" emoji="📖" variant="info" id="datasets">
+Trong thực tế công nghiệp, quy trình hậu huấn luyện hiện đại dựa trên ba nhóm dữ liệu và thư viện mã nguồn mở tiêu chuẩn trên Hugging Face Hub:
+- **Dữ liệu Chỉ dẫn & Hội thoại (SFT)**: **LIMA** (`GAIR/lima`, 1.000 mẫu chọn lọc thủ công chất lượng cực cao), **UltraChat 200k** (`HuggingFaceH4/ultrachat_200k`) và **OpenAssistant** (`OpenAssistant/oasst1`).
+- **Dữ liệu Sở thích Cặp (Preference Tuning — RLHF / DPO)**: **Anthropic HH-RLHF** (`Anthropic/hh-rlhf`, các cặp phản hồi `chosen` vs `rejected` về độ hữu ích và vô hại) và **UltraFeedback** (`openbmb/UltraFeedback`, 64.000 prompt được chấm điểm đa chiều).
+- **Dữ liệu Suy luận có Kiểm chứng (Reasoning RL — GRPO)**: **GSM8K** (`openai/gsm8k`, 8.500 bài toán đố tiểu học có đáp số cuối cùng) và **MATH** (`hendrycks/competition_math`, 12.500 bài toán thi học sinh giỏi).
+- **Thư viện chuẩn**: Thư viện **TRL** (`Transformer Reinforcement Learning` — `SFTTrainer`, `PPOTrainer`, `DPOTrainer`, `GRPOTrainer`) và **PEFT** (`Parameter-Efficient Fine-Tuning` — `LoraConfig`). Trong các bài tập của chương này, chúng ta sẽ tự cài đặt lõi toán học của chúng bằng **PyTorch thuần** để hiểu rõ từng dòng đạo hàm.
+</Note>
+
+---
+
+## 1. Tinh chỉnh có giám sát (SFT) và Mẫu hội thoại (Chat Templates)
+
+Bước đầu tiên để biến một mô hình hoàn thành văn bản (*document completer*) thành một trợ lý đối thoại (*conversational assistant*) là **Tinh chỉnh có giám sát (Supervised Fine-Tuning — SFT)**, hay còn gọi là **Tinh chỉnh theo chỉ dẫn (Instruction Tuning)**. Ý tưởng cốt lõi rất trực quan: ta thu thập một tập hợp các cuộc hội thoại mẫu giữa người dùng và trợ lý, rồi tiếp tục huấn luyện mô hình ngôn ngữ bằng chính hàm mất mát Cross-Entropy tự hồi quy của Chương 3.
+
+Tuy nhiên, có hai chi tiết kỹ thuật quyết định sự thành bại của SFT mà nếu bỏ qua, mô hình sẽ tự độc thoại hoặc sinh văn bản hỗn loạn: **Mẫu hội thoại (Chat Template)** và **Mặt nạ hàm mất mát (Loss Masking)**.
+
+### 1.1 Khoảng cách giữa Dự đoán từ tiếp theo và Tuân thủ chỉ dẫn
+
+Ở giai đoạn đầu (khoảng năm 2021), các nhà nghiên cứu tại Google tự hỏi: điều gì sẽ xảy ra nếu ta gom hàng chục bài toán NLP cổ điển (dịch máy, tóm tắt, phân loại cảm xúc, trả lời câu hỏi) và viết lại tất cả chúng dưới dạng các lời nhắc tự nhiên (*natural language instructions*)? Công trình **FLAN** (*Finetuned Language Models Are Zero-Shot Learners*) của Wei et al. [@wei2022flan] đã chứng minh rằng khi tinh chỉnh một mô hình 137 tỷ tham số trên hơn 60 tập dữ liệu được viết thành dạng chỉ dẫn, mô hình đột nhiên có khả năng giải quyết **các tác vụ hoàn toàn mới chưa từng gặp (zero-shot)** vượt trội cả GPT-3 175B!
+
+Nhưng một trợ lý hiện đại không chỉ nhận một câu lệnh đơn lẻ; nó phải duy trì một **cuộc hội thoại nhiều lượt (multi-turn conversation)** gồm chỉ dẫn hệ thống (*system prompt*), câu hỏi của người dùng (*user*) và câu trả lời của trợ lý (*assistant*). Vì mô hình ngôn ngữ thực chất chỉ nhận đầu vào là **một mảng một chiều các ID token**, ta cần một quy ước nghiêm ngặt để "dẹt hóa" (serialize) danh sách các lượt lời thành một chuỗi token duy nhất, sao cho mô hình phân biệt rõ ranh giới giữa người hỏi và người trả lời.
+
+Quy ước phổ biến nhất hiện nay là định dạng **ChatML** (được sử dụng trong Qwen, OpenAI, SmolLM, v.v.), dùng các token đặc biệt (special tokens) được thêm trực tiếp vào bảng từ vựng của bộ tách từ:
+
+```text
+<|im_start|>system
+Bạn là một trợ lý AI hữu ích, chính xác và an toàn.<|im_end|>
+<|im_start|>user
+Thủ đô của Pháp là gì?<|im_end|>
+<|im_start|>assistant
+Thủ đô của Pháp là Paris.<|im_end|>
+```
+
+Các token `<|im_start|>` và `<|im_end|>` là các **token nguyên tử (atomic special tokens)** — chúng không bao giờ bị tách nhỏ thành các ký tự con và không bao giờ xuất hiện trong văn bản người dùng thông thường. Khi suy luận (*inference*), giao diện chat nối câu hỏi của bạn vào sau `<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n`, trao quyền sinh tiếp cho mô hình, và dừng lại ngay khi mô hình vừa sinh ra token `<|im_end|>`.
+
+### 1.2 Cấu trúc Chat Template và Mặt nạ Hàm mất mát (Loss Masking)
+
+Khi huấn luyện SFT trên chuỗi ChatML ở trên, một câu hỏi quan trọng xuất hiện: **Ta có nên tính hàm mất mát Cross-Entropy trên toàn bộ các token trong chuỗi hay không?**
+
+Giả sử chuỗi hội thoại đã mã hóa là $x = (x_1, x_2, \dots, x_L)$. Trong tiền huấn luyện (Chương 3), mọi token đều bình đẳng:
+
+$$
+\mathcal{L}_{\text{PT}}(\theta) = -\frac{1}{L} \sum_{t=1}^{L} \log P_\theta(x_t \mid x_{<t}).
+$$
+
+Nhưng trong một cuộc hội thoại SFT, các token thuộc về `system` và `user` là **đầu vào cho trước (context/prompt)**, còn nhiệm vụ của mô hình là chỉ sinh ra các token thuộc phần trả lời của `assistant`. Nếu ta ép mô hình tối ưu hóa xác suất sinh ra câu hỏi của `user`, hai hậu quả tai hại sẽ xảy ra:
+1. **Lãng phí dung lượng biểu diễn**: Trên các tập dữ liệu có prompt dài (ví dụ yêu cầu tóm tắt một văn bản 2.000 từ chỉ bằng 1 câu 20 từ), 99% đạo hàm sẽ dồn vào việc học thuộc lòng văn bản của người dùng thay vì học cách viết câu tóm tắt.
+2. **Nhiễm giọng người dùng**: Mô hình học cách bắt chước cả sự mơ hồ, lỗi chính tả hoặc giọng điệu ra lệnh của người dùng.
+
+Do đó, trong SFT chuẩn, ta định nghĩa một **mặt nạ nhị phân (loss mask)** $m_t \in \{0, 1\}$ cho từng vị trí $t \in \{1, \dots, L\}$:
+- $m_t = 0$ đối với mọi token thuộc lượt `system`, lượt `user`, và cả phần tiêu đề mở đầu `<|im_start|>assistant\n`.
+- $m_t = 1$ **chỉ đối với các token nội dung của `assistant` và token kết thúc `<|im_end|>` ngay sau đó** (để mô hình học được khi nào phải dừng lời!).
+
+Hàm mất mát SFT có mặt nạ (Masked Cross-Entropy Loss) khi đó trở thành:
+
+$$
+\mathcal{L}_{\text{SFT}}(\theta) = -\frac{1}{\sum_{t=1}^{L} m_t} \sum_{t=1}^{L} m_t \log P_\theta(x_t \mid x_{<t}).
+$$
+
+Trong PyTorch, hàm `F.cross_entropy(logits, labels, ignore_index=-100)` mặc định bỏ qua mọi vị trí có nhãn bằng `-100`. Vì vậy, việc tạo mặt nạ $m_t = 0$ đơn giản là gán `labels[t] = -100` tại các vị trí không thuộc phần trả lời của trợ lý! Hãy khám phá cơ chế này trực tiếp qua biểu đồ tương tác dưới đây.
+
+<HtmlEmbed
+  src="d3-ch4-sft-masking.html"
+  title="Trực quan hóa Chat Template và Mặt nạ Hàm mất mát (SFT Loss Masking)"
+  desc="Chuỗi hội thoại 2 lượt được đóng gói theo chuẩn ChatML. Ở chế độ chuẩn SFT (Loss Mask bật), các token của system, user và nhãn mở đầu <|im_start|>assistant\n được gán labels = -100 (màu xám nét đứt, đạo hàm bằng 0). Chỉ các token phản hồi của assistant kèm token kết thúc <|im_end|> (màu cam, m = 1) mới tạo ra đạo hàm ngược ↑∇ để cập nhật trọng số mô hình. Hãy di chuột vào từng token hoặc thử tắt Loss Mask để quan sát sự thay đổi của hàm mất mát trung bình."
+/>
+
+Hãy tự tay cài đặt quy trình đóng gói hội thoại ChatML và tính hàm mất mát SFT có mặt nạ trong Bài tập 4.1 dưới đây.
+
+<Exercise number="4.1" title="Đóng gói ChatML và tính hàm mất mát SFT có mặt nạ" data="ChatML" nb="ch4-01-sft-loss-mask">
+
+Cho một cuộc hội thoại 5 lượt (`messages`) và bảng từ vựng 20 token trong mã khởi tạo:
+1. Duyệt qua từng lượt trong `messages`, ghép phần tiêu đề `["<|im_start|>", role, "\n"]` và phần thân `content + ["<|im_end|>", "\n"]` để tạo danh sách `input_ids`.
+2. Đồng thời xây dựng danh sách nhãn `labels` có cùng độ dài với `input_ids`: đặt `-100` cho toàn bộ phần tiêu đề và các lượt `system`/`user`; chỉ giữ nguyên ID token cho phần thân (`content + ["<|im_end|>", "\n"]`) khi `role == "assistant"`.
+3. Thực hiện dịch chuyển tự hồi quy (`shift_logits = logits[:-1]`, `shift_labels = y_masked[1:]`) và tính hàm mất mát bằng `F.cross_entropy(..., ignore_index=-100)`, so sánh với khi không dùng mặt nạ.
+
+<Starter nb="ch4-01-sft-loss-mask" />
+
+<Hints>
+
+<Hint>
+
+Với mỗi `msg` trong `messages`, phần `header` luôn gồm 3 token `["<|im_start|>", msg["role"], "\n"]` — mô hình không bao giờ phải tự đoán xem lượt tiếp theo là `user` hay `assistant`, nên nhãn của `header` luôn là `[-100, -100, -100]`.
+
+</Hint>
+
+<Hint>
+
+Trong mô hình ngôn ngữ tự hồi quy, vector logit tại vị trí $t$ (`logits[t]`) được dùng để dự đoán token ở vị trí $t+1$ (`input_ids[t+1]`). Do đó, trước khi gọi `F.cross_entropy`, bạn luôn phải cắt `logits[:-1]` và `labels[1:]`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch4-01-sft-loss-mask">
+
+Chuỗi sau khi đóng gói có tổng cộng 31 token, nhưng chỉ có đúng 9 token (29.0%) thuộc phần trả lời của `assistant` mang nhãn khác `-100`. Hàm mất mát có mặt nạ thấp hơn rõ rệt so với khi tính trên toàn chuỗi vì không bị phạt bởi các từ khó đoán trong câu hỏi của `user`.
+
+</Checkpoint>
+
+<Solution nb="ch4-01-sft-loss-mask" />
+
+<WhatToNotice>
+
+Hãy nhìn vào danh sách 9 token được học: ngoài các từ nội dung (`'Là'`, `'Paris.'`, `'Khoảng'`, `'2,1'`, `'triệu.'`), chúng ta **bắt buộc phải giữ lại `<|im_end|>` trong phần tính hàm mất mát (`mask = 1`)**. Nếu bạn vô tình gán `-100` cho `<|im_end|>`, mô hình sẽ không bao giờ học được xác suất dừng câu trả lời và sẽ tiếp tục sinh văn bản bất tận cho đến khi chạm giới hạn cửa sổ ngữ cảnh! Ngược lại, các token thuộc câu hỏi của người dùng vẫn nằm nguyên trong `input_ids` để các lớp Self-Attention của `assistant` đọc ngữ cảnh, nhưng bị chặn hoàn toàn ở tầng tính đạo hàm mục tiêu.
+
+</WhatToNotice>
+
+</Exercise>
+
+### 1.3 Giả thuyết Căn chỉnh Bề mặt (Superficial Alignment Hypothesis — LIMA)
+
+Khi mới làm quen với SFT, nhiều người lầm tưởng rằng giai đoạn này dạy cho mô hình những kiến thức mới. Nhưng hãy so sánh quy mô dữ liệu: tiền huấn luyện đọc **15.000 tỷ token** ($1.5 \times 10^{13}$), trong khi SFT thường chỉ chạy trên vài chục nghìn mẫu hội thoại (khoảng $10^7$ token — ít hơn một phần triệu!).
+
+Thậm chí, vào tháng 5 năm 2023, nhóm nghiên cứu của Zhou et al. [@zhou2023lima] đã đặt một câu hỏi táo bạo: **Cần tối thiểu bao nhiêu mẫu SFT để biến một mô hình nền tảng LLaMA 65B thành một trợ lý xuất sắc?** Câu trả lời của họ đã gây chấn động cộng đồng: chỉ cần đúng **1.000 mẫu hội thoại** được biên tập kỹ lưỡng!
+
+<PaperNote id="zhou2023lima" look="Hình 1 và Bảng 1: So sánh tỷ lệ thắng của LIMA (chỉ 1.000 mẫu SFT, không dùng RLHF) trước Alpaca 52.000 mẫu, DaVinci003 và GPT-4 trên 300 prompt thử nghiệm.">
+
+Nhóm tác giả từ Meta AI, CMU, USC và Tel Aviv University đã tuyển chọn 1.000 cuộc hội thoại (750 từ các diễn đàn hỏi đáp chuyên sâu như StackExchange/WikiHow và 250 do chính các tác giả tự viết) với văn phong trợ lý chuẩn mực, chi tiết và nhất quán. Họ tinh chỉnh mô hình nền tảng LLaMA 65B chỉ trong 15 epoch mà không dùng bất kỳ bước học tăng cường nào. Trong đánh giá mù của con người, LIMA đánh bại DaVinci003 (mô hình GPT-3.5 đã qua RLHF của OpenAI) và đạt kết quả tương đương hoặc tốt hơn Bard/Claude trong 43%–58% trường hợp. Từ đó, bài báo đề xuất **Giả thuyết Căn chỉnh Bề mặt (Superficial Alignment Hypothesis)**.
+</PaperNote>
+
+Các tác giả của LIMA đúc kết phát hiện này thành **Giả thuyết Căn chỉnh Bề mặt (Superficial Alignment Hypothesis)** [@zhou2023lima]:
+
+> *"Hầu hết mọi tri thức và năng lực của một mô hình ngôn ngữ đều đã được học trong quá trình tiền huấn luyện; giai đoạn căn chỉnh (alignment) thực chất chỉ dạy cho mô hình nên chọn định dạng và phong cách giao tiếp (subdistribution of formats) nào khi tương tác với người dùng."*
+
+Hệ quả thực tiễn của giả thuyết này cực kỳ sâu sắc: **Trong SFT, chất lượng dữ liệu quan trọng gấp bội số lượng**. 1.000 câu trả lời mạch lạc, chuẩn xác sẽ tạo ra một trợ lý thông minh hơn hẳn 100.000 câu trả lời cẩu thả thu thập tự động từ web.
+
+<Inset title="Khi nào SFT vô tình dạy mô hình nói dối (Hallucination)?">
+Một nghịch lý thú vị của SFT xảy ra khi ta tinh chỉnh mô hình trên một câu trả lời chứa thông tin sự kiện mà **bản thân mô hình nền tảng chưa từng biết trong quá trình tiền huấn luyện** (ví dụ: một sự kiện vừa xảy ra hôm qua, hoặc một kiến thức chuyên ngành quá hẹp).
+
+Vì mục tiêu của SFT là ép mô hình sinh ra câu trả lời tự tin của `assistant` bất kể trạng thái tri thức nội tại của nó, việc ép học các sự kiện lạ trong SFT sẽ dạy mô hình thói quen **"bịa đặt tự tin" (confident hallucination)** khi không biết câu trả lời! Do đó, nguyên tắc vàng của hậu huấn luyện hiện đại là: dùng tiền huấn luyện tiếp tục (*continued pre-training*) hoặc RAG (Chương 7) để nạp tri thức mới, và chỉ dùng SFT để định hình hành vi, phong cách cùng cấu trúc suy luận.
+</Inset>
+
+---
+
+## 2. Tinh chỉnh hiệu quả tham số (PEFT): LoRA và QLoRA
+
+Ở Mục 1, chúng ta đã biết hàm mất mát $\mathcal{L}_{\text{SFT}}(\theta)$ được tính như thế nào. Nhưng hãy làm một phép tính thực tế về bộ nhớ phần cứng (VRAM) khi bạn muốn tinh chỉnh toàn bộ tham số (*Full Fine-Tuning*) của một mô hình cỡ vừa như **Llama-3 8B** ($N = 8 \times 10^9$ tham số) ở độ chính xác `bfloat16` (2 byte mỗi tham số):
+
+- **Trọng số mô hình ($\theta$)**: $8 \times 10^9 \times 2\text{ B} = 16\text{ GB}$.
+- **Đạo hàm ($\nabla_\theta \mathcal{L}$)**: $8 \times 10^9 \times 2\text{ B} = 16\text{ GB}$.
+- **Trạng thái bộ tối ưu hóa AdamW** (bản sao trọng số FP32 + momen bậc nhất $m_t$ FP32 + momen bậc hai $v_t$ FP32): $8 \times 10^9 \times (4 + 4 + 4)\text{ B} = 96\text{ GB}$.
+
+Chưa tính bộ nhớ lưu các vector kích hoạt trung gian (*activations*), chỉ riêng việc giữ mô hình và bộ tối ưu hóa đã ngốn **$16 + 16 + 96 = 128\text{ GB}$ VRAM** — vượt xa các GPU phổ thông (16 GB – 24 GB) và thậm chí tràn cả một siêu GPU A100/H100 80 GB! Hơn nữa, nếu bạn muốn phục vụ 100 khách hàng với 100 mô hình tinh chỉnh riêng biệt, bạn sẽ phải lưu trữ 100 bản sao nặng $16\text{ GB}$ ($1.6\text{ TB}$ dung lượng ổ cứng).
+
+Có cách nào tinh chỉnh một mô hình hàng chục tỷ tham số mà **không cần cập nhật toàn bộ ma trận trọng số khổng lồ của nó** hay không?
+
+### 2.1 Chiều nội tại thấp và Phân rã ma trận hạng thấp (LoRA)
+
+Như Giả thuyết Căn chỉnh Bề mặt vừa chỉ ra, quá trình tinh chỉnh không dạy lại ngôn ngữ từ đầu mà chỉ điều chỉnh nhẹ hành vi của mô hình. Nói theo ngôn ngữ đại số tuyến tính: mặc dù ma trận trọng số gốc $W_0 \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$ có số chiều rất lớn (ví dụ $4096 \times 4096 \approx 16{,}7$ triệu tham số), phần **độ lệch cập nhật $\Delta W = W - W_0$** được học trong quá trình tinh chỉnh thực chất nằm trên một không gian con có **chiều nội tại rất thấp (low intrinsic dimension)**.
+
+Dựa trên nhận xét này, năm 2021, Edward Hu và các đồng nghiệp tại Microsoft đã giới thiệu **LoRA** (*Low-Rank Adaptation of Large Language Models*) [@hu2022] — thuật toán đã dân chủ hóa hoàn toàn việc tinh chỉnh LLM.
+
+<PaperNote id="hu2022" look="Hình 1 (sơ đồ tái tham số hóa BA) và Bảng 2, 3, 4: Trên GPT-3 175B, LoRA với hạng r = 4 chỉ huấn luyện 4.7M tham số (0.003% tổng số tham số) nhưng vẫn vượt qua Full Fine-Tuning trên cả WikiSQL, MNLI và SAMSum.">
+
+Được công bố trên arXiv tháng 6 năm 2021 và tại ICLR 2022, bài báo của Hu et al. xuất phát từ bài toán thực tế: làm sao tinh chỉnh GPT-3 175B mà không cần 1.2 TB VRAM cho các checkpoint. Các tác giả đóng băng toàn bộ trọng số gốc và chèn các cặp ma trận hạng thấp vào các lớp chiếu Attention. Trên GPT-3 175B, LoRA giảm dung lượng VRAM từ 1.2 TB xuống 350 GB, giảm kích thước file checkpoint từ 350 GB xuống chỉ còn 35 MB (nhỏ hơn 10.000 lần), tăng tốc độ huấn luyện thêm 25% và không gây ra bất kỳ độ trễ suy luận (inference latency) nào sau khi gộp trọng số.
+</PaperNote>
+
+Ý tưởng của LoRA đẹp đến mức tối giản. Xét một lớp tuyến tính bất kỳ trong khối Transformer có ma trận trọng số tiền huấn luyện $W_0 \in \mathbb{R}^{d_{\text{out}} \times d_{\text{in}}}$. Thay vì cập nhật trực tiếp $W_0$, ta **đóng băng hoàn toàn $W_0$** (không tính đạo hàm, không lưu trạng thái AdamW cho $W_0$), và biểu diễn ma trận cập nhật $\Delta W$ dưới dạng tích của hai ma trận thon dài có hạng $r \ll \min(d_{\text{in}}, d_{\text{out}})$:
+
+$$
+W = W_0 + \Delta W = W_0 + \frac{\alpha}{r} B A,
+$$
+
+trong đó:
+- $A \in \mathbb{R}^{r \times d_{\text{in}}}$ là ma trận chiếu giảm chiều từ $d_{\text{in}}$ xuống nút cổ chai $r$,
+- $B \in \mathbb{R}^{d_{\text{out}} \times r}$ là ma trận chiếu nâng chiều từ $r$ lên lại $d_{\text{out}}$,
+- $r \in \{2, 4, 8, 16, 32, 64\}$ là **hạng (rank)** của bộ thích nghi LoRA,
+- $\alpha$ là hằng số tỷ lệ (*scaling hyperparameter*, thường chọn $\alpha = r$ hoặc $\alpha = 2r$).
+
+Khi một vector đầu vào $x \in \mathbb{R}^{d_{\text{in}}}$ đi qua lớp LoRA, phép tính truyền xuôi (*forward pass*) diễn ra trên hai nhánh song song rồi cộng lại:
+
+$$
+h = W_0 x + \frac{\alpha}{r} B (A x).
+$$
+
+Hãy kiểm tra số lượng tham số cần huấn luyện! Nếu $d_{\text{in}} = d_{\text{out}} = 4096$ và ta chọn $r = 8$:
+- Ma trận gốc $W_0$ có $4096 \times 4096 = 16{,}777{,}216$ tham số.
+- Hai ma trận $A$ và $B$ chỉ có tổng cộng $2 \times 4096 \times 8 = 65{,}536$ tham số — tức là **chỉ bằng $0.39\%$** so với ma trận gốc!
+
+Hãy kéo các thanh trượt trong biểu đồ tương tác dưới đây để quan sát cấu trúc cổ chai của $B A$ và mức tiết kiệm VRAM thực tế.
+
+<HtmlEmbed
+  src="d3-ch4-lora-matrix.html"
+  title="Sơ đồ tương tác Nhánh LoRA và Bộ tính dung lượng VRAM (Full FT vs LoRA vs QLoRA)"
+  desc="Bên trái: Nhánh trọng số gốc W₀ (màu xanh lam) bị đóng băng hoàn toàn, trong khi nhánh thích nghi đi qua cổ chai chiều thấp r qua hai ma trận A (r × d) và B (d × r). Bên phải: Biểu đồ so sánh tổng dung lượng VRAM cần thiết (bao gồm Trọng số, Đạo hàm và trạng thái bộ tối ưu hóa AdamW) trên mô hình 32 lớp khi thay đổi hạng r và chiều ẩn d."
+/>
+
+### 2.2 Tại sao khởi tạo $A$ ngẫu nhiên và $B$ bằng $0$? Quy tắc chọn hạng $r$ và hệ số $\alpha$
+
+Nhìn vào sơ đồ trên, có ba câu hỏi thiết kế tinh tế mà mọi kỹ sư LLM đều phải nắm vững:
+
+1. **Tại sao khởi tạo $A \sim \mathcal{N}(0, \sigma^2)$ nhưng bắt buộc khởi tạo $B = 0$?**
+   Ở bước đầu tiên của quá trình tinh chỉnh ($t = 0$), ta muốn mô hình LoRA hành xử **giống hệt 100% mô hình tiền huấn luyện gốc** để không làm xáo trộn các biểu diễn đã học. Nhờ $B = 0$, tích $\Delta W = \frac{\alpha}{r} B A = 0$ tại $t = 0$.
+   *Nhưng tại sao không khởi tạo cả $A = 0$ và $B = 0$?* Nếu cả $A = 0$ lẫn $B = 0$, thì đạo hàm theo $A$ (vốn tỷ lệ với $B^\top$) và đạo hàm theo $B$ (tỷ lệ với $A^\top$) đều bằng $0$! Đó là một điểm yên ngựa chết (dead saddle point) khiến cả $A$ và $B$ mãi mãi bằng $0$. Khởi tạo $A$ ngẫu nhiên và $B = 0$ giúp $\Delta W = 0$ tại $t=0$, nhưng ngay ở bước lan truyền ngược đầu tiên, $\nabla_B \mathcal{L} \neq 0$ giúp $B$ thoát khỏi điểm $0$ và kéo theo $A$ cùng học ở các bước tiếp theo.
+
+2. **Tại sao cần hệ số chia $\frac{\alpha}{r}$?**
+   Khi khởi tạo $A$ và cập nhật $B$, độ lớn của tổng nội bộ $(B A x)$ tỷ lệ thuận với số chiều cổ chai $r$. Việc nhân với $\frac{\alpha}{r}$ giúp chuẩn hóa biên độ đầu ra của nhánh LoRA: khi bạn thử nghiệm tăng hạng từ $r = 8$ lên $r = 32$, bạn không cần phải dò lại tốc độ học (*learning rate*) từ đầu [@hu2022].
+
+3. **Không tốn thêm bất kỳ mili-giây nào khi suy luận (Zero Inference Overhead)!**
+   Sau khi huấn luyện xong $A$ và $B$, khi đưa mô hình vào triển khai thực tế, ta không cần giữ hai nhánh riêng biệt nữa. Vì phép nhân ma trận có tính phân phối, ta chỉ việc cộng gộp trực tiếp một lần duy nhất:
+   $$W_{\text{merged}} \leftarrow W_0 + \frac{\alpha}{r} B A.$$
+   Ma trận $W_{\text{merged}}$ có kích thước $d_{\text{out}} \times d_{\text{in}}$ y hệt $W_0$, nên tốc độ suy luận giống hệt mô hình gốc! Còn nếu muốn phục vụ 100 tác vụ khác nhau trên cùng một GPU, ta giữ nguyên $W_0$ trên VRAM và chỉ tráo đổi các cặp $(A_i, B_i)$ nặng vài chục MB theo từng yêu cầu.
+
+Hãy kiểm chứng cả ba tính chất này bằng cách tự cài đặt lớp `LoRALinear` trong Bài tập 4.2.
+
+<Exercise number="4.2" title="Cài đặt lớp LoRALinear và gộp trọng số sau tinh chỉnh" data="PyTorch" nb="ch4-02-lora-layer">
+
+Từ lớp tuyến tính `base_linear` ($512 \times 512$) trong mã khởi tạo:
+1. Viết lớp `LoRALinear(nn.Module)` đóng băng `base.weight` (`requires_grad_(False)`), khởi tạo tham số `lora_A` kích thước $(r, d_{\text{in}})$ từ phân phối chuẩn $\mathcal{N}(0, 0.02^2)$ và `lora_B` kích thước $(d_{\text{out}}, r)$ bằng toàn số $0$.
+2. Cài đặt hàm `forward(x)` tính $W_0 x + \frac{\alpha}{r} (x A^\top) B^\top$, kiểm tra sai lệch cực đại so với `base_linear(X)` tại $t = 0$ và đếm tỷ lệ tham số cần huấn luyện.
+3. Huấn luyện `lora_A` và `lora_B` trong 150 bước bằng `AdamW(lr=0.05)` để khớp đầu ra mục tiêu `Y_target`, sau đó cài đặt hàm `merged_weight()` tính $W_0 + \frac{\alpha}{r} B A$ và kiểm chứng đầu ra sau khi gộp trùng khớp với nhánh song song.
+
+<Starter nb="ch4-02-lora-layer" />
+
+<Hints>
+
+<Hint>
+
+Trong PyTorch, lớp `nn.Linear(d_in, d_out)` lưu ma trận trọng số ở dạng chuyển vị `(d_out, d_in)` và thực hiện phép tính `x @ weight.T`. Do đó, nếu `lora_A` có shape `(r, d_in)` và `lora_B` có shape `(d_out, r)`, thì với batch đầu vào `x` có shape `(batch, d_in)`, nhánh LoRA được tính cực nhanh qua `(x @ self.lora_A.T) @ self.lora_B.T`.
+
+</Hint>
+
+<Hint>
+
+Đừng bao giờ tính tích `(self.lora_B @ self.lora_A)` trước rồi mới nhân với `x` bên trong hàm `forward` lúc huấn luyện! Phép tính `(x @ A.T) @ B.T` chỉ tốn $O(\text{batch} \cdot r \cdot (d_{\text{in}} + d_{\text{out}}))$ phép nhân, trong khi tạo ma trận đầy đủ `B @ A` tốn $O(d_{\text{out}} \cdot d_{\text{in}} \cdot r)$. Chỉ khi huấn luyện xong và gọi `merged_weight()`, ta mới nhân `self.lora_B @ self.lora_A` một lần duy nhất.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch4-02-lora-layer">
+
+Tại $t = 0$, sai lệch giữa `LoRALinear` và `base_linear` bằng đúng `0.00e+00`. Chỉ với 4.096 tham số được huấn luyện (1.56% so với 262.144 tham số của $W_0$), hàm mất mát MSE giảm từ `0.451820` xuống `0.000014` sau 150 bước. Sau khi gộp vào một ma trận duy nhất, sai số số học dấu phẩy động chỉ là `1.19e-07`.
+
+</Checkpoint>
+
+<Solution nb="ch4-02-lora-layer" />
+
+<WhatToNotice>
+
+Hãy chú ý hai chi tiết kỹ thuật trong lời giải:
+1. Thứ tự kết hợp phép nhân ma trận `(x @ A.T) @ B.T`: bằng cách ép chiều từ $d_{\text{in}} = 512$ xuống cổ chai $r = 4$ trước rồi mới nâng lên $d_{\text{out}} = 512$, số phép nhân-cộng (FLOPs) của nhánh phụ giảm đi $\frac{512}{2 \times 4} = 64$ lần so với một lớp tuyến tính thông thường.
+2. Trong các kiến trúc Transformer hiện đại (như Llama-3, Qwen), các nghiên cứu thực nghiệm cho thấy áp dụng LoRA lên **tất cả các ma trận tuyến tính** (cả $W_q, W_k, W_v, W_o$ trong Attention lẫn $W_{\text{gate}}, W_{\text{up}}, W_{\text{down}}$ trong SwiGLU FFN) mang lại chất lượng tốt hơn rõ rệt so với việc chỉ gắn LoRA vào $W_q, W_v$ mà hầu như không tốn thêm bao nhiêu VRAM [@dettmers2023qlora].
+
+</WhatToNotice>
+
+</Exercise>
+
+### 2.3 QLoRA: Tinh chỉnh mô hình 65 tỷ tham số trên một GPU duy nhất
+
+Với LoRA, ta đã loại bỏ gần như hoàn toàn bộ nhớ cho đạo hàm và trạng thái AdamW. Tuy nhiên, ma trận gốc $W_0$ đóng băng vẫn phải nằm trên VRAM để phục vụ các phép nhân truyền xuôi và truyền ngược. Với mô hình 65 tỷ tham số ở dạng 16-bit, riêng $W_0$ đã chiếm $65 \times 2 = 130\text{ GB}$ VRAM!
+
+Tháng 5 năm 2023, Tim Dettmers và các cộng sự tại Đại học Washington đã giải quyết triệt để nút cổ chai cuối cùng này bằng **QLoRA** (*Quantized LoRA*) [@dettmers2023qlora]:
+- Toàn bộ trọng số gốc đóng băng $W_0$ được nén (lượng tử hóa) xuống định dạng **4-bit NormalFloat (NF4)**, chỉ tốn **$0.5\text{ byte}$ mỗi tham số** (giảm 4 lần so với `bfloat16`).
+- Trong quá trình huấn luyện, khi dữ liệu đi qua một lớp, trọng số $W_0$ 4-bit của lớp đó được giải nén tạm thời (*dequantize on-the-fly*) sang `bfloat16` để nhân với $x$, trong khi các ma trận LoRA $A, B$ vẫn được lưu trữ và cập nhật đạo hàm ở độ chính xác cao `bfloat16`.
+
+Nhờ QLoRA, một mô hình 8 tỷ tham số chỉ cần dưới **6 GB VRAM** để tinh chỉnh (chạy mượt mà trên một chiếc laptop hay Google Colab miễn phí), và một mô hình khổng lồ 65B–70B có thể được tinh chỉnh trọn vẹn trên một GPU 48 GB duy nhất mà không suy giảm chất lượng so với tinh chỉnh 16-bit [@dettmers2023qlora]!
+
+<Optional title="NormalFloat 4-bit (NF4) và Lượng tử hóa Kép (Double Quantization)">
+
+Tại sao QLoRA không dùng lượng tử hóa số nguyên 4-bit đều (`INT4` thông thường) mà lại phát minh ra kiểu dữ liệu **NF4 (4-bit NormalFloat)**?
+
+Trong mạng nơ-ron đã tiền huấn luyện, các trọng số trong mỗi ma trận $W_0$ không phân bố đều mà tuân theo **phân phối chuẩn (Gaussian) $\mathcal{N}(0, \sigma^2)$** tập trung dày đặc quanh giá trị $0$ và thưa dần ở hai đuôi. Nếu chia đều 16 mức lượng tử hóa ($2^4 = 16$) trên đoạn $[-1, 1]$, phần lớn các mức ở hai rìa sẽ bị bỏ phí trong khi vùng trung tâm quanh $0$ lại bị làm tròn quá thô.
+
+**NF4** chia miền giá trị thành 16 phần có **xác suất tích lũy bằng nhau (equal-mass quantiles)** dưới phân phối chuẩn tắc $\mathcal{N}(0, 1)$, sau đó chuẩn hóa về $[-1, 1]$. Về mặt lý thuyết thông tin, NF4 là kiểu dữ liệu 4-bit tối ưu cho các đại lượng phân bố chuẩn. Kết hợp với **Lượng tử hóa Kép (Double Quantization)** — tiếp tục nén chính các hằng số tỷ lệ lượng tử hóa (*quantization scales*) từ 32-bit xuống 8-bit — QLoRA giảm dung lượng lưu trữ trung bình từ 16 bit xuống chỉ còn **4.27 bit/tham số** [@dettmers2023qlora].
+
+</Optional>
+
+---
+
+## 3. Học tăng cường từ Phản hồi Con người (RLHF): Mô hình Phần thưởng và PPO
+
+Sau giai đoạn SFT (với LoRA/QLoRA), mô hình của chúng ta đã biết trả lời người dùng đúng định dạng trợ lý. Nhưng khi đưa vào sử dụng thực tế, các hạn chế bản chất của việc "học bắt chước" (*imitation learning*) trong SFT lập tức lộ diện.
+
+### 3.1 Tại sao SFT là chưa đủ? So sánh dễ hơn Viết mẫu
+
+Hãy nhìn vào cấu trúc toán học của hàm mất mát SFT: nó đối xử với mọi lỗi sai ở mức token theo cùng một cách. Một câu trả lời làm toán sai ở con số cuối cùng chỉ bị phạt đúng 1 token, trong khi một câu trả lời hoàn toàn chính xác nhưng dùng từ đồng nghĩa khác với người viết mẫu lại bị phạt nặng trên hàng chục token!
+
+Hơn nữa, việc yêu cầu người gán nhãn tự tay viết ra câu trả lời hoàn hảo cho hàng vạn câu hỏi phức tạp (từ lập trình, y học, pháp lý đến sáng tác văn chương) là cực kỳ tốn kém và không mở rộng được. Ngược lại, trong tâm lý học nhận thức có một nguyên lý bất biến: **Đánh giá và so sánh hai phương án luôn dễ hơn rất nhiều so với việc tự sáng tạo ra phương án tối ưu từ con số không** (*recognition is easier than generation*).
+
+Năm 2017, Paul Christiano và các cộng sự tại OpenAI & DeepMind đã chứng minh rằng ta có thể huấn luyện các tác tử học tăng cường giải quyết các bài toán phức tạp chỉ từ vài nghìn lượt con người chọn *"Video A tốt hơn Video B"* [@christiano2017]. Đến tháng 3 năm 2022, nhóm của Long Ouyang tại OpenAI đã áp dụng trọn vẹn quy trình 3 bước này lên GPT-3 để tạo ra **InstructGPT** [@ouyang2022] — tiền thân trực tiếp khai sinh ra ChatGPT.
+
+<PaperNote id="ouyang2022" look="Hình 2 (Sơ đồ 3 bước SFT -> Reward Model -> PPO) và Hình 1: Mô hình InstructGPT 1.3 tỷ tham số được người đánh giá ưa chuộng hơn hẳn mô hình gốc GPT-3 175 tỷ tham số (lớn gấp hơn 100 lần).">
+
+Bài báo InstructGPT (tháng 3 năm 2022) là cột mốc đưa kỹ thuật RLHF trở thành tiêu chuẩn vàng của ngành công nghiệp AI. Nhóm tác giả thuê 40 cộng tác viên gán nhãn để: (1) viết khoảng 13.000 mẫu chỉ dẫn cho bước SFT; (2) xếp hạng từ 4 đến 9 câu trả lời của mô hình trên 33.000 prompt để huấn luyện Mô hình Phần thưởng (Reward Model 6B tham số); và (3) tối ưu hóa mô hình SFT trên 31.000 prompt bằng thuật toán PPO. Kết quả thực nghiệm cho thấy người dùng ưu tiên câu trả lời của InstructGPT 1.3B hơn GPT-3 175B tới 85% thời gian, đồng thời giảm một nửa tỷ lệ bịa đặt thông tin (hallucination) trên TruthfulQA.
+</PaperNote>
+
+Quy trình **Học tăng cường từ Phản hồi Con người (Reinforcement Learning from Human Feedback — RLHF)** của InstructGPT [@ouyang2022] biến bài toán căn chỉnh thành hai bước nối tiếp nhau sau SFT:
+1. **Bước 2 — Huấn luyện Mô hình Phần thưởng (Reward Modeling)**: Dạy một mạng nơ-ron $r_\phi(x, y) \in \mathbb{R}$ chấm điểm độ "hữu ích, trung thực và vô hại" của câu trả lời $y$ cho câu hỏi $x$, dựa trên dữ liệu so sánh cặp của con người.
+2. **Bước 3 — Tối ưu hóa Chính sách bằng Học tăng cường (RL Policy Optimization)**: Dùng mô hình phần thưởng $r_\phi$ làm giám khảo tự động để tinh chỉnh mô hình ngôn ngữ $\pi_\theta(y \mid x)$ sinh ra các câu trả lời đạt điểm cao.
+
+### 3.2 Mô hình Sở thích Bradley–Terry và Hàm mất mát Xếp hạng Cặp
+
+Làm thế nào để huấn luyện một mô hình phần thưởng $r_\phi(x, y)$ xuất ra một con số thực duy nhất khi người gán nhãn **không hề cho điểm số tuyệt đối** (vì mỗi người có một thang điểm chủ quan khác nhau), mà chỉ cho biết trong hai câu trả lời $(y_w, y_l)$ cho cùng một prompt $x$, câu trả lời $y_w$ (*winner / chosen*) tốt hơn câu trả lời $y_l$ (*loser / rejected*)?
+
+Chúng ta sử dụng **mô hình xác suất sở thích Bradley–Terry (1952)**: xác suất để con người ưa thích $y_w$ hơn $y_l$ được mô hình hóa bằng hàm logistic ($\sigma(z) = \frac{1}{1 + e^{-z}}$) của **hiệu số điểm thưởng** giữa hai câu trả lời:
+
+$$
+P(y_w \succ y_l \mid x) = \sigma\!\Big(r_\phi(x, y_w) - r_\phi(x, y_l)\Big) = \frac{1}{1 + \exp\!\big(-(r_\phi(x, y_w) - r_\phi(x, y_l))\big)}.
+$$
+
+Về mặt kiến trúc, Mô hình Phần thưởng $r_\phi$ được khởi tạo từ chính một mô hình SFT, trong đó ta bỏ lớp chiếu từ vựng (`lm_head` kích thước $d_{\text{model}} \times |V|$) ở cuối và thay bằng một **đầu tuyến tính vô hướng (`score_head` kích thước $d_{\text{model}} \times 1$)**. Khi đọc chuỗi ghép $[x, y]$, vector trạng thái ẩn của **token cuối cùng** được chiếu qua `score_head` để cho ra điểm thưởng $r_\phi(x, y) \in \mathbb{R}$.
+
+Với tập dữ liệu sở thích $\mathcal{D} = \{(x^{(i)}, y_w^{(i)}, y_l^{(i)})\}_{i=1}^N$, ta huấn luyện $r_\phi$ bằng cách cực đại hóa log-likelihood của các lựa chọn đúng (tức cực tiểu hóa hàm mất mát phân loại nhị phân trên hiệu điểm thưởng) [@christiano2017; @ouyang2022]:
+
+$$
+\mathcal{L}_{\text{RM}}(\phi) = -\mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \Big[ \log \sigma\!\Big(r_\phi(x, y_w) - r_\phi(x, y_l)\Big) \Big].
+$$
+
+Hãy chú ý tính chất bất biến dịch chuyển của phương trình này: nếu bạn cộng thêm một hằng số $+10$ vào cả $r_\phi(x, y_w)$ và $r_\phi(x, y_l)$, hiệu số $r_\phi(x, y_w) - r_\phi(x, y_l)$ không hề thay đổi! Nhờ đó, mô hình phần thưởng chỉ cần tập trung học thứ tự xếp hạng tương đối giữa các câu trả lời cho cùng một câu hỏi $x$. (Khi quy mô dữ liệu lớn, người ta cũng có thể dùng một LLM mạnh chấm điểm thay con người dựa trên một bản hiến pháp nguyên tắc — kỹ thuật **RLAIF / Constitutional AI** của Bai et al. [@bai2022constitutional]).
+
+### 3.3 Tối ưu hóa Chính sách với Ràng buộc KL (PPO) và Hiện tượng Hack phần thưởng
+
+Sau khi đã có mô hình phần thưởng $r_\phi(x, y)$ cố định, ta bước sang giai đoạn Học tăng cường: coi mô hình ngôn ngữ đang cần căn chỉnh là một **chính sách (policy)** $\pi_\theta(y \mid x)$ nhận "trạng thái" là prompt $x$ và thực hiện "hành động" là sinh ra chuỗi phản hồi $y$.
+
+Tuy nhiên, tại sao ta không thể tính đạo hàm trực tiếp $\nabla_\theta r_\phi(x, y)$ để cập nhật $\theta$ như một mạng nơ-ron bình thường? Bởi vì để đưa văn bản $y$ vào mô hình phần thưởng, ta phải **lấy mẫu các token rời rạc** $y \sim \pi_\theta(\cdot \mid x)$, và phép lấy mẫu rời rạc là không khả vi (*non-differentiable*)! Đây chính là lý do ta phải dùng các thuật toán đạo hàm chính sách (*Policy Gradient*) trong Học tăng cường như **PPO** (*Proximal Policy Optimization*) của Schulman et al. [@schulman2017ppo].
+
+Nhưng một thảm họa còn lớn hơn đang chờ đợi nếu bạn chỉ đơn thuần cực đại hóa $\mathbb{E}_{y \sim \pi_\theta}[r_\phi(x, y)]$. Hãy nhớ rằng $r_\phi(x, y)$ chỉ là một mạng nơ-ron xấp xỉ không hoàn hảo được huấn luyện trên vài chục nghìn mẫu hữu hạn. Nếu chính sách $\pi_\theta$ được tự do thay đổi không giới hạn để săn điểm cao từ $r_\phi$, nó sẽ nhanh chóng tìm ra các "vùng mù" (*out-of-distribution adversarial examples*) của mô hình phần thưởng:
+- Ví dụ, nếu người gán nhãn thường thích các câu trả lời lịch sự và có gạch đầu dòng, mô hình sẽ học cách lặp đi lặp lại hàng trăm từ *"Tuyệt vời! Xuất sắc! Hoàn hảo! 1) ... 2) ..."* hoàn toàn vô nghĩa nhưng lại khiến $r_\phi$ chấm điểm $+\infty$!
+- Hiện tượng này được gọi là **Hack phần thưởng (Reward Hacking)** hay **Tối ưu hóa quá mức (Over-optimization)** — một biểu hiện kinh điển của **Định luật Goodhart**: *"Khi một thước đo trở thành mục tiêu tối ưu, nó không còn là một thước đo tốt nữa."*
+
+Để ngăn chặn $\pi_\theta$ rời quá xa vùng ngôn ngữ tự nhiên đã học, bài toán RLHF chuẩn [@ouyang2022] luôn giữ lại một bản sao đóng băng của mô hình SFT ban đầu làm **chính sách tham chiếu (reference policy)** $\pi_{\text{ref}}$, và trừ đi một khoản phạt **Phân kỳ Kullback–Leibler (KL Divergence)** với hệ số $\beta > 0$:
+
+$$
+\max_{\pi_\theta} \; \mathbb{E}_{x \sim \mathcal{D},\, y \sim \pi_\theta(\cdot \mid x)} \Big[ r_\phi(x, y) \Big] - \beta \, D_{\text{KL}}\!\Big( \pi_\theta(y \mid x) \;\Big\|\; \pi_{\text{ref}}(y \mid x) \Big),
+$$
+
+hay viết gộp dưới dạng phần thưởng hiệu chỉnh trên mỗi mẫu $y$:
+
+$$
+R_{\text{total}}(x, y) = r_\phi(x, y) - \beta \log \frac{\pi_\theta(y \mid x)}{\pi_{\text{ref}}(y \mid x)}.
+$$
+
+Mỗi khi mô hình $\pi_\theta$ đẩy xác suất của một chuỗi kỳ dị lên cao gấp nhiều lần xác suất mà mô hình SFT gốc $\pi_{\text{ref}}$ gán cho nó, tỷ số $\log \frac{\pi_\theta(y \mid x)}{\pi_{\text{ref}}(y \mid x)}$ sẽ tăng vọt và kéo điểm thưởng tổng xuống. Hãy tự mình điều chỉnh hệ số $\beta$ trong biểu đồ tương tác dưới đây để chứng kiến tận mắt ranh giới giữa vùng cân bằng tối ưu và vực thẳm Reward Hacking.
+
+<HtmlEmbed
+  src="d3-ch4-rlhf-kl.html"
+  title="Biên Pareto giữa Điểm thưởng r_φ(x, y) và Phân kỳ KL — Hiện tượng Hack phần thưởng"
+  desc="Đường nét đứt (cam) là điểm số do Mô hình Phần thưởng xấp xỉ r_φ chấm; đường nét liền (xanh lá) là chất lượng thực sự theo đánh giá của con người R_gold. Khi giảm hệ số phạt β xuống quá nhỏ, mô hình rời xa π_ref (D_KL lớn) để trục lợi lỗi của r_φ, khiến chất lượng văn bản thực tế sụp đổ (vùng màu đỏ bên phải). Hãy kéo thanh trượt β hoặc bấm vào 3 mốc cài đặt sẵn để đọc phản hồi thực tế của mô hình."
+/>
+
+---
+
+## 4. Tối ưu hóa Sở thích Trực tiếp (Direct Preference Optimization — DPO)
+
+Mặc dù RLHF với PPO [@schulman2017ppo; @ouyang2022] cực kỳ thành công, việc triển khai nó trong thực tế lại là một cơn ác mộng kỹ thuật:
+1. Bạn phải huấn luyện một Mô hình Phần thưởng riêng biệt, rồi trong vòng lặp PPO phải nạp **cùng lúc 4 mô hình khổng lồ lên VRAM**: Chính sách $\pi_\theta$ (đang học), Tham chiếu $\pi_{\text{ref}}$ (đóng băng), Phần thưởng $r_\phi$ (đóng băng), và Mạng giá trị Critic $V_\psi$ (đang học để ước lượng baseline từng token).
+2. Trong mỗi bước PPO, bạn phải chạy giải mã tự hồi quy (*autoregressive sampling*) để sinh văn bản mới, rất chậm và cực kỳ nhạy cảm với siêu tham số.
+
+Tháng 5 năm 2023, Rafael Rafailov và các đồng nghiệp tại Đại học Stanford đã đặt ra một câu hỏi làm thay đổi hoàn toàn bức tranh hậu huấn luyện: **Liệu ta có thể giải trực tiếp bài toán tối ưu hóa RLHF bằng biến đổi đại số và loại bỏ hoàn toàn cả Mô hình Phần thưởng lẫn vòng lặp RL hay không?** Câu trả lời là **DPO** (*Direct Preference Optimization*) [@rafailov2023].
+
+### 4.1 Nghiệm giải tích của bài toán RLHF có ràng buộc KL
+
+Hãy nhìn lại hàm mục tiêu RLHF có phạt phân kỳ KL ở phương trình của Mục 3.3 với một hàm phần thưởng $r(x, y)$ bất kỳ:
+
+$$
+\max_{\pi} \; \mathbb{E}_{y \sim \pi(\cdot \mid x)} \left[ r(x, y) - \beta \log \frac{\pi(y \mid x)}{\pi_{\text{ref}}(y \mid x)} \right].
+$$
+
+Bằng cách rút $-\beta$ ra ngoài và biến đổi biểu thức bên trong thành một phân kỳ KL, bài toán cực đại hóa trên thực chất có **nghiệm tối ưu dạng đóng (closed-form optimal policy)** $\pi^*(y \mid x)$ thuộc phân phối Gibbs–Boltzmann [@rafailov2023]:
+
+$$
+\pi^*(y \mid x) = \frac{1}{Z(x)} \, \pi_{\text{ref}}(y \mid x) \exp\!\left( \frac{1}{\beta} r(x, y) \right),
+$$
+
+trong đó $Z(x) = \sum_{y} \pi_{\text{ref}}(y \mid x) \exp\!\left(\frac{1}{\beta} r(x, y)\right)$ là **hàm phân hoạch (partition function)** chỉ phụ thuộc vào prompt $x$ (nhằm đảm bảo tổng xác suất của mọi câu trả lời khả dĩ bằng $1$). Trong thực tế, ta không bao giờ tính nổi $Z(x)$ vì không gian mọi chuỗi văn bản $y$ là vô hạn.
+
+### 4.2 Biến đổi đại số DPO: Mô hình ngôn ngữ vốn dĩ là một mô hình phần thưởng
+
+Bước ngoặt thiên tài của Rafailov et al. [@rafailov2023] nằm ở chỗ: thay vì tính $\pi^*$ từ $r(x, y)$, **hãy lấy logarit hai vế của phương trình trên và rút ngược hàm phần thưởng $r(x, y)$ theo chính sách tối ưu $\pi^*$!**
+
+Lấy $\log$ hai vế và nhân với $\beta$, ta thu được ngay lập tức mối liên hệ 1-1:
+
+$$
+r(x, y) = \beta \log \frac{\pi^*(y \mid x)}{\pi_{\text{ref}}(y \mid x)} + \beta \log Z(x).
+$$
+
+Bây giờ, hãy đem biểu thức $r(x, y)$ này thế trực tiếp vào mô hình sở thích cặp Bradley–Terry của Mục 3.2:
+
+$$
+P(y_w \succ y_l \mid x) = \sigma\!\Big( r(x, y_w) - r(x, y_l) \Big).
+$$
+
+Vì cả $y_w$ và $y_l$ đều trả lời cho **cùng một prompt $x$**, khi lấy hiệu $r(x, y_w) - r(x, y_l)$, đại lượng bất khả tính $\beta \log Z(x)$ ở hai số hạng **triệt tiêu nhau hoàn toàn**! Thay chính sách $\pi_\theta$ vào, ta định nghĩa **phần thưởng ẩn (implicit reward)** do chính mô hình ngôn ngữ tạo ra:
+
+$$
+\hat{r}_\theta(x, y) = \beta \log \frac{\pi_\theta(y \mid x)}{\pi_{\text{ref}}(y \mid x)},
+$$
+
+và thu được **Hàm mất mát DPO (Direct Preference Optimization Loss)** [@rafailov2023]:
+
+$$
+\mathcal{L}_{\text{DPO}}(\pi_\theta; \pi_{\text{ref}}) = -\mathbb{E}_{(x, y_w, y_l) \sim \mathcal{D}} \left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)} \right) \right].
+$$
+
+<PaperNote id="rafailov2023" look="Phương trình (4) đến (7): Phép biến đổi rút r(x,y) và triệt tiêu hàm phân hoạch Z(x), cùng Hình 2 và Hình 3 so sánh biên Pareto Reward–KL của DPO vượt qua PPO.">
+
+Được công bố tại NeurIPS 2023 bởi nhóm tác giả từ Đại học Stanford (Rafael Rafailov, Archit Sharma, Eric Mitchell, Stefano Ermon, Christopher D. Manning và Chelsea Finn), bài báo có tiêu đề phụ nổi tiếng: *"Your Language Model is Secretly a Reward Model"*. Bằng cách chỉ ra sự tương đương toán học giữa việc học mô hình phần thưởng rồi chạy RL có ràng buộc KL với việc tối ưu trực tiếp log-tỷ số xác suất trên cặp dữ liệu sở thích, DPO biến toàn bộ quy trình RLHF phức tạp thành một hàm mất mát Cross-Entropy nhị phân đơn giản, ổn định như SFT. DPO nhanh chóng được áp dụng để huấn luyện Zephyr, Mixtral-Instruct, Llama-3 và Qwen-2.
+</PaperNote>
+
+Hãy dừng lại một nhịp để chiêm ngưỡng vẻ đẹp của công thức $\mathcal{L}_{\text{DPO}}$:
+- Không còn mô hình phần thưởng $r_\phi$ riêng biệt!
+- Không còn mạng giá trị Critic $V_\psi$!
+- Không cần lấy mẫu tự hồi quy hay tinh chỉnh siêu tham số RL đỏng đảnh!
+- Toàn bộ bài toán căn chỉnh sở thích chỉ còn là một phép truyền xuôi tính tổng log-xác suất $\log \pi_\theta(y \mid x) = \sum_{t} \log P_\theta(y_t \mid x, y_{<t})$ trên hai chuỗi có sẵn $(y_w, y_l)$ trong tập dữ liệu, giống hệt như huấn luyện phân loại nhị phân!
+
+### 4.3 Phân tích đạo hàm của DPO và Cài đặt thực hành
+
+Tại sao cập nhật bằng $\mathcal{L}_{\text{DPO}}$ lại hiệu quả hơn nhiều so với việc đơn thuần tăng xác suất của $y_w$ và giảm xác suất của $y_l$ một cách mù quáng? Hãy lấy đạo hàm của $\mathcal{L}_{\text{DPO}}$ theo tham số $\theta$ [@rafailov2023]:
+
+$$
+\nabla_\theta \mathcal{L}_{\text{DPO}}(\pi_\theta; \pi_{\text{ref}}) = -\beta \, \mathbb{E}_{(x, y_w, y_l)} \Big[ \underbrace{\sigma\!\big(\hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w)\big)}_{\text{Trọng số thích nghi theo độ sai lệch}} \Big( \underbrace{\nabla_\theta \log \pi_\theta(y_w \mid x)}_{\text{Tăng xác suất } y_w} - \underbrace{\nabla_\theta \log \pi_\theta(y_l \mid x)}_{\text{Giảm xác suất } y_l} \Big) \Big].
+$$
+
+Biểu thức đạo hàm này giải thích toàn bộ động lực học của DPO:
+1. Thành phần $(\nabla_\theta \log \pi_\theta(y_w \mid x) - \nabla_\theta \log \pi_\theta(y_l \mid x))$ đẩy xác suất sinh câu trả lời tốt $y_w$ lên và kéo xác suất sinh câu trả lời tệ $y_l$ xuống.
+2. Hệ số đứng trước $\sigma(\hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w)) \in (0, 1)$ đóng vai trò **bộ điều tiết tự động**: nếu một cặp $(y_w, y_l)$ đã được mô hình phân biệt đúng với biên độ lớn ($\hat{r}_\theta(x, y_w) \gg \hat{r}_\theta(x, y_l)$), hệ số $\sigma(\cdot)$ sẽ tiến về $0$ để ngừng ép mô hình thay đổi quá đà. Ngược lại, nếu mô hình đang xếp hạng sai ($\hat{r}_\theta(x, y_l) > \hat{r}_\theta(x, y_w)$), hệ số này tiến gần $1$ để tập trung sửa chữa sai lầm đó!
+
+Nếu bỏ đi hệ số trọng số thích nghi $\sigma(\hat{r}_\theta(x, y_l) - \hat{r}_\theta(x, y_w))$ (tức chỉ tối ưu hiệu $\log \pi_\theta(y_w) - \log \pi_\theta(y_l)$, còn gọi là *Unlikelihood*), mô hình sẽ nhanh chóng suy thoái ngôn ngữ vì tiếp tục đẩy xác suất $y_l$ xuống $-\infty$ ngay cả khi $y_l$ đã rất thấp.
+
+Hãy tự tay cài đặt hàm mất mát DPO và kiểm chứng tính chất đạo hàm biên này trong Bài tập 4.4.
+
+<Exercise number="4.4" title="Cài đặt hàm mất mát DPO và phân tích đạo hàm biên" data="Preferences" nb="ch4-03-dpo-loss">
+
+Trong mã khởi tạo, ta có một batch $B = 4$ cặp phản hồi được chọn `y_w` và bị loại `y_l` (mỗi chuỗi dài $T = 6$ token), cùng các tensor logit của mô hình tham chiếu `ref_logits` và mô hình chính sách `pi_logits` (khởi tạo bằng đúng `ref_logits` tại $t = 0$):
+1. Viết hàm `sequence_logprob(logits, tokens)` tính $\log \pi(y \mid x) = \sum_{t=1}^T \log P(y_t \mid x, y_{<t})$ bằng `F.log_softmax` và `.gather()`.
+2. Viết hàm `dpo_loss(...)` tính phần thưởng ẩn $\hat{r}_w = \beta (\log \pi_\theta(y_w \mid x) - \log \pi_{\text{ref}}(y_w \mid x))$ và $\hat{r}_l$ tương ứng, biên độ $\Delta \hat{r} = \hat{r}_w - \hat{r}_l$, hàm mất mát $-\text{mean}(\log \sigma(\Delta \hat{r}))$ (dùng `F.logsigmoid`), và trọng số đạo hàm biên $\sigma(-\Delta \hat{r})$.
+3. Kiểm tra giá trị hàm mất mát tại bước khởi tạo $t = 0$ (phải bằng đúng $\ln 2 \approx 0.693147$), sau đó chạy 10 bước cập nhật SGD để quan sát biên độ phần thưởng ẩn tăng dương và trọng số đạo hàm biên giảm dần.
+
+<Starter nb="ch4-03-dpo-loss" />
+
+<Hints>
+
+<Hint>
+
+Khi `logits` có shape `(B, T, V)` và `tokens` có shape `(B, T)`, sau khi tính `log_probs = F.log_softmax(logits, dim=-1)`, bạn dùng `log_probs.gather(dim=-1, index=tokens.unsqueeze(-1)).squeeze(-1)` để lấy log-xác suất của đúng token mục tiêu tại mỗi vị trí $(b, t)$, rồi gọi `.sum(dim=-1)` để cộng dọc theo chiều chuỗi $T$.
+
+</Hint>
+
+<Hint>
+
+Để đảm bảo độ ổn định số học tuyệt đối, luôn sử dụng `-F.logsigmoid(margins).mean()` thay vì `-torch.log(torch.sigmoid(margins)).mean()`. Đừng quên bọc phần tính log-prob của mô hình tham chiếu `ref_w, ref_l` trong `with torch.no_grad():`.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch4-03-dpo-loss">
+
+Tại $t = 0$, vì $\pi_\theta = \pi_{\text{ref}}$ nên $\hat{r}_w = \hat{r}_l = 0$, dẫn đến $\mathcal{L}_{\text{DPO}} = -\log \sigma(0) = \ln(2) = 0.693147$. Sau 10 bước cập nhật, hàm mất mát giảm xuống `0.214836`, biên độ phần thưởng ẩn trung bình tăng lên `+1.4125`, độ chính xác sở thích đạt `100.0%` và trọng số đạo hàm biên tự động giảm từ `0.5000` xuống `0.1958`.
+
+</Checkpoint>
+
+<Solution nb="ch4-03-dpo-loss" />
+
+<WhatToNotice>
+
+Giá trị $\ln(2) \approx 0.6931$ tại bước khởi tạo $t = 0$ là **bài kiểm tra bắt buộc (sanity check)** khi bạn cài đặt hoặc chạy DPO trong thực tế! Nếu ở bước đầu tiên của quá trình huấn luyện DPO (khi chưa cập nhật trọng số nào nên $\pi_\theta \equiv \pi_{\text{ref}}$), log huấn luyện của bạn không bắt đầu ở con số `0.6931`, chắc chắn đã có lỗi trong cách căn chỉnh mặt nạ token hoặc truyền nhầm mô hình tham chiếu.
+
+</WhatToNotice>
+
+</Exercise>
+
+<Optional title="So sánh trực diện PPO và DPO: Khi nào DPO gặp giới hạn?">
+
+Nếu DPO vừa đơn giản, vừa tiết kiệm bộ nhớ lại tương đương toán học với RLHF, tại sao các phòng thí nghiệm hàng đầu vẫn kết hợp cả RL trực tuyến (Online RL)?
+
+Sự khác biệt nằm ở **phân phối dữ liệu (Off-policy vs On-policy)**:
+- **DPO thuần túy là thuật toán Ngoại tuyến (Offline / Off-policy)**: Cặp dữ liệu $(y_w, y_l)$ được thu thập cố định từ trước. Khi $\pi_\theta$ thay đổi trong quá trình huấn luyện, nó không tự sinh ra câu trả lời mới để nhận phản hồi trên chính những lỗi mới phát sinh của nó. Ngoài ra, trên một số bài toán suy luận dài, DPO đôi khi gặp hiện tượng giảm đồng thời xác suất của cả $y_w$ lẫn $y_l$ (miễn là $\log \pi_\theta(y_l)$ giảm nhanh hơn $\log \pi_\theta(y_w)$).
+- **Online RL (PPO / GRPO) là thuật toán Trực tuyến (On-policy)**: Mô hình tự sinh ra các phản hồi mới $y \sim \pi_\theta(\cdot \mid x)$ ở mỗi bước và được chấm điểm ngay lập tức. Nhờ đó, trên các bài toán đòi hỏi chuỗi suy luận hàng nghìn bước như Toán học và Lập trình, Học tăng cường trực tuyến phát huy sức mạnh vượt trội — đưa chúng ta tới bước đột phá của Mục 5.
+
+</Optional>
+
+---
+
+## 5. Học tăng cường với Phần thưởng Kiểm chứng được (RLVR & GRPO — DeepSeek-R1)
+
+Cho đến năm 2024, cả SFT, RLHF lẫn DPO đều xoay quanh một triết lý chung: **dạy mô hình bắt chước hoặc chiều lòng đánh giá của con người**. Nhưng đối với các bài toán đòi hỏi tư duy logic sâu sắc như chứng minh toán học, giải thuật lập trình hay suy luận khoa học, cách tiếp cận này vấp phải hai rào cản lớn:
+1. Con người rất dễ bị đánh lừa bởi một lời giải viết trình bày đẹp mắt nhưng sai ở một bước biến đổi đại số nhỏ ở dòng thứ 20 (hiện tượng *sycophancy* và lỗi của Mô hình Phần thưởng nơ-ron $r_\phi$).
+2. Nếu ép mô hình bắt chước từng bước suy nghĩ do con người viết mẫu, mô hình sẽ không bao giờ khám phá ra được các chiến lược suy luận mới hiệu quả hơn cho chính kiến trúc của nó.
+
+### 5.1 Từ phần thưởng cảm tính đến phần thưởng kiểm chứng được (RLVR)
+
+Điều gì xảy ra nếu bài toán có **đáp án khách quan, kiểm chứng được 100% bằng quy tắc hoặc trình biên dịch** (*Verifiable Rewards*)?
+- Với một bài toán đại số trong tập GSM8K hay MATH, dù mô hình nháp dài 10 dòng hay 500 dòng, ta chỉ cần trích xuất đáp số cuối cùng trong thẻ `<answer>...</answer>` và so sánh với đáp án chuẩn!
+- Với một bài toán lập trình, ta chỉ cần chạy đoạn mã mô hình sinh ra qua bộ kiểm thử (*unit tests*): vượt qua toàn bộ test thì nhận thưởng $+1$, sai hoặc lỗi cú pháp thì nhận $0$.
+
+Hướng tiếp cận này được gọi là **Học tăng cường với Phần thưởng Kiểm chứng được (Reinforcement Learning with Verifiable Rewards — RLVR)**. Bộ chấm điểm quy tắc (*rule-based verifier*) không phải là một mạng nơ-ron khả nghi, nên mô hình **không thể dùng văn hoa tán dương để "hack phần thưởng"** — cách duy nhất để nhận điểm cao là thực sự tìm ra lời giải đúng!
+
+### 5.2 Group Relative Policy Optimization (GRPO): Loại bỏ mạng Critic bằng chuẩn hóa nhóm
+
+Khi quay lại với Học tăng cường trực tuyến cho các chuỗi suy luận dài hàng nghìn token, rào cản lớn nhất của PPO [@schulman2017ppo] là **Mạng giá trị Critic $V_\psi$**. Trong PPO chuẩn, để biết một token hay một câu trả lời là "tốt hơn hay kém hơn mức kỳ vọng trung bình" (tức đại lượng **Lợi thế — Advantage** $A_t$), ta phải huấn luyện thêm một mạng Critic $V_\psi$ có kích thước ngang ngửa mô hình chính sách $\pi_\theta$ (ví dụ thêm một mô hình 70B hay 671B tham số nữa!), vừa tốn gấp đôi bộ nhớ VRAM vừa rất khó ước lượng chính xác khi phần thưởng chỉ xuất hiện ở token cuối cùng của chuỗi suy luận.
+
+Trong công trình **DeepSeekMath** [@shao2024deepseekmath] và sau đó là **DeepSeek-R1** [@deepseek2025r1], nhóm nghiên cứu DeepSeek đã giới thiệu thuật toán **Group Relative Policy Optimization (GRPO)** — giải pháp loại bỏ hoàn toàn mạng Critic bằng một ý tưởng thống kê cực kỳ thanh lịch:
+
+Thay vì dùng mạng nơ-ron để đoán điểm kỳ vọng của câu hỏi $q$, **ta hãy lấy mẫu một nhóm $G$ câu trả lời độc lập $\{o_1, o_2, \dots, o_G\}$ từ chính sách hiện tại $\pi_{\theta_{\text{old}}}(\cdot \mid q)$ cho cùng một câu hỏi $q$, chấm điểm từng câu để được $\{r_1, r_2, \dots, r_G\}$, rồi lấy chính điểm trung bình của nhóm đó làm mốc cơ sở (baseline)!**
+
+Cụ thể, **Lợi thế tương đối theo nhóm (Group-Normalized Advantage)** $A_i$ của câu trả lời thứ $i$ (được gán chung cho mọi token thuộc $o_i$) được tính trực tiếp bằng chuẩn hóa $z$-score trong nhóm [@shao2024deepseekmath; @deepseek2025r1]:
+
+$$
+A_i = \frac{r_i - \text{mean}(r_1, r_2, \dots, r_G)}{\text{std}(r_1, r_2, \dots, r_G) + \varepsilon}.
+$$
+
+Nếu câu trả lời $o_i$ giải đúng và tuân thủ định dạng tốt hơn mức trung bình của $G$ lần thử trên cùng bài toán đó, nó nhận $A_i > 0$ (được tăng xác suất). Nếu nó giải sai hoặc rườm rà kém hơn các câu trả lời khác trong nhóm, nó nhận $A_i < 0$ (bị giảm xác suất).
+
+Hàm mục tiêu của **GRPO** kết hợp cơ chế cắt tỉ số xác suất (*clipped surrogate*) của PPO với bộ ước lượng phân kỳ KL không âm của Schulman [@shao2024deepseekmath; @deepseek2025r1]:
+
+$$
+\mathcal{J}_{\text{GRPO}}(\theta) = \mathbb{E}_{q \sim \mathcal{D},\, \{o_i\}_{i=1}^G \sim \pi_{\theta_{\text{old}}}(\cdot \mid q)} \left[ \frac{1}{G} \sum_{i=1}^{G} \Big( \min\!\big( \rho_i(\theta) A_i, \; \text{clip}(\rho_i(\theta), 1-\epsilon, 1+\epsilon) A_i \big) - \beta \, \mathbb{D}_{\text{KL}}(\pi_\theta \,\|\, \pi_{\text{ref}}) \Big) \right],
+$$
+
+trong đó $\rho_i(\theta) = \frac{\pi_\theta(o_i \mid q)}{\pi_{\theta_{\text{old}}}(o_i \mid q)}$ là tỉ số xác suất giữa chính sách mới và chính sách cũ, còn hạng tử phạt phân kỳ KL được ước lượng không thiên lệch và luôn không âm qua công thức:
+
+$$
+\mathbb{D}_{\text{KL}}(\pi_\theta \,\|\, \pi_{\text{ref}}) = \frac{\pi_{\text{ref}}(o_i \mid q)}{\pi_\theta(o_i \mid q)} - \log \frac{\pi_{\text{ref}}(o_i \mid q)}{\pi_\theta(o_i \mid q)} - 1 \ge 0.
+$$
+
+### 5.3 Khoảnh khắc "Aha" và sự trỗi dậy tự nhiên của Chuỗi suy luận
+
+Tháng 1 năm 2025, DeepSeek-AI đã thực hiện một thí nghiệm lịch sử mang tên **DeepSeek-R1-Zero** [@deepseek2025r1]: họ lấy trực tiếp mô hình nền tảng *DeepSeek-V3-Base* (671 tỷ tham số MoE), **bỏ qua hoàn toàn giai đoạn SFT**, và chỉ chạy thuần túy thuật toán GRPO với hai phần thưởng quy tắc đơn giản:
+1. **Phần thưởng độ chính xác (Accuracy Reward)**: Đáp số toán học hoặc kết quả chạy code có đúng không?
+2. **Phần thưởng định dạng (Format Reward)**: Quá trình suy nghĩ có nằm trong cặp thẻ `<think>...</think>` và kết luận trong `<answer>...</answer>` không?
+
+<PaperNote id="deepseek2025r1" look="Hình 2 (Độ dài chuỗi suy luận tự động tăng dần theo số bước RL) và Bảng 3 (Khoảnh khắc 'Aha moment' khi mô hình tự dừng lại để kiểm tra lại phép tính trước đó).">
+
+Công bố trên arXiv vào tháng 1 năm 2025, bài báo DeepSeek-R1 đã chứng minh rằng năng lực suy luận phức tạp của LLM có thể được kích hoạt trực tiếp qua Học tăng cường quy mô lớn (RLVR với thuật toán GRPO) mà không cần phụ thuộc vào dữ liệu chuỗi suy luận viết sẵn (SFT). Trên kỳ thi toán học Mỹ AIME 2024, điểm số pass@1 của DeepSeek-R1-Zero nhảy vọt từ 15.6% ban đầu lên 71.0% (và đạt 86.7% khi bầu chọn đa số). Khi kết hợp thêm một bước SFT khởi động nhẹ (cold-start) để cải thiện khả năng đọc hiểu ngôn ngữ, mô hình DeepSeek-R1 hoàn chỉnh đạt 79.8% trên AIME 2024 và 97.3% trên MATH-500, sánh ngang với OpenAI o1-1217.
+</PaperNote>
+
+Kết quả quan sát được trong quá trình huấn luyện DeepSeek-R1-Zero [@deepseek2025r1] là một minh chứng ngoạn mục cho sức mạnh của Học tăng cường:
+- Không hề có ai lập trình hay viết mẫu dạy mô hình phải suy nghĩ dài bao nhiêu, nhưng qua hàng nghìn bước GRPO, mô hình tự nhận ra rằng **các chuỗi `<think>` có bước thử nghiệm, tự phản biện và kiểm tra lại đáp số thường mang lại lợi thế $A_i > 0$ cao hơn**.
+- Giữa quá trình huấn luyện, mô hình tự phát sinh **"Khoảnh khắc Aha" (Aha moment)**: đang giải dở bài toán, nó tự viết *"Wait, wait. Wait. That's an aha moment I can flag here... Let's re-evaluate this step-by-step"* rồi quay lại sửa lỗi đại số ở dòng trên!
+
+Hãy tự tay cài đặt bộ chấm điểm tự động và bước cập nhật GRPO trong Bài tập 4.5 dưới đây.
+
+<Exercise number="4.5" title="Cài đặt bộ chấm điểm tự động và bước cập nhật GRPO" data="GSM8K-mini" nb="ch4-04-grpo-advantage">
+
+Cho bài toán `"Giải phương trình 3x + 5 = 20"` (đáp án chuẩn `gold_answer = "5"`) và một nhóm $G = 6$ câu trả lời `rollouts` được sinh ra từ $\pi_{\theta_{\text{old}}}$:
+1. Viết hàm `verify_rollout(text, gold)` chấm điểm theo quy tắc: cộng `+0.25` điểm định dạng nếu chuỗi khớp cấu trúc `<think>...</think>...<answer>...</answer>`, và cộng `+1.0` điểm chính xác nếu nội dung bên trong `<answer>...</answer>` bằng đúng `gold`.
+2. Tính vector lợi thế chuẩn hóa theo nhóm $A_i = \frac{r_i - \text{mean}(r)}{\text{std}(r) + 10^{-8}}$.
+3. Cài đặt hàm mất mát `grpo_loss` gồm phần cắt tỉ số $\min(\rho_i A_i, \text{clip}(\rho_i, 1-\epsilon, 1+\epsilon) A_i)$ trừ đi $\beta \mathbb{D}_{\text{KL}}$, thực hiện 1 bước cập nhật đạo hàm và kiểm tra xem mẫu nào được tăng xác suất, mẫu nào bị giảm xác suất.
+
+<Starter nb="ch4-04-grpo-advantage" />
+
+<Hints>
+
+<Hint>
+
+Dùng biểu thức chính quy `re.search(r"<think>.*?</think>\s*<answer>.*?</answer>", text)` để kiểm tra định dạng, và `re.search(r"<answer>(.*?)</answer>", text)` để trích xuất chuỗi đáp số bên trong thẻ `<answer>`.
+
+</Hint>
+
+<Hint>
+
+Với `log_r_ref = ref_lp - curr_lp` (tức $\log \frac{\pi_{\text{ref}}}{\pi_\theta}$), bộ ước lượng KL không âm của Schulman được viết gọn trong 1 dòng: `kl = torch.exp(log_r_ref) - log_r_ref - 1.0`. Vì trong PyTorch ta cực tiểu hóa hàm mất mát (`loss.backward()`), hãy nhớ đặt dấu trừ `-` phía trước hàm mục tiêu $\mathcal{J}_{\text{GRPO}}$.
+
+</Hint>
+
+</Hints>
+
+<Checkpoint nb="ch4-04-grpo-advantage">
+
+Hai mẫu đầu tiên (vừa có `<think>` vừa ra đáp số `5`) đạt điểm tối đa `1.25` và nhận lợi thế dương `A_i = +1.04`. Mẫu thứ 4 (`"Đáp số của phương trình là <answer>5</answer>"`) tuy đúng kết quả (`r = 1.0`) nhưng thiếu thẻ `<think>` nên chỉ nhận lợi thế `+0.59`. Các mẫu giải sai (`r = 0.25` hoặc `0.0`) đều nhận lợi thế âm (`-0.74` và `-1.18`) và bị giảm log-prob ngay sau 1 bước cập nhật.
+
+</Checkpoint>
+
+<Solution nb="ch4-04-grpo-advantage" />
+
+<WhatToNotice>
+
+Hãy quan sát cách GRPO phân biệt tinh tế giữa 6 câu trả lời mà không cần bất kỳ nhãn sở thích cặp thủ công hay mạng Critic nào:
+- Mẫu 0 và Mẫu 1 vừa đúng đáp án vừa tuân thủ định dạng `<think>` $\to$ $r = 1.25 \implies A = +1.04$ (được khuyến khích mạnh nhất).
+- Mẫu 3 ra đúng đáp án `5` nhưng nhảy cóc không chịu suy luận trong thẻ `<think>` $\to$ $r = 1.00 \implies A = +0.59$ (vẫn dương nhưng thấp hơn Mẫu 0 và 1).
+- Mẫu 2 và Mẫu 4 có trình bày `<think>` nhưng tính toán sai đáp số $\to$ $r = 0.25 \implies A = -0.74$ (bị phạt nhẹ hơn Mẫu 5 hoàn toàn sai cả định dạng lẫn kết quả $A = -1.18$).
+Chính áp lực chọn lọc tự nhiên theo nhóm này đã dẫn dắt mô hình vừa giữ cấu trúc `<think>`, vừa rèn giũa độ chính xác suy luận qua từng vòng lặp!
+
+</WhatToNotice>
+
+</Exercise>
+
+Để tổng kết toàn bộ hành trình của Chương 4, bảng dưới đây đặt 5 phương pháp hậu huấn luyện cạnh nhau theo dữ liệu đầu vào, hàm mục tiêu, chi phí bộ nhớ và vai trò thực tế trong một đường ống LLM hiện đại:
+
+<WrapTable>
+
+| Phương pháp | Dữ liệu đầu vào | Mô hình trên VRAM | Hàm mục tiêu cốt lõi | Vai trò chính trong Pipeline |
+| :--- | :--- | :--- | :--- | :--- |
+| **SFT** (Full Fine-Tuning) | Các cuộc hội thoại mẫu $(x, y)$ | 1 mô hình ($\pi_\theta$) + Gradient + AdamW | Masked Cross-Entropy trên token của `assistant` | Dạy định dạng Chat Template và phong cách trợ lý cơ bản |
+| **LoRA / QLoRA** (PEFT) | Như SFT hoặc DPO | $W_0$ đóng băng (4-bit/16-bit) + nhánh nhỏ $B A$ | Cập nhật hạng thấp $\Delta W = \frac{\alpha}{r} B A$ ($<1\%$ tham số) | Giảm 70%–85% VRAM, cho phép tinh chỉnh trên 1 GPU |
+| **RLHF (PPO)** | Prompt $x$ + Mô hình phần thưởng $r_\phi$ | 4 mô hình ($\pi_\theta, \pi_{\text{ref}}, r_\phi, V_\psi$) | $\max \mathbb{E}[r_\phi(x,y)] - \beta D_{\text{KL}}(\pi_\theta \| \pi_{\text{ref}})$ | Căn chỉnh trực tuyến theo sở thích con người & độ an toàn |
+| **DPO** | Các cặp sở thích tĩnh $(x, y_w, y_l)$ | 2 mô hình ($\pi_\theta$ và $\pi_{\text{ref}}$; hoặc 1 base + LoRA) | $-\log \sigma\!\big(\beta \log \frac{\pi_\theta(y_w)}{\pi_{\text{ref}}(y_w)} - \beta \log \frac{\pi_\theta(y_l)}{\pi_{\text{ref}}(y_l)}\big)$ | Căn chỉnh sở thích ngoại tuyến gọn nhẹ, không cần Reward Model |
+| **RLVR (GRPO)** | Câu hỏi $q$ + Bộ kiểm chứng tự động (Toán/Code) | 2 mô hình ($\pi_\theta$ và $\pi_{\text{ref}}$; bỏ Critic $V_\psi$) | Clipped Surrogate với $A_i = \frac{r_i - \mu_G}{\sigma_G} - \beta \mathbb{D}_{\text{KL}}$ | Đánh thức năng lực tự suy luận chuỗi dài (`<think>`) và tự sửa lỗi |
+
+</WrapTable>
+
+Nếu bạn muốn đào sâu hơn nữa, hãy thử sức với các bài tập mở rộng dưới đây trước khi bước sang **Chương 5: Suy luận và Tối ưu hóa (Inference)** — nơi chúng ta sẽ tìm hiểu cách làm cho trợ lý AI vừa được huấn luyện này trả lời người dùng với tốc độ hàng trăm token mỗi giây!
+
+<Bonus>
+
+**LoRA dùng chung làm Mô hình Tham chiếu trong DPO.** Khi chạy DPO (Bài tập 4.4), ta cần cả $\pi_\theta$ và $\pi_{\text{ref}}$. Nếu dùng LoRA để tinh chỉnh $\pi_\theta = W_0 + \frac{\alpha}{r} B A$, làm thế nào để tính $\log \pi_{\text{ref}}(y \mid x)$ mà **không cần nạp thêm bản sao thứ hai của mô hình gốc lên VRAM**? Hãy thêm một cờ `enable_lora: bool` vào lớp `LoRALinear` của Bài tập 4.2 để tính cả hai phân phối trên cùng một mô hình duy nhất!
+
+</Bonus>
+
+<Bonus>
+
+**Hiện tượng suy giảm xác suất của cả $y_w$ và $y_l$ trong DPO (Likelihood Displacement).** Trong Bài tập 4.4, hãy vẽ đồ thị của $\log \pi_\theta(y_w \mid x)$ và $\log \pi_\theta(y_l \mid x)$ theo từng bước tối ưu hóa khi hai chuỗi $y_w$ và $y_l$ có chung 4/6 token đầu tiên. Điều gì xảy ra với xác suất của các token dùng chung? Hãy thử cộng thêm một hạng tử nhỏ $+ \lambda \mathcal{L}_{\text{SFT}}(y_w)$ (như trong công thức RPO / CPO) và so sánh kết quả.
+
+</Bonus>
+
+<Bonus>
+
+**Trường hợp suy biến trong GRPO khi mọi mẫu trong nhóm đều đúng hoặc đều sai.** Trong Bài tập 4.5, điều gì xảy ra với lợi thế $A_i$ và đạo hàm của GRPO nếu cả $G = 6$ câu trả lời được lấy mẫu từ $\pi_{\theta_{\text{old}}}$ đều giải sai ($r_1 = \dots = r_6 = 0$) hoặc đều giải đúng tuyệt đối ($r_1 = \dots = r_6 = 1.25$)? Tại sao việc lọc bỏ các câu hỏi có $\text{std}(r) = 0$ (*dynamic sampling*) lại giúp tăng tốc huấn luyện GRPO lên đáng kể?
+
+</Bonus>
+
+<Bonus extra>
+
+**Tinh chỉnh QLoRA thực tế trên SmolLM2-135M.** Sử dụng thư viện `transformers` và `peft`, hãy tải mô hình `HuggingFaceTB/SmolLM2-135M`, gắn bộ thích nghi LoRA ($r = 8, \alpha = 16$) vào các lớp `q_proj, k_proj, v_proj, o_proj`, và tinh chỉnh SFT trên 200 mẫu hội thoại tiếng Việt trong 3 phút trên CPU/GPU. So sánh câu trả lời của mô hình trước và sau khi tinh chỉnh!
+
+</Bonus>
+
+---
+
+## Tài liệu tham khảo
+
+<ReferenceList chapter={4} />

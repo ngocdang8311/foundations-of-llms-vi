@@ -1,0 +1,58 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(7)
+B, L, d_model, n_heads = 2, 8, 64, 4
+x = torch.randn(B, L, d_model)
+print(f"Đầu vào x: {tuple(x.shape)}, d_head = {d_model // n_heads}")
+```
+
+<section className="code-output"><pre>{"Đầu vào x: (2, 8, 64), d_head = 16"}</pre></section>
+
+```python
+class CausalMultiHeadAttention(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        assert d_model % n_heads == 0
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+        self.w_q = nn.Linear(d_model, d_model, bias=False)
+        self.w_k = nn.Linear(d_model, d_model, bias=False)
+        self.w_v = nn.Linear(d_model, d_model, bias=False)
+        self.w_o = nn.Linear(d_model, d_model, bias=False)
+
+    def forward(self, x):
+        B, L, D = x.shape
+        q = self.w_q(x).view(B, L, self.n_heads, self.d_head).transpose(1, 2)
+        k = self.w_k(x).view(B, L, self.n_heads, self.d_head).transpose(1, 2)
+        v = self.w_v(x).view(B, L, self.n_heads, self.d_head).transpose(1, 2)
+
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_head)
+        mask = torch.triu(
+            torch.ones(L, L, dtype=torch.bool, device=x.device), diagonal=1
+        )
+        attn = F.softmax(scores.masked_fill(mask, float("-inf")), dim=-1)
+
+        out = (attn @ v).transpose(1, 2).contiguous().view(B, L, D)
+        return self.w_o(out), attn, q
+
+mha = CausalMultiHeadAttention(d_model, n_heads)
+out, attn, q = mha(x)
+n_params = sum(p.numel() for p in mha.parameters())
+head_diff = (attn[0, 0] - attn[0, 1]).abs().mean().item()
+
+print("Kích thước Q sau khi tách head:", tuple(q.shape))
+print("Kích thước bản đồ chú ý attn:  ", tuple(attn.shape))
+print("Kích thước đầu ra MHA:         ", tuple(out.shape))
+print("Tổng số tham số (4 * d_model^2):", n_params)
+print(f"Khoảng cách trung bình giữa các head: {head_diff:.4f}")
+```
+
+<section className="code-output"><pre>{"Kích thước Q sau khi tách head: (2, 4, 8, 16)\nKích thước bản đồ chú ý attn:   (2, 4, 8, 8)\nKích thước đầu ra MHA:          (2, 8, 64)\nTổng số tham số (4 * d_model^2): 16384\nKhoảng cách trung bình giữa các head: 0.2841"}</pre></section>

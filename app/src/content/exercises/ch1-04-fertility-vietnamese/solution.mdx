@@ -1,0 +1,76 @@
+export const cells = 2;
+
+export const seconds = 2;
+
+```python
+import tiktoken
+
+en_doc = (
+    "Large language models are trained on massive multilingual text corpora. "
+    "However, when a tokenizer is trained primarily on English text, words in "
+    "other languages are fragmented into many small subword or byte tokens. "
+    "This increases computational cost and reduces effective context length."
+)
+
+vi_doc = (
+    "Các mô hình ngôn ngữ lớn được huấn luyện trên kho văn bản đa ngữ khổng lồ. "
+    "Tuy nhiên, khi bộ tách từ chủ yếu học từ tiếng Anh, các từ trong ngôn ngữ "
+    "khác bị cắt vụn thành nhiều mảnh từ phụ hoặc byte nhỏ. Điều này làm tăng "
+    "chi phí tính toán và thu hẹp độ dài ngữ cảnh hiệu dụng."
+)
+
+en_words = en_doc.split()
+vi_words = vi_doc.split()
+print(f"Số từ: EN = {len(en_words)} từ, VI = {len(vi_words)} từ")
+```
+
+<section className="code-output"><pre>{"Số từ: EN = 42 từ, VI = 63 từ"}</pre></section>
+
+```python
+# (1) Đo hệ số phân mảnh (fertility) trên GPT-2 và GPT-4 (cl100k_base)
+for name in ["gpt2", "cl100k_base"]:
+    enc = tiktoken.get_encoding(name)
+    en_toks = enc.encode(en_doc)
+    vi_toks = enc.encode(vi_doc)
+    f_en = len(en_toks) / len(en_words)
+    f_vi = len(vi_toks) / len(vi_words)
+    ratio = len(vi_toks) / len(en_toks)
+    print(f"[{name:11s}] EN: {len(en_toks):3d} tokens "
+          f"(fertility {f_en:.2f}) | VI: {len(vi_toks):3d} tokens "
+          f"(fertility {f_vi:.2f}) | VI/EN = {ratio:.2f}x")
+
+
+# (2) Huấn luyện 60 lượt gộp BPE tiếng Việt từ mức byte
+vi_chunks = [" " + w if i > 0 else w for i, w in enumerate(vi_words)]
+seqs = [list(c.encode("utf-8")) for c in vi_chunks]
+init_tokens = sum(len(s) for s in seqs)
+
+for step in range(60):
+    counts = {}
+    for s in seqs:
+        for pair in zip(s, s[1:]):
+            counts[pair] = counts.get(pair, 0) + 1
+    best = max(counts, key=counts.get)
+    new_id = 256 + step
+    new_seqs = []
+    for s in seqs:
+        m, i = [], 0
+        while i < len(s):
+            if i < len(s) - 1 and (s[i], s[i + 1]) == best:
+                m.append(new_id)
+                i += 2
+            else:
+                m.append(s[i])
+                i += 1
+        new_seqs.append(m)
+    seqs = new_seqs
+
+final_tokens = sum(len(s) for s in seqs)
+print("\nBPE tiếng Việt mở rộng (60 lượt gộp):")
+print(f"  Trước khi gộp (byte-level): {init_tokens} tokens "
+      f"(fertility {init_tokens/len(vi_words):.2f})")
+print(f"  Sau 60 lượt gộp tiếng Việt: {final_tokens} tokens "
+      f"(fertility {final_tokens/len(vi_words):.2f})")
+```
+
+<section className="code-output"><pre>{"[gpt2       ] EN:  51 tokens (fertility 1.21) | VI: 251 tokens (fertility 3.98) | VI/EN = 4.92x\n[cl100k_base] EN:  50 tokens (fertility 1.19) | VI: 135 tokens (fertility 2.14) | VI/EN = 2.70x\n\nBPE tiếng Việt mở rộng (60 lượt gộp):\n  Trước khi gộp (byte-level): 370 tokens (fertility 5.87)\n  Sau 60 lượt gộp tiếng Việt: 162 tokens (fertility 2.57)"}</pre></section>

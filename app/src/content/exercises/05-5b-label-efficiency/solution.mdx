@@ -10,9 +10,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Giữ lại 5.000 bài đánh giá huấn luyện làm tập xác thực và
+# thay thế các thẻ ngắt dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -30,10 +30,10 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# (2) Count the words of each review, over the 10,000 most
-# frequent words of the training reviews. The pattern makes every
-# run of letters or digits a word, even a single letter like "a".
-# [Copied from the solution of 3.2, step (2)]
+# (2) Đếm từ của mỗi bài đánh giá trên 10.000 từ phổ biến nhất
+# của tập huấn luyện. Mẫu biểu thức coi mỗi chuỗi chữ cái hoặc
+# chữ số là một từ, kể cả một chữ cái đơn như "a".
+# [Sao chép từ lời giải bài 3.2, bước (2)]
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
@@ -43,12 +43,12 @@ X_val = vectorizer.transform(val_texts)
 X_test = vectorizer.transform(test_texts)
 
 
-# The GloVe vectors of Pennington et al., trained on 6 billion
-# words of Wikipedia and news (Gigaword), in the copy of
-# sentence-transformers on the Hub: 400,000 words in lower case,
-# sorted from the most frequent to the least frequent, with 300
-# dimensions. Row 0 of the file is a padding token: drop it.
-# [Copied from the starter of 5.4]
+# Các vector GloVe của Pennington và cộng sự, huấn luyện trên 6 tỷ
+# từ Wikipedia và tin tức (Gigaword), từ bản sao của
+# sentence-transformers trên Hub: 400.000 từ chữ thường, xếp từ
+# phổ biến nhất đến ít phổ biến nhất, 300 chiều.
+# Hàng 0 của tệp là token đệm: bỏ hàng này đi.
+# [Sao chép từ phần khởi đầu bài 5.4]
 import json
 
 from huggingface_hub import hf_hub_download
@@ -63,10 +63,10 @@ glove_vectors = load_file(weights_path)["emb_layer.weight"][1:]
 glove_words = json.load(open(words_path))["vocab"][1:]
 
 
-# (1) The pre-trained embedding matrix: column j is the GloVe vector
-# of word j of the vocabulary, in the order of the count vectors.
-# The few words that GloVe does not know keep a column of zeros.
-# [Copied from the solution of 5.5a, step (1)]
+# (1) Ma trận nhúng tiền huấn luyện: cột j là vector GloVe của từ j
+# trong từ vựng, theo thứ tự của các vector đếm. Một vài từ mà
+# GloVe không biết sẽ giữ nguyên cột toàn số 0.
+# [Sao chép từ lời giải bài 5.5a, bước (1)]
 import torch
 
 glove_index = {word: i for i, word in enumerate(glove_words)}
@@ -82,10 +82,10 @@ for j, word in enumerate(vocabulary):
 print(f"{len(missing)} words without a GloVe vector: {missing[:5]}")
 
 
-# (2) The deep averaging network of exercise 4.3, with D = 300. Its
-# first layer is W: random (from scratch), or the GloVe vectors,
-# kept fixed (frozen) or trained with the rest (fine-tuned).
-# [Copied from the solution of 5.5a, step (2)]
+# (2) Mạng trung bình sâu ở bài 4.3, với D = 300. Tầng đầu tiên là W:
+# ngẫu nhiên (từ đầu), hoặc dùng vector GloVe giữ cố định (đóng băng)
+# hay huấn luyện cùng phần còn lại (tinh chỉnh).
+# [Sao chép từ lời giải bài 5.5a, bước (2)]
 from torch import nn
 
 def frequencies(X):
@@ -96,7 +96,7 @@ def frequencies(X):
 def make_model(embeddings):
     torch.manual_seed(0)
     model = nn.Sequential(
-        nn.Linear(len(vocabulary), D, bias=False),   # average
+        nn.Linear(len(vocabulary), D, bias=False),   # trung bình
         nn.Linear(D, 100),
         nn.ReLU(),
         nn.Linear(100, 100),
@@ -106,19 +106,18 @@ def make_model(embeddings):
     if embeddings != "from scratch":
         model[0].weight.data = W_glove.clone()
     if embeddings == "frozen":
-        model[0].weight.requires_grad_(False)   # no gradient
+        model[0].weight.requires_grad_(False)   # không tính đạo hàm
     return model
 
 
-# (3) A function that trains a model for 1,500 batches of 64
-# reviews, drawn at random from the training reviews. Every 100
-# batches, it measures the validation accuracy, and keeps a copy of
-# the best model.
-# [Copied from the solution of 5.5a, step (3)]
+# (3) Hàm huấn luyện mô hình qua 1.500 lô gồm 64 bài đánh giá lấy
+# ngẫu nhiên từ tập huấn luyện. Sau mỗi 100 lô, đo độ chính xác xác
+# thực và giữ lại bản sao của mô hình tốt nhất.
+# [Sao chép từ lời giải bài 5.5a, bước (3)]
 import copy
 
 def predict(model, X):
-    # p(positive) for each review of X, 1,000 reviews at a time
+    # p(positive) cho mỗi bài đánh giá trong X, mỗi lần 1.000 bài
     probabilities = []
     with torch.no_grad():
         for start in range(0, X.shape[0], 1000):
@@ -154,11 +153,11 @@ def train(model, X, labels, n_batches=1500):
 <section className="code-output"><pre>{"train: 20000 reviews\nvalidation: 5000 reviews\ntest: 25000 reviews\n12 words without a GloVe vector: ['feinstone', 'gypo', 'hackenstein', 'hadn', 'imho']"}</pre></section>
 
 ```python
-# (1) For each number of labels, train the three versions on random
-# subsets of the training reviews, drawn with random.sample: 3
-# subsets for the small sizes, whose accuracy varies a lot from one
-# subset to the next, and 1 for the others. Average the test
-# accuracies over the subsets.
+# (1) Với mỗi số lượng nhãn, huấn luyện ba phiên bản trên các tập con
+# ngẫu nhiên của tập huấn luyện, lấy bằng random.sample: 3 tập con
+# cho các kích thước nhỏ (vì độ chính xác dao động nhiều giữa các
+# tập con) và 1 tập con cho các kích thước còn lại. Lấy trung bình
+# độ chính xác kiểm tra trên các tập con.
 import random
 
 sizes = [100, 300, 1000, 3000, 10000, 20000]
@@ -179,7 +178,7 @@ for n in sizes:
               f"test accuracy {results[version][-1]:.3f}")
 
 
-# (2) Plot the test accuracy against the number of labels
+# (2) Vẽ biểu đồ độ chính xác kiểm tra theo số lượng nhãn
 import matplotlib.pyplot as plt
 
 plt.figure(figsize=(5, 3.5))

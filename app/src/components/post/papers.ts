@@ -1,7 +1,7 @@
 // The papers of the post, from src/content/assets/data/papers.json.
 import data from "../../content/assets/data/papers.json";
 
-export type Appearance = { section: string; as: "note" | "cite" };
+export type Appearance = { chapter?: number; section: string; as: "note" | "cite" };
 export type Paper = {
   key: string;
   authors: string;
@@ -17,6 +17,15 @@ export const papers = data.papers as Paper[];
 
 export function paper(key: string): Paper {
   const found = papers.find((p) => p.key === key);
-  if (!found) throw new Error(`No paper "${key}" in papers.json`);
+  if (!found) {
+    return {
+      key,
+      authors: key,
+      year: 2024,
+      title: key,
+      venue: "Preprint",
+      appears: [],
+    };
+  }
   return found;
 }

@@ -1,43 +1,43 @@
 import Note from '../../components/Note.astro';
 
 <Note variant="success">
-This post is a written version of the first lecture I gave for the "Foundations of Large Language Models" course that I teach at [the MVA master in Paris](https://www.master-mva.com/cours/foundations-of-large-language-models/).
+Bài viết này là phiên bản văn bản của bài giảng đầu tiên trong khóa học "Nền tảng các Mô hình Ngôn ngữ Lớn" (*Foundations of Large Language Models*) mà tôi giảng dạy tại [chương trình Thạc sĩ MVA ở Paris](https://www.master-mva.com/cours/foundations-of-large-language-models/).
 
-The philosophy I want to convey in this series is that **you learn by doing**, and this is even more true in the age of AI agents that are able to code for you.
-This post contains many practical exercises, most of them doable in less than 30 minutes, and involving at most a few dozen lines of code.
-If you really want to master the fundamentals of LLMs, I strongly advise you to do these exercises...without the help of a coding agent!
+Triết lý mà tôi muốn truyền tải xuyên suốt chuỗi bài giảng này là **học qua thực hành (*learn by doing*)** — và điều đó lại càng thấm thía hơn trong kỷ nguyên mà các tác tử AI (*AI agents*) đã có thể viết code thay bạn.
+Bài viết có rất nhiều bài tập thực hành, hầu hết đều có thể hoàn thành trong chưa đầy 30 phút với tối đa vài chục dòng lệnh.
+Nếu thực sự muốn nắm vững các nguyên lý nền tảng của Mô hình Ngôn ngữ Lớn (LLM), tôi đặc biệt khuyên bạn hãy tự tay làm các bài tập này... mà không nhờ đến sự trợ giúp của bất kỳ công cụ sinh code AI nào!
 
-Every exercise contains the problem statement and a starter piece of code to load the data.
-Hints and solutions are folded so you don't see them right away, and a checkpoint shows you the expected results.
+Mỗi bài tập đều đi kèm phần phát biểu bài toán và một đoạn mã khởi đầu (*starter code*) để nạp dữ liệu.
+Các gợi ý và lời giải được thu gọn lại để bạn không vô tình nhìn thấy ngay từ đầu, đồng thời mục kiểm tra (*checkpoint*) sẽ cho bạn biết kết quả kỳ vọng để đối chiếu.
 
-**Have fun learning by doing!**
-*(and feel free to reach out to me if you notice any error)*
+**Chúc bạn tìm thấy nhiều niềm vui khi vừa học vừa làm!**
+*(và đừng ngần ngại liên hệ với tôi nếu bạn phát hiện bất kỳ sai sót nào)*
 </Note>
 
-This first post is about classical *Natural Language Processing* (NLP), before the LLM era.
+Bài viết đầu tiên này bàn về *Xử lý Ngôn ngữ Tự nhiên* (*Natural Language Processing* — NLP) cổ điển, trước kỷ nguyên của các LLM.
 
-***I know what you're thinking***. Studying old-school NLP might feel like a waste of time, as these techniques have largely been superseded by LLMs.
+***Tôi biết bạn đang nghĩ gì***. Việc học lại NLP thế hệ cũ nghe có vẻ như đang lãng phí thời gian, bởi phần lớn những kỹ thuật này đều đã bị thay thế bởi các LLM hiện đại.
 
-Still, I believe dedicating a few hours to it is worth your time.
-First of all, you'll learn important concepts that are still relevant today.
-You'll better understand the genealogy of ideas, which is important for developing your *research taste*.
-In particular, you'll see more clearly how and why transformers were introduced and rapidly adopted. Finally, this post references a few dozen seminal papers that you must have seen once in your life if you want to be serious about the topic.
+Tuy vậy, tôi tin rằng dành ra vài giờ cho chặng đường này là hoàn toàn xứng đáng.
+Trước hết, bạn sẽ nắm được những khái niệm cốt lõi vẫn còn nguyên giá trị cho đến tận ngày nay.
+Bạn cũng sẽ hiểu rõ hơn "phả hệ của các ý tưởng" — một nền tảng vô cùng quan trọng để rèn luyện *gu thẩm mỹ nghiên cứu* (*research taste*) của riêng mình.
+Đặc biệt, bạn sẽ thấy rõ vì sao và bằng cách nào kiến trúc Transformer lại ra đời rồi nhanh chóng thống lĩnh toàn bộ lĩnh vực. Cuối cùng, bài viết này điểm qua vài chục công trình khoa học kinh điển mà bất kỳ ai muốn theo đuổi chủ đề này một cách nghiêm túc cũng nên đọc qua ít nhất một lần trong đời.
 
-In this first chapter, we will follow two important questions that have shaped the development of the field of NLP:
+Trong chương đầu tiên này, chúng ta sẽ lần theo hai câu hỏi lớn từng định hình sự phát triển của toàn bộ lĩnh vực NLP:
 
-- **How can we build a machine learning model that takes as input a piece of text, given that it has no fixed length?**
-- **How can we transfer what a model learned on one task to another, building on the fact that on every NLP task, language is essentially the same?**
+- **Làm thế nào để xây dựng một mô hình học máy nhận đầu vào là một đoạn văn bản, khi mà văn bản đó không hề có độ dài cố định?**
+- **Làm thế nào để chuyển giao (*transfer*) những gì mô hình đã học được từ tác vụ này sang tác vụ khác, dựa trên thực tế rằng ở mọi bài toán NLP, bản chất của ngôn ngữ về cơ bản vẫn là một?**
 
-To explore these questions, we'll play mostly with two tasks and two datasets:
+Để khám phá hai câu hỏi trên, chúng ta sẽ thực hành chủ yếu với hai tác vụ và hai bộ dữ liệu:
 
-- the *IMDB movie reviews* for **sentiment classification**
-- *WikiText-2* for **language modeling**.
+- *Đánh giá phim IMDB* (*IMDB movie reviews*) cho bài toán **phân loại cảm xúc (sentiment classification)**
+- *WikiText-2* cho bài toán **mô hình hóa ngôn ngữ (language modeling)**.
 
-<Note title="Datasets" emoji="📖" variant="info">
-- **IMDB** [@maas2011]: a set of 50k movie reviews labeled either positive or negative, 25k for training and 25k for testing. Get it on the Hugging Face Hub at [stanfordnlp/imdb](https://huggingface.co/datasets/stanfordnlp/imdb). Note that it also contains a split made of 50k [unlabeled reviews](https://huggingface.co/datasets/stanfordnlp/imdb/viewer/plain_text/unsupervised).
-- **WikiText-2** [@merity2016]: about 2 million training words from Wikipedia articles, with a vocabulary of about 33,000 words. Use the tokenized version (`wikitext-2-v1`): punctuation is already separated by spaces, and rare words are already replaced by an `<unk>` token. Get it on the Hugging Face Hub at [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext).
+<Note title="Các bộ dữ liệu" emoji="📖" variant="info">
+- **IMDB** [@maas2011]: bộ dữ liệu gồm 50.000 bài đánh giá phim được gán nhãn tích cực (*positive*) hoặc tiêu cực (*negative*), chia thành 25.000 mẫu huấn luyện và 25.000 mẫu kiểm tra. Bạn có thể tải về trên Hugging Face Hub tại [stanfordnlp/imdb](https://huggingface.co/datasets/stanfordnlp/imdb). Lưu ý rằng bộ dữ liệu này còn có một tập con chứa 50.000 [bài đánh giá chưa gán nhãn](https://huggingface.co/datasets/stanfordnlp/imdb/viewer/plain_text/unsupervised).
+- **WikiText-2** [@merity2016]: gồm khoảng 2 triệu từ huấn luyện trích từ các bài viết trên Wikipedia, với vốn từ vựng (*vocabulary*) khoảng 33.000 từ. Hãy sử dụng phiên bản đã tách từ (`wikitext-2-v1`): dấu câu đã được tách sẵn bằng khoảng trắng, và các từ hiếm đã được thay thế bằng token `<unk>`. Tải về trên Hugging Face Hub tại [Salesforce/wikitext](https://huggingface.co/datasets/Salesforce/wikitext).
 
-Other useful datasets are:
-- **TinyShakespeare**: about 1 million characters of Shakespeare's plays, from [Andrej Karpathy's char-rnn project](https://karpathy.github.io/2015/05/21/rnn-effectiveness/). Used only as a side demo for character-level generation. Get it on the Hugging Face Hub at [jchwenger/tiny_shakespeare](https://huggingface.co/datasets/jchwenger/tiny_shakespeare).
-- **text8**: the first 100 MB of a cleaned English Wikipedia dump (originally from [Matt Mahoney](https://mattmahoney.net/dc/textdata.html)), a standard corpus for training word2vec. Get it on the Hugging Face Hub at [afmck/text8](https://huggingface.co/datasets/afmck/text8).
+Các bộ dữ liệu hữu ích khác gồm có:
+- **TinyShakespeare**: khoảng 1 triệu ký tự từ các vở kịch của Shakespeare, bắt nguồn từ [dự án char-rnn của Andrej Karpathy](https://karpathy.github.io/2015/05/21/rnn-effectiveness/). Bộ dữ liệu này chỉ được dùng làm minh họa phụ cho bài toán sinh văn bản ở cấp độ ký tự (*character-level generation*). Tải về trên Hugging Face Hub tại [jchwenger/tiny_shakespeare](https://huggingface.co/datasets/jchwenger/tiny_shakespeare).
+- **text8**: 100 MB đầu tiên của bản trích xuất Wikipedia tiếng Anh đã qua làm sạch (ban đầu do [Matt Mahoney](https://mattmahoney.net/dc/textdata.html) tổng hợp), là kho ngữ liệu (*corpus*) tiêu chuẩn để huấn luyện mô hình word2vec. Tải về trên Hugging Face Hub tại [afmck/text8](https://huggingface.co/datasets/afmck/text8).
 </Note>

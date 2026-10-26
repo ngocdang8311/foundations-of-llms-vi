@@ -1,0 +1,76 @@
+export const cells = 2;
+
+export const seconds = 1;
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(0)
+cfg = dict(d_model=64, n_heads=4, d_ff=172)
+x = torch.randn(2, 12, cfg["d_model"])
+print("Cấu hình khối Mini-Llama:", cfg)
+```
+
+<section className="code-output"><pre>{"Cấu hình khối Mini-Llama: {'d_model': 64, 'n_heads': 4, 'd_ff': 172}"}</pre></section>
+
+```python
+class RMSNorm(nn.Module):
+    def __init__(self, d, eps=1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(d))
+
+    def forward(self, x):
+        rms = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return x * rms * self.weight
+
+class SwiGLU(nn.Module):
+    def __init__(self, d_model, d_ff):
+        super().__init__()
+        self.w_gate = nn.Linear(d_model, d_ff, bias=False)
+        self.w_up = nn.Linear(d_model, d_ff, bias=False)
+        self.w_down = nn.Linear(d_ff, d_model, bias=False)
+
+    def forward(self, x):
+        return self.w_down(F.silu(self.w_gate(x)) * self.w_up(x))
+
+class LlamaBlock(nn.Module):
+    def __init__(self, d_model, n_heads, d_ff):
+        super().__init__()
+        self.norm1 = RMSNorm(d_model)
+        self.attn_qkv = nn.Linear(d_model, 3 * d_model, bias=False)
+        self.attn_out = nn.Linear(d_model, d_model, bias=False)
+        self.norm2 = RMSNorm(d_model)
+        self.ffn = SwiGLU(d_model, d_ff)
+        self.n_heads = n_heads
+        self.d_head = d_model // n_heads
+
+    def forward(self, x):
+        B, L, D = x.shape
+        q, k, v = self.attn_qkv(self.norm1(x)).chunk(3, dim=-1)
+        q = q.view(B, L, self.n_heads, self.d_head).transpose(1, 2)
+        k = k.view(B, L, self.n_heads, self.d_head).transpose(1, 2)
+        v = v.view(B, L, self.n_heads, self.d_head).transpose(1, 2)
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_head)
+        mask = torch.triu(torch.ones(L, L, dtype=torch.bool), diagonal=1)
+        attn = F.softmax(scores.masked_fill(mask, float("-inf")), dim=-1)
+        h = x + self.attn_out((attn @ v).transpose(1, 2).reshape(B, L, D))
+        return h + self.ffn(self.norm2(h))
+
+block = LlamaBlock(**cfg)
+out = block(x)
+d, d_ff = cfg["d_model"], cfg["d_ff"]
+theo = 2 * d + 4 * d * d + 3 * d * d_ff
+actual = sum(p.numel() for p in block.parameters())
+
+print("Kích thước đầu ra TransformerBlock:", tuple(out.shape))
+print(f"Tham số RMSNorm (2 * d_model):       {2 * d}")
+print(f"Tham số Attention (4 * d_model^2):   {4 * d * d}")
+print(f"Tham số SwiGLU FFN (3 * d * d_ff):   {3 * d * d_ff}")
+print(f"Tổng tham số lý thuyết vs thực tế:   {theo} == {actual} (Khớp 100%!)")
+```
+
+<section className="code-output"><pre>{"Kích thước đầu ra TransformerBlock: (2, 12, 64)\nTham số RMSNorm (2 * d_model):       128\nTham số Attention (4 * d_model^2):   16384\nTham số SwiGLU FFN (3 * d * d_ff):   33024\nTổng tham số lý thuyết vs thực tế:   49536 == 49536 (Khớp 100%!)"}</pre></section>

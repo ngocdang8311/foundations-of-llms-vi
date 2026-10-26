@@ -1,0 +1,33 @@
+export const cells = 1;
+
+```python
+import math
+import numpy as np
+
+# Kho 6 tài liệu kỹ thuật kèm vector nhúng ngữ nghĩa (4 chiều, đã chuẩn hóa)
+DOCS = [
+    {"id": "D0", "vec": [0.92, 0.25, 0.18, 0.24],
+     "text": "cuda error 710 device-side assert triggered in gpu kernel"},
+    {"id": "D1", "vec": [0.22, 0.93, 0.21, 0.20],
+     "text": "token index out of bounds in embedding table lookup"},
+    {"id": "D2", "vec": [0.20, 0.24, 0.92, 0.23],
+     "text": "grouped query attention gqa num_key_value_heads config"},
+    {"id": "D3", "vec": [0.21, 0.22, 0.28, 0.91],
+     "text": "sharing key value heads reduces kv cache memory footprint"},
+    {"id": "D4", "vec": [0.75, 0.55, 0.15, 0.33],
+     "text": "server rack 710 cooling fan maintenance log"},
+    {"id": "D5", "vec": [0.18, 0.62, 0.65, 0.40],
+     "text": "int4 weight quantization awq reduces model vram usage"},
+]
+
+# 2 câu truy vấn: mỗi câu cần tìm đúng cặp 2 tài liệu vàng (gold)
+QUERIES = [
+    {"q": "cuda error 710 when token index exceeds vocab size",
+     "q_vec": [0.58, 0.78, 0.15, 0.18], "gold": {"D0", "D1"}},
+    {"q": "enable gqa config to compress attention cache memory",
+     "q_vec": [0.16, 0.19, 0.60, 0.76], "gold": {"D2", "D3"}},
+]
+print(f"Loaded {len(DOCS)} docs and {len(QUERIES)} benchmark queries.")
+```
+
+<section className="code-output"><pre>{"Loaded 6 docs and 2 benchmark queries."}</pre></section>

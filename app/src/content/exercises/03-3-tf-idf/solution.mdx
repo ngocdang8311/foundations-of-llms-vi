@@ -10,9 +10,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Tách 5.000 bài đánh giá huấn luyện làm tập xác thực, và
+# thay thế các thẻ xuống dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -33,13 +33,13 @@ print(f"test: {len(test_texts)} reviews")
 <section className="code-output"><pre>{"train: 20000 reviews\nvalidation: 5000 reviews\ntest: 25000 reviews"}</pre></section>
 
 ```python
-# (1) The three weightings, over the 10,000 most frequent words
-# of the training reviews
+# (1) Ba cách gán trọng số trên 10.000 từ phổ biến nhất
+# của các bài đánh giá huấn luyện
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 V = 10000
-pattern = r"\b\w+\b"   # every word, even a single letter
+pattern = r"\b\w+\b"   # mọi từ, kể cả từ chỉ gồm một chữ cái
 vectorizers = {
     "counts": CountVectorizer(max_features=V, token_pattern=pattern),
     "presence": CountVectorizer(max_features=V, token_pattern=pattern,
@@ -48,8 +48,8 @@ vectorizers = {
 }
 
 
-# (2) For each weighting, choose C on the validation set as in
-# exercise 3.2, then measure the test accuracy of the best model
+# (2) Với mỗi cách gán trọng số, chọn C trên tập xác thực như ở
+# bài 3.2, rồi đo độ chính xác trên tập kiểm tra của mô hình tốt nhất
 from sklearn.linear_model import LogisticRegression
 
 test_accuracies = {}

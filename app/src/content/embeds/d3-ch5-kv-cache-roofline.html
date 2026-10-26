@@ -1,0 +1,543 @@
+<div class="d3-ch5-kv-cache-roofline"></div>
+<style>
+  .d3-ch5-kv-cache-roofline {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch5-kv-cache-roofline .kvr-controls {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+  }
+  .d3-ch5-kv-cache-roofline .kvr-ctrl {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .d3-ch5-kv-cache-roofline .kvr-ctrl-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .d3-ch5-kv-cache-roofline .kvr-val {
+    font-family: var(--font-mono, monospace);
+    color: var(--primary-color);
+    font-weight: 700;
+  }
+  .d3-ch5-kv-cache-roofline .kvr-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+  }
+  .d3-ch5-kv-cache-roofline input[type="range"] {
+    width: 100%;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch5-kv-cache-roofline select {
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .d3-ch5-kv-cache-roofline svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .d3-ch5-kv-cache-roofline .kvr-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    justify-content: center;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted-color);
+  }
+  .d3-ch5-kv-cache-roofline .kvr-swatch {
+    display: inline-block;
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    margin-right: 5px;
+    vertical-align: -1px;
+  }
+  @media (max-width: 680px) {
+    .d3-ch5-kv-cache-roofline .kvr-controls {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const TOKENS = ['Mô', 'hình', 'ngôn', 'ngữ', 'lớn', 'sinh', 'từng', 'từ'];
+    const GPUS = {
+      a100: { name: 'NVIDIA A100 SXM (80GB)', peakTflops: 312, bwTbs: 2.0, ridge: 156 },
+      h100: { name: 'NVIDIA H100 SXM (80GB)', peakTflops: 989, bwTbs: 3.35, ridge: 295 },
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch5-kv-cache-roofline'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch5-kv-cache-roofline'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let stepT = 6;
+        let batchSize = 4;
+        let gpuKey = 'a100';
+
+        let COL_CACHE = '#4e79a7';
+        let COL_NEW = '#f28e2b';
+        let COL_WASTE = '#e15759';
+        let COL_PREFILL = '#59a14f';
+
+        const readColors = () => {
+          try {
+            const cat = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 4) {
+              COL_CACHE = cat[0];
+              COL_NEW = cat[1];
+              COL_WASTE = cat[2];
+              COL_PREFILL = cat[3];
+            }
+          } catch (_) {}
+        };
+        readColors();
+
+        // Controls
+        const controls = document.createElement('div');
+        controls.className = 'kvr-controls';
+
+        // 1. Step t slider
+        const cStep = document.createElement('div');
+        cStep.className = 'kvr-ctrl';
+        const cStepHead = document.createElement('div');
+        cStepHead.className = 'kvr-ctrl-head';
+        const cStepLbl = document.createElement('span');
+        cStepLbl.textContent = 'Bước sinh tự hồi quy t';
+        const cStepVal = document.createElement('span');
+        cStepVal.className = 'kvr-val';
+        cStepHead.append(cStepLbl, cStepVal);
+        const inpStep = document.createElement('input');
+        inpStep.type = 'range';
+        inpStep.min = '2';
+        inpStep.max = '8';
+        inpStep.step = '1';
+        inpStep.value = String(stepT);
+        const cStepSub = document.createElement('div');
+        cStepSub.className = 'kvr-sub';
+        cStep.append(cStepHead, inpStep, cStepSub);
+
+        // 2. Batch size slider (powers of 2)
+        const BATCH_VALS = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+        const cBatch = document.createElement('div');
+        cBatch.className = 'kvr-ctrl';
+        const cBatchHead = document.createElement('div');
+        cBatchHead.className = 'kvr-ctrl-head';
+        const cBatchLbl = document.createElement('span');
+        cBatchLbl.textContent = 'Kích thước Batch suy luận (B)';
+        const cBatchVal = document.createElement('span');
+        cBatchVal.className = 'kvr-val';
+        cBatchHead.append(cBatchLbl, cBatchVal);
+        const inpBatch = document.createElement('input');
+        inpBatch.type = 'range';
+        inpBatch.min = '0';
+        inpBatch.max = String(BATCH_VALS.length - 1);
+        inpBatch.step = '1';
+        inpBatch.value = '2'; // B = 4
+        const cBatchSub = document.createElement('div');
+        cBatchSub.className = 'kvr-sub';
+        cBatchSub.textContent = 'Tăng B giúp tăng cường độ số học I ≈ B FLOPs/Byte';
+        cBatch.append(cBatchHead, inpBatch, cBatchSub);
+
+        // 3. GPU selector
+        const cGpu = document.createElement('div');
+        cGpu.className = 'kvr-ctrl';
+        const cGpuHead = document.createElement('div');
+        cGpuHead.className = 'kvr-ctrl-head';
+        const cGpuLbl = document.createElement('span');
+        cGpuLbl.textContent = 'Phần cứng GPU mục tiêu';
+        cGpuHead.appendChild(cGpuLbl);
+        const selGpu = document.createElement('select');
+        Object.entries(GPUS).forEach(([k, v]) => {
+          const opt = document.createElement('option');
+          opt.value = k;
+          opt.textContent = v.name;
+          selGpu.appendChild(opt);
+        });
+        const cGpuSub = document.createElement('div');
+        cGpuSub.className = 'kvr-sub';
+        cGpu.append(cGpuHead, selGpu, cGpuSub);
+
+        controls.append(cStep, cBatch, cGpu);
+        container.appendChild(controls);
+
+        const W = 740;
+        const H = 310;
+        const svg = d3.select(container)
+          .append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        const legend = document.createElement('div');
+        legend.className = 'kvr-legend';
+        container.appendChild(legend);
+
+        const draw = () => {
+          const gpu = GPUS[gpuKey];
+          cStepVal.textContent = `t = ${stepT} ("${TOKENS[stepT - 1]}")`;
+          cStepSub.textContent = `Tiết kiệm ${(stepT - 1)}/${stepT} (${Math.round(((stepT - 1) / stepT) * 100)}%) phép chiếu Q, K, V ở bước t`;
+          cBatchVal.textContent = `B = ${batchSize}`;
+          cGpuSub.textContent = `Đỉnh FP16: ${gpu.peakTflops} TFLOPS · Băng thông: ${gpu.bwTbs} TB/s (Điểm gãy: ${gpu.ridge} FLOPs/B)`;
+
+          svg.selectAll('*').remove();
+
+          // ==========================================
+          // LEFT PANEL: KV Cache Matrix Comparison
+          // ==========================================
+          const gLeft = svg.append('g').attr('transform', 'translate(14, 22)');
+          gLeft.append('text')
+            .attr('x', 0)
+            .attr('y', -4)
+            .attr('font-size', 12.5)
+            .attr('font-weight', 700)
+            .attr('fill', 'var(--text-color)')
+            .text(`(1) Ma trận Q, K, V tại bước t = ${stepT}`);
+
+          const cellW = 14;
+          const cellH = 15;
+          const colsD = 4; // represent d_k = 4 columns
+
+          const drawMatrixGroup = (yOff, title, isCached) => {
+            const mg = gLeft.append('g').attr('transform', `translate(0, ${yOff})`);
+            mg.append('text')
+              .attr('x', 0)
+              .attr('y', 0)
+              .attr('font-size', 11.5)
+              .attr('font-weight', 600)
+              .attr('fill', isCached ? COL_CACHE : COL_WASTE)
+              .text(title);
+
+            const mats = [
+              { name: 'Q', x: 42 },
+              { name: 'K', x: 120 },
+              { name: 'V', x: 198 },
+            ];
+
+            // Token labels on left
+            for (let r = 0; r < stepT; r++) {
+              const isLast = r === stepT - 1;
+              if (isCached && !isLast) {
+                // still show row label for K,V cache
+              }
+              mg.append('text')
+                .attr('x', 36)
+                .attr('y', 22 + r * (cellH + 2) + cellH * 0.72)
+                .attr('text-anchor', 'end')
+                .attr('font-family', 'var(--font-mono, monospace)')
+                .attr('font-size', 10)
+                .attr('fill', isLast ? 'var(--text-color)' : 'var(--muted-color)')
+                .attr('font-weight', isLast ? 700 : 400)
+                .text(TOKENS[r]);
+            }
+
+            mats.forEach((m) => {
+              mg.append('text')
+                .attr('x', m.x + (colsD * cellW) / 2)
+                .attr('y', 15)
+                .attr('text-anchor', 'middle')
+                .attr('font-size', 11)
+                .attr('font-weight', 700)
+                .attr('fill', 'var(--text-color)')
+                .text(m.name === 'Q' && isCached ? 'q_t (1×d)' : `${m.name} (${stepT}×d)`);
+
+              for (let r = 0; r < stepT; r++) {
+                const isLast = r === stepT - 1;
+                // In KV cache mode, Q only computes row t-1!
+                if (isCached && m.name === 'Q' && !isLast) continue;
+
+                for (let c = 0; c < colsD; c++) {
+                  let fillCol = COL_NEW;
+                  let opacity = 0.88;
+                  if (!isLast) {
+                    fillCol = isCached ? COL_CACHE : COL_WASTE;
+                    opacity = isCached ? 0.45 : 0.65;
+                  }
+                  mg.append('rect')
+                    .attr('x', m.x + c * (cellW + 1))
+                    .attr('y', 22 + r * (cellH + 2))
+                    .attr('width', cellW)
+                    .attr('height', cellH)
+                    .attr('rx', 2)
+                    .attr('fill', fillCol)
+                    .attr('opacity', opacity);
+                }
+              }
+            });
+          };
+
+          drawMatrixGroup(16, 'Không có KV Cache (Tính lại toàn bộ t hàng)', false);
+          drawMatrixGroup(156, 'Có KV Cache (Đọc K, V cũ + Chỉ tính hàng mới t)', true);
+
+          // ==========================================
+          // RIGHT PANEL: GPU Roofline Model (Log-Log)
+          // ==========================================
+          const rLeft = 335;
+          const rTop = 28;
+          const rW = W - rLeft - 24;
+          const rH = H - rTop - 38;
+
+          const gRight = svg.append('g').attr('transform', `translate(${rLeft}, ${rTop})`);
+          gRight.append('text')
+            .attr('x', 0)
+            .attr('y', -10)
+            .attr('font-size', 12.5)
+            .attr('font-weight', 700)
+            .attr('fill', 'var(--text-color)')
+            .text(`(2) Biểu đồ Roofline trên ${gpu.name.split(' (')[0]}`);
+
+          const xScale = d3.scaleLog().domain([0.5, 2000]).range([0, rW]);
+          const yScale = d3.scaleLog().domain([1, 1500]).range([rH, 0]);
+
+          // Grid lines
+          const xTicks = [1, 4, 16, 64, 256, 1024];
+          const yTicks = [2, 10, 50, 250, 1000];
+
+          gRight.selectAll('.rx-grid')
+            .data(xTicks)
+            .join('line')
+            .attr('x1', (d) => xScale(d))
+            .attr('x2', (d) => xScale(d))
+            .attr('y1', 0)
+            .attr('y2', rH)
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', '2,3');
+
+          gRight.selectAll('.ry-grid')
+            .data(yTicks)
+            .join('line')
+            .attr('x1', 0)
+            .attr('x2', rW)
+            .attr('y1', (d) => yScale(d))
+            .attr('y2', (d) => yScale(d))
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', '2,3');
+
+          // Axes labels
+          gRight.selectAll('.rx-lbl')
+            .data(xTicks)
+            .join('text')
+            .attr('x', (d) => xScale(d))
+            .attr('y', rH + 15)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10)
+            .attr('fill', 'var(--muted-color)')
+            .text((d) => d);
+
+          gRight.append('text')
+            .attr('x', rW / 2)
+            .attr('y', rH + 31)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11)
+            .attr('fill', 'var(--text-color)')
+            .text('Cường độ số học I (FLOPs / Byte đọc từ HBM)');
+
+          gRight.selectAll('.ry-lbl')
+            .data(yTicks)
+            .join('text')
+            .attr('x', -6)
+            .attr('y', (d) => yScale(d) + 3)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 10)
+            .attr('fill', 'var(--muted-color)')
+            .text((d) => `${d}`);
+
+          gRight.append('text')
+            .attr('transform', 'rotate(-90)')
+            .attr('x', -rH / 2)
+            .attr('y', -34)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11)
+            .attr('fill', 'var(--text-color)')
+            .text('Hiệu năng thực tế (TFLOPS)');
+
+          // Shaded regions: Memory-bound vs Compute-bound
+          const ridgeX = xScale(gpu.ridge);
+          const peakY = yScale(gpu.peakTflops);
+          const x0 = xScale(0.5);
+          const y0 = yScale(Math.max(1, 0.5 * gpu.bwTbs));
+
+          // Roofline curve path
+          const roofPoints = [
+            [x0, y0],
+            [ridgeX, peakY],
+            [xScale(2000), peakY],
+          ];
+
+          const areaPath = d3.line()(roofPoints) + ` L ${xScale(2000)},${rH} L ${x0},${rH} Z`;
+          gRight.append('path')
+            .attr('d', areaPath)
+            .attr('fill', COL_CACHE)
+            .attr('opacity', 0.08);
+
+          // Ridge vertical dashed line
+          gRight.append('line')
+            .attr('x1', ridgeX)
+            .attr('x2', ridgeX)
+            .attr('y1', peakY)
+            .attr('y2', rH)
+            .attr('stroke', 'var(--muted-color)')
+            .attr('stroke-dasharray', '4,3');
+
+          gRight.append('text')
+            .attr('x', ridgeX)
+            .attr('y', rH - 6)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 9.5)
+            .attr('fill', 'var(--muted-color)')
+            .text(`Điểm gãy I* = ${gpu.ridge}`);
+
+          // Roofline stroke
+          gRight.append('path')
+            .attr('d', d3.line()(roofPoints))
+            .attr('fill', 'none')
+            .attr('stroke', 'var(--text-color)')
+            .attr('stroke-width', 2.2);
+
+          // Labels on slopes
+          gRight.append('text')
+            .attr('x', xScale(6))
+            .attr('y', yScale(6 * gpu.bwTbs) - 10)
+            .attr('font-size', 10)
+            .attr('font-weight', 600)
+            .attr('fill', COL_NEW)
+            .text(`Sườn băng thông (${gpu.bwTbs} TB/s)`);
+
+          gRight.append('text')
+            .attr('x', xScale(1800))
+            .attr('y', peakY - 7)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 10)
+            .attr('font-weight', 600)
+            .attr('fill', COL_PREFILL)
+            .text(`Trần tính toán (${gpu.peakTflops} TFLOPS)`);
+
+          // Operating points:
+          // 1. Decode B=1 (I = 1 FLOP/Byte)
+          const decodeB1_I = 1;
+          const decodeB1_Perf = Math.min(gpu.peakTflops, decodeB1_I * gpu.bwTbs);
+          gRight.append('circle')
+            .attr('cx', xScale(decodeB1_I))
+            .attr('cy', yScale(decodeB1_Perf))
+            .attr('r', 5)
+            .attr('fill', COL_WASTE);
+
+          // 2. Decode current Batch B (I ≈ B FLOPs/Byte for FP16 weights: 2N*B FLOPs / 2N Bytes = B)
+          const decodeB_I = batchSize;
+          const decodeB_Perf = Math.min(gpu.peakTflops, decodeB_I * gpu.bwTbs);
+          gRight.append('circle')
+            .attr('cx', xScale(decodeB_I))
+            .attr('cy', yScale(decodeB_Perf))
+            .attr('r', 6.5)
+            .attr('fill', COL_NEW)
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1.5);
+
+          gRight.append('text')
+            .attr('x', xScale(decodeB_I) + 8)
+            .attr('y', yScale(decodeB_Perf) + 4)
+            .attr('font-size', 10.5)
+            .attr('font-weight', 700)
+            .attr('fill', COL_NEW)
+            .text(`Decode (B=${batchSize}): ${decodeB_Perf.toFixed(1)} TFLOPS`);
+
+          // 3. Prefill (Prompt L=512, I ≈ 512 FLOPs/Byte)
+          const prefill_I = 512;
+          const prefill_Perf = Math.min(gpu.peakTflops, prefill_I * gpu.bwTbs);
+          gRight.append('circle')
+            .attr('cx', xScale(prefill_I))
+            .attr('cy', yScale(prefill_Perf))
+            .attr('r', 6.5)
+            .attr('fill', COL_PREFILL)
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1.5);
+
+          gRight.append('text')
+            .attr('x', xScale(prefill_I))
+            .attr('y', yScale(prefill_Perf) + 16)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10.5)
+            .attr('font-weight', 700)
+            .attr('fill', COL_PREFILL)
+            .text(`Prefill (L=512)`);
+
+          legend.innerHTML = `
+            <span><i class="kvr-swatch" style="background:${COL_WASTE}"></i>Tính lại dư thừa (Không KV Cache)</span>
+            <span><i class="kvr-swatch" style="background:${COL_CACHE}"></i>Tái sử dụng từ KV Cache (K, V cũ)</span>
+            <span><i class="kvr-swatch" style="background:${COL_NEW}"></i>Tính mới ở bước t (Decode B=${batchSize})</span>
+            <span><i class="kvr-swatch" style="background:${COL_PREFILL}"></i>Pha Prefill (Chạm trần tính toán)</span>
+          `;
+        };
+
+        inpStep.addEventListener('input', () => {
+          stepT = parseInt(inpStep.value, 10) || 6;
+          draw();
+        });
+        inpBatch.addEventListener('input', () => {
+          const idx = parseInt(inpBatch.value, 10) || 0;
+          batchSize = BATCH_VALS[idx] || 1;
+          draw();
+        });
+        selGpu.addEventListener('change', () => {
+          gpuKey = selGpu.value;
+          draw();
+        });
+
+        document.addEventListener('palettes:updated', () => {
+          readColors();
+          draw();
+        });
+
+        draw();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

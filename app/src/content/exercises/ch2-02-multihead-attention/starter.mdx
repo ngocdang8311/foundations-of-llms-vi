@@ -1,0 +1,15 @@
+export const cells = 1;
+
+```python
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+torch.manual_seed(7)
+B, L, d_model, n_heads = 2, 8, 64, 4
+x = torch.randn(B, L, d_model)
+print(f"Đầu vào x: {tuple(x.shape)}, d_head = {d_model // n_heads}")
+```
+
+<section className="code-output"><pre>{"Đầu vào x: (2, 8, 64), d_head = 16"}</pre></section>

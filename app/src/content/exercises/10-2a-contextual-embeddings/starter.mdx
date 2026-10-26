@@ -5,13 +5,13 @@ export const cells = 1;
 ```python
 from transformers import AutoTokenizer, AutoModel
 
-# BERT base, trained on lower-case text: 12 layers, vectors of 768
+# BERT base, huấn luyện trên văn bản chữ thường: 12 tầng, vector 768 chiều
 tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 model = AutoModel.from_pretrained("bert-base-uncased")
 
-# Ten sentences with "bank": the side of a river in the first five,
-# the bank that holds money in the last five. In some of them, only
-# the words after "bank" tell its meaning.
+# Mười câu chứa từ "bank": 5 câu đầu mang nghĩa bờ sông, 5 câu sau
+# mang nghĩa ngân hàng giữ tiền. Ở một số câu, chỉ những từ đứng sau
+# "bank" mới cho biết nghĩa của nó.
 sentences = [
     "We had a picnic on the bank of the river.",
     "The boat drifted slowly toward the muddy bank.",
@@ -26,8 +26,8 @@ sentences = [
 ]
 meanings = ["river"] * 5 + ["money"] * 5
 
-# The tokenizer cuts a sentence into tokens, and adds [CLS] at the
-# start and [SEP] at the end
+# Bộ tách từ cắt câu thành các token, đồng thời thêm [CLS] vào đầu
+# câu và [SEP] vào cuối câu
 encoding = tokenizer(sentences[0])
 print(tokenizer.convert_ids_to_tokens(encoding["input_ids"]))
 ```

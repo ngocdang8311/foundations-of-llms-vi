@@ -74,12 +74,12 @@
       controls.className = 'controls';
       controls.setAttribute('role', 'group');
       controls.setAttribute('aria-labelledby', `rel-label-${uid}`);
-      controls.innerHTML = `<span class="control-label" id="rel-label-${uid}">Relation</span>`;
+      controls.innerHTML = `<span class="control-label" id="rel-label-${uid}">Mối quan hệ</span>`;
       container.appendChild(controls);
 
       const svg = d3.select(container).append('svg')
         .attr('role', 'img')
-        .attr('aria-label', 'Pairs of words related in the same way, as points in a 2D projection of the GloVe vectors, with an arrow from the first word of each pair to the second: the arrows are almost parallel.');
+        .attr('aria-label', 'Các cặp từ có cùng mối quan hệ, được biểu diễn dưới dạng các điểm trên hình chiếu 2D của các vector GloVe, với mũi tên nối từ từ thứ nhất sang từ thứ hai: các mũi tên gần như song song với nhau.');
       const markerId = `analogy-arrow-${uid}`;
       const defs = svg.append('defs');
       const marker = defs.append('marker').attr('id', markerId).attr('viewBox', '0 0 10 10').attr('refX', 9).attr('refY', 5)

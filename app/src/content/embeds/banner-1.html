@@ -1,0 +1,363 @@
+<div class="d3-banner-1"></div>
+<style>
+  .d3-banner-1 {
+    padding: 20px 22px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--text-color) 4%, var(--page-bg));
+    color: var(--text-color);
+    text-align: left;
+  }
+  .d3-banner-1 .b1-kicker {
+    margin: 0 0 10px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .d3-banner-1 .b1-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .d3-banner-1 .b1-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .d3-banner-1 .b1-label {
+    font-size: 12px;
+    color: var(--muted-color);
+    font-weight: 600;
+    margin-right: 2px;
+  }
+  .d3-banner-1 button.b1-btn {
+    appearance: none;
+    border: 1px solid var(--border-color);
+    background: var(--surface-bg);
+    color: var(--text-color);
+    font-size: 12.5px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: inherit;
+  }
+  .d3-banner-1 button.b1-btn:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-banner-1 button.b1-btn.is-active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+    font-weight: 600;
+  }
+  .d3-banner-1 .b1-tokens {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 4px;
+    padding: 14px;
+    border-radius: 8px;
+    background: var(--surface-bg);
+    border: 1px solid var(--border-color);
+    min-height: 68px;
+    align-items: center;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .d3-banner-1 .b1-tok {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3px 6px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    cursor: default;
+    transition: transform 0.1s ease;
+    white-space: pre;
+  }
+  .d3-banner-1 .b1-tok:hover {
+    transform: translateY(-1px);
+    border-color: var(--text-color);
+  }
+  .d3-banner-1 .b1-tok.is-unk {
+    border: 1px dashed var(--primary-color);
+    font-weight: 700;
+  }
+  .d3-banner-1 .b1-tok-str {
+    font-weight: 600;
+  }
+  .d3-banner-1 .b1-tok-id {
+    font-size: 10px;
+    opacity: 0.78;
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+  }
+  .d3-banner-1 .b1-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--muted-color);
+    align-items: center;
+    justify-content: space-between;
+  }
+  .d3-banner-1 .b1-stat-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+  }
+  .d3-banner-1 .b1-stat strong {
+    color: var(--text-color);
+    font-variant-numeric: tabular-nums;
+  }
+  .d3-banner-1 .b1-note {
+    font-size: 12px;
+    font-style: italic;
+  }
+  @media (max-width: 640px) {
+    .d3-banner-1 { padding: 14px; }
+    .d3-banner-1 .b1-tokens { font-size: 12.5px; padding: 10px; }
+  }
+</style>
+<script>
+  (() => {
+    const SAMPLES = [
+      {
+        key: 'vi',
+        label: 'Tiếng Việt',
+        text: 'Mô hình ngôn ngữ lớn xử lý tiếng Việt rất mượt mà!',
+        words: [
+          { s: 'Mô', id: 1842 }, { s: ' hình', id: 921 }, { s: ' ngôn', id: 4102 },
+          { s: ' ngữ', id: 4109 }, { s: ' lớn', id: 1504 }, { s: ' xử', id: 6812 },
+          { s: ' lý', id: 2390 }, { s: ' tiếng', id: 1120 }, { s: ' Việt', id: 1125 },
+          { s: ' rất', id: 840 }, { s: ' <unk>', id: 0, unk: true }, { s: ' mà', id: 615 },
+          { s: '!', id: 0, unk: true }
+        ],
+        bpe: [
+          { s: 'M', id: 44 }, { s: 'ô', id: 12804 }, { s: ' hình', id: 49281 },
+          { s: ' ngôn', id: 78120 }, { s: ' ngữ', id: 69412 }, { s: ' lớn', id: 54190 },
+          { s: ' x', id: 865 }, { s: 'ử', id: 29814 }, { s: ' lý', id: 38102 },
+          { s: ' tiếng', id: 45109 }, { s: ' Việt', id: 32901 }, { s: ' rất', id: 61024 },
+          { s: ' m', id: 296 }, { s: 'ượt', id: 89310 }, { s: ' mà', id: 27811 },
+          { s: '!', id: 0 }
+        ]
+      },
+      {
+        key: 'en',
+        label: 'Tiếng Anh',
+        text: 'Tokenization empowers unstoppable autoregression.',
+        words: [
+          { s: '<unk>', id: 0, unk: true },
+          { s: ' <unk>', id: 0, unk: true },
+          { s: ' unstoppable', id: 28910 },
+          { s: ' <unk>', id: 0, unk: true }
+        ],
+        bpe: [
+          { s: 'Token', id: 3404 }, { s: 'ization', id: 2065 },
+          { s: ' emp', id: 11524 }, { s: 'owers', id: 19308 },
+          { s: ' un', id: 653 }, { s: 'stopp', id: 41205 }, { s: 'able', id: 481 },
+          { s: ' auto', id: 6718 }, { s: 'reg', id: 4412 }, { s: 'ression', id: 12890 },
+          { s: '.', id: 13 }
+        ]
+      },
+      {
+        key: 'py',
+        label: 'Mã Python',
+        text: 'def calc_loss(logits, y): return F.cross_entropy(logits, y)',
+        words: [
+          { s: 'def', id: 1204 }, { s: ' <unk>', id: 0, unk: true },
+          { s: ' <unk>', id: 0, unk: true }, { s: ' return', id: 814 },
+          { s: ' <unk>', id: 0, unk: true }, { s: ' <unk>', id: 0, unk: true }
+        ],
+        bpe: [
+          { s: 'def', id: 755 }, { s: ' calc', id: 14920 }, { s: '_loss', id: 18312 },
+          { s: '(logits', id: 41290 }, { s: ',', id: 11 }, { s: ' y', id: 379 },
+          { s: '):', id: 1680 }, { s: ' return', id: 471 }, { s: ' F', id: 435 },
+          { s: '.cross', id: 31804 }, { s: '_entropy', id: 48219 },
+          { s: '(logits', id: 41290 }, { s: ',', id: 11 }, { s: ' y', id: 379 },
+          { s: ')', id: 8 }
+        ]
+      },
+      {
+        key: 'math',
+        label: 'Biểu thức toán',
+        text: 'f(x) = 123456 + 7890 * sin(x_0)',
+        words: [
+          { s: '<unk>', id: 0, unk: true }, { s: ' =', id: 190 },
+          { s: ' <unk>', id: 0, unk: true }, { s: ' +', id: 412 },
+          { s: ' <unk>', id: 0, unk: true }, { s: ' *', id: 891 },
+          { s: ' <unk>', id: 0, unk: true }
+        ],
+        bpe: [
+          { s: 'f', id: 69 }, { s: '(x', id: 1642 }, { s: ')', id: 8 },
+          { s: ' =', id: 284 }, { s: ' ', id: 220 }, { s: '123', id: 4513 },
+          { s: '456', id: 10924 }, { s: ' +', id: 489 }, { s: ' ', id: 220 },
+          { s: '789', id: 16842 }, { s: '0', id: 15 }, { s: ' *', id: 353 },
+          { s: ' sin', id: 6814 }, { s: '(x', id: 1642 }, { s: '_', id: 62 },
+          { s: '0', id: 15 }, { s: ')', id: 8 }
+        ]
+      }
+    ];
+
+    const MODES = [
+      { key: 'word', label: 'Mức từ (Word-level)' },
+      { key: 'bpe', label: 'Từ phụ BPE (GPT-4 / Llama-3)' },
+      { key: 'byte', label: 'Mức Byte (UTF-8)' }
+    ];
+
+    const getBytes = (str) => {
+      const arr = Array.from(new TextEncoder().encode(str));
+      return arr.map((b) => {
+        const ch = (b >= 32 && b <= 126) ? String.fromCharCode(b) : `0x${b.toString(16).toUpperCase().padStart(2, '0')}`;
+        return { s: ch, id: b };
+      });
+    };
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-banner-1'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-banner-1'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      let curSample = 'vi';
+      let curMode = 'bpe';
+
+      container.innerHTML = `
+        <div class="b1-kicker">
+          <span>Trình khám phá tách từ trực tiếp (Interactive Tokenizer Inspector)</span>
+          <span class="b1-id-toggle"><label style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;text-transform:none;font-weight:500;"><input type="checkbox" class="b1-show-id" checked /> Hiện mã Token ID</label></span>
+        </div>
+        <div class="b1-controls">
+          <div class="b1-group b1-samples"><span class="b1-label">Câu mẫu:</span></div>
+          <div class="b1-group b1-modes"><span class="b1-label">Chế độ:</span></div>
+        </div>
+        <div class="b1-tokens" role="region" aria-label="Các mảnh token"></div>
+        <div class="b1-stats">
+          <div class="b1-stat-items"></div>
+          <div class="b1-note"></div>
+        </div>
+      `;
+
+      const samplesBox = container.querySelector('.b1-samples');
+      const modesBox = container.querySelector('.b1-modes');
+      const tokensBox = container.querySelector('.b1-tokens');
+      const statItems = container.querySelector('.b1-stat-items');
+      const noteBox = container.querySelector('.b1-note');
+      const showIdChk = container.querySelector('.b1-show-id');
+
+      SAMPLES.forEach((s) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'b1-btn';
+        btn.dataset.sample = s.key;
+        btn.textContent = s.label;
+        btn.addEventListener('click', () => { curSample = s.key; render(); });
+        samplesBox.appendChild(btn);
+      });
+
+      MODES.forEach((m) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'b1-btn';
+        btn.dataset.mode = m.key;
+        btn.textContent = m.label;
+        btn.addEventListener('click', () => { curMode = m.key; render(); });
+        modesBox.appendChild(btn);
+      });
+
+      showIdChk.addEventListener('change', () => render());
+
+      const getPalette = () => {
+        try {
+          const c = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 6);
+          if (c && c.length >= 4) return c;
+        } catch (_) {}
+        return ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948'];
+      };
+
+      const render = () => {
+        const sample = SAMPLES.find((s) => s.key === curSample) || SAMPLES[0];
+        const rawBytesLen = new TextEncoder().encode(sample.text).length;
+        const showId = showIdChk.checked;
+        const palette = getPalette();
+
+        samplesBox.querySelectorAll('.b1-btn').forEach((b) => {
+          b.classList.toggle('is-active', b.dataset.sample === curSample);
+        });
+        modesBox.querySelectorAll('.b1-btn').forEach((b) => {
+          b.classList.toggle('is-active', b.dataset.mode === curMode);
+        });
+
+        let list = [];
+        if (curMode === 'word') list = sample.words;
+        else if (curMode === 'bpe') list = sample.bpe;
+        else list = getBytes(sample.text);
+
+        tokensBox.innerHTML = '';
+        list.forEach((tok, idx) => {
+          const el = document.createElement('span');
+          el.className = 'b1-tok' + (tok.unk ? ' is-unk' : '');
+          const c = palette[idx % palette.length];
+          el.style.background = `color-mix(in oklab, ${c} 22%, var(--surface-bg))`;
+          const strEl = document.createElement('span');
+          strEl.className = 'b1-tok-str';
+          strEl.textContent = tok.s.replace(/ /g, '␣');
+          el.appendChild(strEl);
+          if (showId) {
+            const idEl = document.createElement('span');
+            idEl.className = 'b1-tok-id';
+            idEl.textContent = String(tok.id);
+            el.appendChild(idEl);
+          }
+          tokensBox.appendChild(el);
+        });
+
+        const ratio = (rawBytesLen / list.length).toFixed(2);
+        const unkCount = list.filter((t) => t.unk).length;
+        statItems.innerHTML = `
+          <span class="b1-stat">Độ dài gốc: <strong>${sample.text.length} ký tự (${rawBytesLen} bytes)</strong></span>
+          <span class="b1-stat">Số lượng token: <strong>${list.length} tokens</strong></span>
+          <span class="b1-stat">Tỷ lệ nén: <strong>${ratio} bytes/token</strong></span>
+        `;
+
+        if (curMode === 'word') {
+          noteBox.textContent = unkCount > 0
+            ? `Cảnh báo: ${unkCount} từ hiếm/dấu câu bị mất thông tin thành <unk>!`
+            : 'Từ vựng cố định mức từ dễ gặp lỗi <unk> với từ ghép hoặc dấu câu.';
+        } else if (curMode === 'bpe') {
+          noteBox.textContent = 'Cân bằng tối ưu: từ phổ biến giữ nguyên, từ hiếm/số tách thành mảnh từ phụ, 0 lỗi <unk>.';
+        } else {
+          noteBox.textContent = 'Không có lỗi <unk>, nhưng chuỗi dài gấp ~3–4 lần làm tăng bậc hai chi phí Attention.';
+        }
+      };
+
+      render();
+      document.addEventListener('palettes:updated', render);
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>

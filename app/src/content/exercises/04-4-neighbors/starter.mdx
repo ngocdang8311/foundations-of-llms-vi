@@ -8,9 +8,9 @@ from datasets import load_dataset
 imdb = load_dataset("stanfordnlp/imdb")
 
 
-# (1) Hold out 5,000 training reviews as a validation set, and
-# replace the HTML line breaks with spaces
-# [Copied from the solution of 3.2, step (1)]
+# (1) Tách 5.000 bài đánh giá huấn luyện làm tập xác thực, và
+# thay thế các thẻ xuống dòng HTML bằng khoảng trắng
+# [Sao chép từ lời giải bài 3.2, bước (1)]
 
 def clean(texts):
     return [text.replace("<br />", " ") for text in texts]
@@ -28,10 +28,10 @@ print(f"validation: {len(val_texts)} reviews")
 print(f"test: {len(test_texts)} reviews")
 
 
-# (2) Count the words of each review, over the 10,000 most
-# frequent words of the training reviews. The pattern makes every
-# run of letters or digits a word, even a single letter like "a".
-# [Copied from the solution of 3.2, step (2)]
+# (2) Đếm từ trong mỗi bài đánh giá trên 10.000 từ phổ biến nhất
+# của tập huấn luyện. Biểu thức chính quy coi mọi chuỗi chữ cái
+# hoặc chữ số là một từ, kể cả từ chỉ gồm một chữ cái như "a".
+# [Sao chép từ lời giải bài 3.2, bước (2)]
 from sklearn.feature_extraction.text import CountVectorizer
 
 vectorizer = CountVectorizer(max_features=10000,
@@ -41,11 +41,11 @@ X_val = vectorizer.transform(val_texts)
 X_test = vectorizer.transform(test_texts)
 
 
-# (1) Turn count vectors into frequency vectors: the counts
-# divided by the number of words of the review. X.toarray() makes
-# a numpy array from rows of a sparse matrix: do it a few rows at a
-# time, since all the rows at once would take gigabytes.
-# [Copied from the solution of 4.3, step (1)]
+# (1) Chuyển các vector đếm thành vector tần suất: chia số đếm
+# cho tổng số từ của bài đánh giá. X.toarray() tạo mảng numpy từ
+# các hàng của ma trận thưa: chỉ xử lý từng nhóm hàng mỗi lần vì
+# chuyển toàn bộ cùng lúc sẽ tốn hàng gigabyte bộ nhớ.
+# [Sao chép từ lời giải bài 4.3, bước (1)]
 import torch
 
 def frequencies(X):
@@ -54,35 +54,35 @@ def frequencies(X):
     return counts / lengths
 
 
-# (2) Build the network. Its first layer, without bias, multiplies
-# the frequency vector by the matrix W of size D x V: this gives
-# the average of the embeddings of the words of the review. Then
-# two hidden layers, and one output score.
-# [Copied from the solution of 4.3, step (2)]
+# (2) Xây dựng mạng nơ-ron. Tầng đầu tiên (không có hệ số chệch)
+# nhân vector tần suất với ma trận W kích thước D x V: kết quả là
+# trung bình cộng các vector nhúng của các từ trong bài đánh giá.
+# Tiếp theo là hai tầng ẩn và một điểm số đầu ra.
+# [Sao chép từ lời giải bài 4.3, bước (2)]
 from torch import nn
 
-V = X_train.shape[1]   # size of the vocabulary
-D = 100   # size of the embeddings
-H = 100   # size of the hidden layers
+V = X_train.shape[1]   # kích thước từ vựng
+D = 100   # kích thước vector nhúng
+H = 100   # kích thước các tầng ẩn
 torch.manual_seed(0)
 model = nn.Sequential(
-    nn.Linear(V, D, bias=False),   # average of the embeddings
+    nn.Linear(V, D, bias=False),   # trung bình các vector nhúng
     nn.Linear(D, H),
     nn.ReLU(),
     nn.Linear(H, H),
     nn.ReLU(),
-    nn.Linear(H, 1),   # p(positive) = sigmoid(score)
+    nn.Linear(H, 1),   # p(tích cực) = sigmoid(điểm số)
 )
 
 
-# (3) Train with Adam, on batches of 64 reviews, with the
-# cross-entropy loss for two classes. After each epoch, measure
-# the validation accuracy, and keep a copy of the best model.
-# [Copied from the solution of 4.3, step (3)]
+# (3) Huấn luyện bằng Adam trên từng lô 64 bài đánh giá với hàm
+# mất mát entropy chéo cho hai lớp. Sau mỗi epoch, đo độ chính xác
+# trên tập xác thực và lưu bản sao của mô hình tốt nhất.
+# [Sao chép từ lời giải bài 4.3, bước (3)]
 import copy
 
 def predict(model, X):
-    # p(positive) for each review of X, 1,000 reviews at a time
+    # Tính p(tích cực) cho mỗi bài trong X, mỗi lần 1.000 bài
     probabilities = []
     with torch.no_grad():
         for start in range(0, X.shape[0], 1000):
@@ -96,11 +96,11 @@ def accuracy(model, X, labels):
 
 y_train = torch.tensor(train_labels, dtype=torch.float32)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-loss_function = nn.BCEWithLogitsLoss()   # sigmoid + cross-entropy
+loss_function = nn.BCEWithLogitsLoss()   # sigmoid + entropy chéo
 batch_size = 64
 best_accuracy = 0
 for epoch in range(5):
-    order = torch.randperm(len(y_train)).tolist()   # shuffled
+    order = torch.randperm(len(y_train)).tolist()   # xáo trộn
     for start in range(0, len(order), batch_size):
         batch = order[start:start + batch_size]
         scores = model(frequencies(X_train[batch]))[:, 0]

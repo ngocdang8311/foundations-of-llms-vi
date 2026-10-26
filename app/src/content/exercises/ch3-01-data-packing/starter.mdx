@@ -1,0 +1,25 @@
+export const cells = 1;
+
+```python
+import torch
+
+# 8 đoạn văn bản đã được tách thành danh sách các ID token
+# (EOS_ID = 0 đóng vai trò là token <|endoftext|>, PAD_ID = -1)
+EOS_ID = 0
+PAD_ID = -1
+raw_docs = [
+    [12, 45, 89, 23, 67],
+    [34, 78, 91, 15, 62, 88, 41, 19, 53, 77],
+    [105, 204, 18],
+    [56, 31, 90, 44, 11, 72, 65],
+    [81, 14, 29, 63],
+    [99, 42, 17, 83, 25, 61, 38, 74, 50],
+    [16, 84, 39, 71, 22],
+    [47, 93, 28, 64, 13, 86],
+]
+context_length = 8
+print(f"Số tài liệu: {len(raw_docs)}, tổng số token: "
+      f"{sum(len(d) for d in raw_docs)}")
+```
+
+<section className="code-output"><pre>{"Số tài liệu: 8, tổng số token: 49"}</pre></section>

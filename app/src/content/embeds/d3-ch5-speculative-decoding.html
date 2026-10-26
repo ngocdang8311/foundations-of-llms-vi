@@ -1,0 +1,503 @@
+<div class="d3-ch5-speculative-decoding"></div>
+<style>
+  .d3-ch5-speculative-decoding {
+    font-size: 13px;
+    color: var(--text-color);
+  }
+  .d3-ch5-speculative-decoding .sd-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .d3-ch5-speculative-decoding .sd-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .d3-ch5-speculative-decoding .sd-btn {
+    padding: 5px 11px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--page-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .d3-ch5-speculative-decoding .sd-btn:hover {
+    border-color: var(--primary-color);
+  }
+  .d3-ch5-speculative-decoding .sd-btn.is-active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+  }
+  .d3-ch5-speculative-decoding .sd-sliders {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    margin-bottom: 14px;
+  }
+  .d3-ch5-speculative-decoding .sd-ctrl {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .d3-ch5-speculative-decoding .sd-ctrl-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .d3-ch5-speculative-decoding .sd-val {
+    font-family: var(--font-mono, monospace);
+    color: var(--primary-color);
+    font-weight: 700;
+  }
+  .d3-ch5-speculative-decoding .sd-sub {
+    font-size: 11px;
+    color: var(--muted-color);
+  }
+  .d3-ch5-speculative-decoding input[type="range"] {
+    width: 100%;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+  }
+  .d3-ch5-speculative-decoding svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .d3-ch5-speculative-decoding .sd-summary {
+    margin-top: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--page-bg);
+    border: 1px solid var(--border-color);
+    font-size: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--muted-color);
+  }
+  .d3-ch5-speculative-decoding .sd-summary strong {
+    color: var(--text-color);
+    font-variant-numeric: tabular-nums;
+  }
+  @media (max-width: 680px) {
+    .d3-ch5-speculative-decoding .sd-sliders {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+<script>
+  (() => {
+    const ensureD3 = (cb) => {
+      if (window.d3 && typeof window.d3.select === 'function') return cb();
+      let s = document.getElementById('d3-cdn-script');
+      if (!s) {
+        s = document.createElement('script');
+        s.id = 'd3-cdn-script';
+        s.src = 'https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js';
+        document.head.appendChild(s);
+      }
+      const onReady = () => {
+        if (window.d3 && typeof window.d3.select === 'function') cb();
+      };
+      s.addEventListener('load', onReady, { once: true });
+      if (window.d3) onReady();
+    };
+
+    const CASES = [
+      {
+        title: 'Kịch bản A: Bác bỏ tại vị trí thứ 4 & sửa bằng phân phối dư (Sinh 4 token / 1 bước)',
+        prompt: 'Hà Nội là thủ đô',
+        steps: [
+          { pos: 1, draft: 'của', q: 0.85, p: 0.92, u: 0.41, status: 'accept', final: 'của' },
+          { pos: 2, draft: 'Việt', q: 0.90, p: 0.95, u: 0.72, status: 'accept', final: 'Việt' },
+          { pos: 3, draft: 'Nam', q: 0.88, p: 0.91, u: 0.19, status: 'accept', final: 'Nam' },
+          { pos: 4, draft: 'từ', q: 0.64, p: 0.16, u: 0.58, status: 'reject', final: 'ngàn', note: 'p/q = 0.25 < u(0.58) → Bác bỏ "từ", lấy mẫu bù: "ngàn"' },
+        ],
+        bonus: null,
+      },
+      {
+        title: 'Kịch bản B: Chấp nhận cả γ = 4 token nháp + 1 token thưởng (Sinh 5 token / 1 bước)',
+        prompt: 'def fib(n): if',
+        steps: [
+          { pos: 1, draft: 'n', q: 0.92, p: 0.96, u: 0.52, status: 'accept', final: 'n' },
+          { pos: 2, draft: '<=', q: 0.84, p: 0.89, u: 0.33, status: 'accept', final: '<=' },
+          { pos: 3, draft: '1:', q: 0.91, p: 0.94, u: 0.81, status: 'accept', final: '1:' },
+          { pos: 4, draft: 'return', q: 0.87, p: 0.90, u: 0.64, status: 'accept', final: 'return' },
+        ],
+        bonus: { pos: 5, final: 'n', p: 0.93, note: 'Token thứ γ+1 miễn phí từ logit cuối của mô hình đích!' },
+      },
+    ];
+
+    const bootstrap = () => {
+      const scriptEl = document.currentScript;
+      let container = scriptEl ? scriptEl.previousElementSibling : null;
+      if (container && container.tagName === 'STYLE') container = container.previousElementSibling;
+      if (!(container && container.classList && container.classList.contains('d3-ch5-speculative-decoding'))) {
+        const candidates = Array.from(document.querySelectorAll('.d3-ch5-speculative-decoding'))
+          .filter((el) => !(el.dataset && el.dataset.mounted === 'true'));
+        container = candidates[candidates.length - 1] || null;
+      }
+      if (!container || container.dataset.mounted === 'true') return;
+      container.dataset.mounted = 'true';
+
+      ensureD3(() => {
+        const d3 = window.d3;
+        let caseIdx = 0;
+        let alpha = 0.80;
+        let gamma = 4;
+        let costRatio = 0.05; // T_draft / T_target = 5%
+
+        let COL_ACCEPT = '#59a14f';
+        let COL_REJECT = '#e15759';
+        let COL_BONUS = '#f28e2b';
+        let COL_CURVE = '#4e79a7';
+
+        const readColors = () => {
+          try {
+            const cat = window.ColorPalettes && window.ColorPalettes.getColors('categorical', 4);
+            if (cat && cat.length >= 4) {
+              COL_CURVE = cat[0];
+              COL_BONUS = cat[1];
+              COL_REJECT = cat[2];
+              COL_ACCEPT = cat[3];
+            }
+          } catch (_) {}
+        };
+        readColors();
+
+        // Header scenario buttons
+        const header = document.createElement('div');
+        header.className = 'sd-header';
+        const tabs = document.createElement('div');
+        tabs.className = 'sd-tabs';
+        const caseBtns = CASES.map((c, idx) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'sd-btn' + (idx === caseIdx ? ' is-active' : '');
+          b.textContent = idx === 0 ? 'Kịch bản A: Sửa sai tại token thứ 4 (4 tok/bước)' : 'Kịch bản B: Chấp nhận hết + Token thưởng (5 tok/bước)';
+          b.addEventListener('click', () => {
+            caseIdx = idx;
+            draw();
+          });
+          tabs.appendChild(b);
+          return b;
+        });
+        header.appendChild(tabs);
+        container.appendChild(header);
+
+        // Sliders
+        const sliders = document.createElement('div');
+        sliders.className = 'sd-sliders';
+
+        const makeCtrl = (label, min, max, step, val, sub, onInput) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'sd-ctrl';
+          const head = document.createElement('div');
+          head.className = 'sd-ctrl-head';
+          const l = document.createElement('span');
+          l.textContent = label;
+          const v = document.createElement('span');
+          v.className = 'sd-val';
+          head.append(l, v);
+          const inp = document.createElement('input');
+          inp.type = 'range';
+          inp.min = String(min);
+          inp.max = String(max);
+          inp.step = String(step);
+          inp.value = String(val);
+          const s = document.createElement('div');
+          s.className = 'sd-sub';
+          s.textContent = sub;
+          inp.addEventListener('input', () => onInput(parseFloat(inp.value)));
+          wrap.append(head, inp, s);
+          sliders.appendChild(wrap);
+          return { inp, v };
+        };
+
+        const cAlpha = makeCtrl(
+          'Tỷ lệ chấp nhận trung bình (α)',
+          0.40, 0.95, 0.05, alpha,
+          'Xác suất mô hình đích đồng ý với mô hình nháp',
+          (v) => { alpha = v; draw(); }
+        );
+        const cGamma = makeCtrl(
+          'Số bước đoán trước (γ)',
+          1, 8, 1, gamma,
+          'Số token mô hình nháp sinh ra mỗi chu kỳ',
+          (v) => { gamma = Math.round(v); draw(); }
+        );
+        const cCost = makeCtrl(
+          'Tỷ số thời gian c = T_draft / T_target',
+          0.02, 0.20, 0.01, costRatio,
+          'Chi phí chạy 1 bước mô hình nháp so với mô hình đích',
+          (v) => { costRatio = v; draw(); }
+        );
+
+        container.appendChild(sliders);
+
+        const W = 740;
+        const H = 290;
+        const svg = d3.select(container)
+          .append('svg')
+          .attr('viewBox', `0 0 ${W} ${H}`);
+
+        const summary = document.createElement('div');
+        summary.className = 'sd-summary';
+        container.appendChild(summary);
+
+        const expectedTokens = (a, g) => (1 - Math.pow(a, g + 1)) / (1 - a);
+        const speedupFactor = (a, g, c) => expectedTokens(a, g) / (g * c + 1);
+
+        const draw = () => {
+          caseBtns.forEach((b, i) => b.classList.toggle('is-active', i === caseIdx));
+          cAlpha.v.textContent = `α = ${(alpha * 100).toFixed(0)}%`;
+          cGamma.v.textContent = `γ = ${gamma}`;
+          cCost.v.textContent = `c = ${(costRatio * 100).toFixed(0)}%`;
+
+          svg.selectAll('*').remove();
+
+          // ==========================================
+          // LEFT PANEL: Draft-and-Verify Trace (γ = 4)
+          // ==========================================
+          const sc = CASES[caseIdx];
+          const gTrace = svg.append('g').attr('transform', 'translate(14, 18)');
+
+          gTrace.append('text')
+            .attr('x', 0)
+            .attr('y', 0)
+            .attr('font-size', 12.5)
+            .attr('font-weight', 700)
+            .attr('fill', 'var(--text-color)')
+            .text('(1) Chu trình Đề xuất tuần tự (Draft) & Kiểm chứng song song (Verify)');
+
+          gTrace.append('text')
+            .attr('x', 0)
+            .attr('y', 18)
+            .attr('font-size', 11)
+            .attr('fill', 'var(--muted-color)')
+            .text(`Prompt gốc: "${sc.prompt}"`);
+
+          const rowY0 = 36;
+          const rowH = 44;
+
+          sc.steps.forEach((st, idx) => {
+            const y = rowY0 + idx * (rowH + 6);
+            const ratio = Math.min(1, st.p / st.q);
+            const isAcc = st.status === 'accept';
+            const col = isAcc ? COL_ACCEPT : COL_REJECT;
+
+            const rg = gTrace.append('g').attr('transform', `translate(0, ${y})`);
+
+            rg.append('rect')
+              .attr('width', 405)
+              .attr('height', rowH)
+              .attr('rx', 6)
+              .attr('fill', `color-mix(in oklab, ${col} 12%, var(--surface-bg))`)
+              .attr('stroke', col)
+              .attr('stroke-width', 1.3);
+
+            // Draft badge
+            rg.append('text')
+              .attr('x', 10)
+              .attr('y', 16)
+              .attr('font-size', 11)
+              .attr('font-weight', 700)
+              .attr('fill', 'var(--text-color)')
+              .text(`Bước nháp ${st.pos}: "${st.draft}"`);
+
+            rg.append('text')
+              .attr('x', 10)
+              .attr('y', 33)
+              .attr('font-family', 'var(--font-mono, monospace)')
+              .attr('font-size', 10.5)
+              .attr('fill', 'var(--muted-color)')
+              .text(`q=${st.q.toFixed(2)} · p=${st.p.toFixed(2)} · min(1, p/q)=${ratio.toFixed(2)} vs u=${st.u.toFixed(2)}`);
+
+            // Verdict badge on right
+            rg.append('text')
+              .attr('x', 395)
+              .attr('y', 17)
+              .attr('text-anchor', 'end')
+              .attr('font-size', 11)
+              .attr('font-weight', 700)
+              .attr('fill', col)
+              .text(isAcc ? '✓ CHẤP NHẬN' : '✗ BÁC BỎ & SỬA');
+
+            rg.append('text')
+              .attr('x', 395)
+              .attr('y', 33)
+              .attr('text-anchor', 'end')
+              .attr('font-family', 'var(--font-mono, monospace)')
+              .attr('font-size', 11)
+              .attr('font-weight', 700)
+              .attr('fill', 'var(--text-color)')
+              .text(isAcc ? `Giữ "${st.final}"` : `Đổi → "${st.final}"`);
+          });
+
+          // Bonus token row if all accepted
+          const bonusY = rowY0 + 4 * (rowH + 6);
+          const bg = gTrace.append('g').attr('transform', `translate(0, ${bonusY})`);
+          if (sc.bonus) {
+            bg.append('rect')
+              .attr('width', 405)
+              .attr('height', 38)
+              .attr('rx', 6)
+              .attr('fill', `color-mix(in oklab, ${COL_BONUS} 16%, var(--surface-bg))`)
+              .attr('stroke', COL_BONUS)
+              .attr('stroke-width', 1.5)
+              .attr('stroke-dasharray', '4,2');
+
+            bg.append('text')
+              .attr('x', 10)
+              .attr('y', 23)
+              .attr('font-size', 11)
+              .attr('font-weight', 700)
+              .attr('fill', COL_BONUS)
+              .text(`★ Thưởng vị trí γ+1 = 5: Sinh thêm "${sc.bonus.final}" (p=${sc.bonus.p}) từ cùng 1 lượt chạy!`);
+          } else {
+            bg.append('text')
+              .attr('x', 4)
+              .attr('y', 20)
+              .attr('font-size', 11)
+              .attr('fill', 'var(--muted-color)')
+              .text('→ Dừng chu kỳ tại vị trí bị bác bỏ thứ 4, chuẩn hóa phần dư max(0, p − q) để lấy "ngàn".');
+          }
+
+          // ==========================================
+          // RIGHT PANEL: Speedup vs Gamma Curve
+          // ==========================================
+          const rLeft = 455;
+          const rTop = 32;
+          const rW = W - rLeft - 20;
+          const rH = 210;
+
+          const gChart = svg.append('g').attr('transform', `translate(${rLeft}, ${rTop})`);
+          gChart.append('text')
+            .attr('x', 0)
+            .attr('y', -14)
+            .attr('font-size', 12.5)
+            .attr('font-weight', 700)
+            .attr('fill', 'var(--text-color)')
+            .text('(2) Hệ số Tăng tốc theo độ dài nháp γ');
+
+          const xScale = d3.scaleLinear().domain([1, 8]).range([0, rW]);
+          const yScale = d3.scaleLinear().domain([1, 4.5]).range([rH, 0]);
+
+          const xTicks = [1, 2, 3, 4, 5, 6, 7, 8];
+          const yTicks = [1.0, 2.0, 3.0, 4.0];
+
+          gChart.selectAll('.gy')
+            .data(yTicks)
+            .join('line')
+            .attr('x1', 0)
+            .attr('x2', rW)
+            .attr('y1', (d) => yScale(d))
+            .attr('y2', (d) => yScale(d))
+            .attr('stroke', 'var(--border-color)')
+            .attr('stroke-dasharray', '2,3');
+
+          gChart.selectAll('.gy-lbl')
+            .data(yTicks)
+            .join('text')
+            .attr('x', -6)
+            .attr('y', (d) => yScale(d) + 3)
+            .attr('text-anchor', 'end')
+            .attr('font-size', 10)
+            .attr('fill', 'var(--muted-color)')
+            .text((d) => `${d.toFixed(1)}×`);
+
+          gChart.selectAll('.gx-lbl')
+            .data(xTicks)
+            .join('text')
+            .attr('x', (d) => xScale(d))
+            .attr('y', rH + 16)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 10)
+            .attr('fill', 'var(--muted-color)')
+            .text((d) => `γ=${d}`);
+
+          gChart.append('text')
+            .attr('x', rW / 2)
+            .attr('y', rH + 34)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11)
+            .attr('fill', 'var(--text-color)')
+            .text('Số token suy đoán mỗi bước (γ)');
+
+          const curvePts = xTicks.map((gVal) => ({
+            g: gVal,
+            s: speedupFactor(alpha, gVal, costRatio),
+          }));
+
+          const lineGen = d3.line()
+            .x((d) => xScale(d.g))
+            .y((d) => yScale(Math.min(4.5, Math.max(1, d.s))))
+            .curve(d3.curveMonotoneX);
+
+          gChart.append('path')
+            .datum(curvePts)
+            .attr('d', lineGen)
+            .attr('fill', 'none')
+            .attr('stroke', COL_CURVE)
+            .attr('stroke-width', 2.4);
+
+          gChart.selectAll('.pt')
+            .data(curvePts)
+            .join('circle')
+            .attr('cx', (d) => xScale(d.g))
+            .attr('cy', (d) => yScale(Math.min(4.5, Math.max(1, d.s))))
+            .attr('r', (d) => (d.g === gamma ? 6 : 3.5))
+            .attr('fill', (d) => (d.g === gamma ? COL_BONUS : COL_CURVE))
+            .attr('stroke', '#fff')
+            .attr('stroke-width', 1.2);
+
+          const curToks = expectedTokens(alpha, gamma);
+          const curSpeed = speedupFactor(alpha, gamma, costRatio);
+
+          gChart.append('text')
+            .attr('x', xScale(gamma))
+            .attr('y', yScale(Math.min(4.5, Math.max(1, curSpeed))) - 10)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', 11)
+            .attr('font-weight', 700)
+            .attr('fill', COL_BONUS)
+            .text(`${curSpeed.toFixed(2)}×`);
+
+          summary.innerHTML = `
+            <span>Kỳ vọng token sinh ra / chu kỳ: <strong>E[tokens] = (1 − α^(γ+1)) / (1 − α) = ${curToks.toFixed(2)} tokens</strong></span>
+            <span>Thời gian 1 chu kỳ: <strong>(γ·c + 1) = ${(gamma * costRatio + 1).toFixed(2)}× bước đích</strong></span>
+            <span>Tăng tốc thực tế: <strong>${curSpeed.toFixed(2)}× (Bảo toàn 100% phân phối p(x))</strong></span>
+          `;
+        };
+
+        document.addEventListener('palettes:updated', () => {
+          readColors();
+          draw();
+        });
+
+        draw();
+      });
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', bootstrap, { once: true });
+    } else {
+      bootstrap();
+    }
+  })();
+</script>
